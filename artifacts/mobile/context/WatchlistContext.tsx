@@ -5,10 +5,13 @@ export interface Stock {
   ticker: string;
   name: string;
   price: number;
+  currency: string;
   change: number;
   changePercent: number;
   marketCap: string;
   sector: string;
+  exchange: string;
+  exchangeFlag: string;
   description: string;
   priceHistory: number[];
 }
@@ -59,254 +62,287 @@ interface WatchlistContextType {
   unreadAlertCount: number;
 }
 
+const ph = (seed: number, len = 30): number[] =>
+  Array.from({ length: len }, (_, i) => seed + Math.sin(i * 0.8 + seed) * seed * 0.04 + i * seed * 0.002);
+
 const STOCK_DATA: Record<string, Stock> = {
+  // ─── United States (NASDAQ / NYSE) ────────────────────────────────────────
   AAPL: {
-    ticker: "AAPL",
-    name: "Apple Inc.",
-    price: 189.43,
-    change: 2.17,
-    changePercent: 1.16,
-    marketCap: "$2.94T",
-    sector: "Technology",
+    ticker: "AAPL", name: "Apple Inc.", price: 189.43, currency: "USD", change: 2.17, changePercent: 1.16,
+    marketCap: "$2.94T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸",
     description: "Designs and manufactures consumer electronics, software, and online services.",
-    priceHistory: [178, 181, 179, 183, 182, 185, 184, 186, 188, 187, 189, 191, 190, 189, 192, 191, 193, 192, 190, 189, 191, 193, 192, 189, 190, 192, 191, 189, 190, 189],
+    priceHistory: [178,181,179,183,182,185,184,186,188,187,189,191,190,189,192,191,193,192,190,189,191,193,192,189,190,192,191,189,190,189],
   },
   NVDA: {
-    ticker: "NVDA",
-    name: "NVIDIA Corporation",
-    price: 842.5,
-    change: -12.3,
-    changePercent: -1.44,
-    marketCap: "$2.07T",
-    sector: "Technology",
-    description: "Designs graphics processing units for gaming, data centers, and AI applications.",
-    priceHistory: [790, 798, 805, 812, 808, 820, 825, 830, 835, 828, 840, 850, 855, 845, 848, 852, 860, 858, 850, 842, 848, 855, 860, 855, 848, 850, 855, 848, 845, 842],
+    ticker: "NVDA", name: "NVIDIA Corporation", price: 842.5, currency: "USD", change: -12.3, changePercent: -1.44,
+    marketCap: "$2.07T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸",
+    description: "Designs GPUs for gaming, data centers, and AI applications.",
+    priceHistory: [790,798,805,812,808,820,825,830,835,828,840,850,855,845,848,852,860,858,850,842,848,855,860,855,848,850,855,848,845,842],
   },
   MSFT: {
-    ticker: "MSFT",
-    name: "Microsoft Corporation",
-    price: 415.2,
-    change: 5.6,
-    changePercent: 1.37,
-    marketCap: "$3.09T",
-    sector: "Technology",
+    ticker: "MSFT", name: "Microsoft Corporation", price: 415.2, currency: "USD", change: 5.6, changePercent: 1.37,
+    marketCap: "$3.09T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸",
     description: "Develops software, cloud computing services, and hardware products.",
-    priceHistory: [390, 393, 395, 398, 400, 402, 405, 408, 406, 410, 412, 408, 411, 413, 410, 412, 415, 413, 414, 412, 413, 415, 414, 413, 414, 413, 415, 414, 415, 415],
+    priceHistory: [390,393,395,398,400,402,405,408,406,410,412,408,411,413,410,412,415,413,414,412,413,415,414,413,414,413,415,414,415,415],
   },
   AMZN: {
-    ticker: "AMZN",
-    name: "Amazon.com Inc.",
-    price: 178.35,
-    change: -1.45,
-    changePercent: -0.81,
-    marketCap: "$1.86T",
-    sector: "Consumer Discretionary",
+    ticker: "AMZN", name: "Amazon.com Inc.", price: 178.35, currency: "USD", change: -1.45, changePercent: -0.81,
+    marketCap: "$1.86T", sector: "Consumer Discretionary", exchange: "NASDAQ", exchangeFlag: "🇺🇸",
     description: "E-commerce, cloud computing, digital streaming, and AI services.",
-    priceHistory: [168, 170, 172, 171, 173, 175, 174, 176, 178, 177, 179, 180, 178, 179, 181, 180, 178, 179, 178, 177, 179, 180, 179, 178, 179, 180, 179, 178, 179, 178],
+    priceHistory: [168,170,172,171,173,175,174,176,178,177,179,180,178,179,181,180,178,179,178,177,179,180,179,178,179,180,179,178,179,178],
   },
   GOOGL: {
-    ticker: "GOOGL",
-    name: "Alphabet Inc.",
-    price: 168.72,
-    change: 3.21,
-    changePercent: 1.94,
-    marketCap: "$2.1T",
-    sector: "Technology",
+    ticker: "GOOGL", name: "Alphabet Inc.", price: 168.72, currency: "USD", change: 3.21, changePercent: 1.94,
+    marketCap: "$2.1T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸",
     description: "Search engine, advertising, cloud computing, and AI services.",
-    priceHistory: [155, 157, 159, 158, 161, 162, 160, 163, 165, 164, 166, 167, 165, 166, 168, 167, 166, 168, 169, 168, 167, 168, 169, 168, 167, 168, 169, 168, 169, 168],
+    priceHistory: [155,157,159,158,161,162,160,163,165,164,166,167,165,166,168,167,166,168,169,168,167,168,169,168,167,168,169,168,169,168],
   },
   TSLA: {
-    ticker: "TSLA",
-    name: "Tesla Inc.",
-    price: 168.29,
-    change: -8.42,
-    changePercent: -4.77,
-    marketCap: "$537B",
-    sector: "Consumer Discretionary",
-    description: "Electric vehicles, energy generation and storage, and AI-powered autonomous driving.",
-    priceHistory: [195, 192, 188, 185, 182, 180, 177, 175, 178, 175, 172, 170, 173, 171, 168, 172, 170, 168, 172, 176, 174, 170, 172, 175, 173, 170, 172, 176, 176, 168],
+    ticker: "TSLA", name: "Tesla Inc.", price: 168.29, currency: "USD", change: -8.42, changePercent: -4.77,
+    marketCap: "$537B", sector: "Consumer Discretionary", exchange: "NASDAQ", exchangeFlag: "🇺🇸",
+    description: "Electric vehicles, energy storage, and autonomous driving technology.",
+    priceHistory: [195,192,188,185,182,180,177,175,178,175,172,170,173,171,168,172,170,168,172,176,174,170,172,175,173,170,172,176,176,168],
   },
   META: {
-    ticker: "META",
-    name: "Meta Platforms Inc.",
-    price: 497.81,
-    change: 9.3,
-    changePercent: 1.9,
-    marketCap: "$1.27T",
-    sector: "Technology",
+    ticker: "META", name: "Meta Platforms Inc.", price: 497.81, currency: "USD", change: 9.3, changePercent: 1.9,
+    marketCap: "$1.27T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸",
     description: "Social media platforms including Facebook, Instagram, and WhatsApp.",
-    priceHistory: [462, 465, 470, 468, 472, 475, 473, 477, 479, 480, 476, 479, 482, 480, 483, 482, 484, 486, 485, 487, 490, 488, 491, 492, 490, 493, 495, 494, 497, 497],
+    priceHistory: [462,465,470,468,472,475,473,477,479,480,476,479,482,480,483,482,484,486,485,487,490,488,491,492,490,493,495,494,497,497],
   },
   JPM: {
-    ticker: "JPM",
-    name: "JPMorgan Chase & Co.",
-    price: 194.62,
-    change: 1.18,
-    changePercent: 0.61,
-    marketCap: "$562B",
-    sector: "Financials",
-    description: "Global financial services including investment banking, commercial banking, and asset management.",
-    priceHistory: [183, 184, 186, 185, 187, 188, 187, 189, 190, 189, 191, 192, 191, 192, 193, 192, 193, 194, 193, 194, 193, 194, 195, 194, 193, 194, 195, 194, 194, 194],
+    ticker: "JPM", name: "JPMorgan Chase & Co.", price: 194.62, currency: "USD", change: 1.18, changePercent: 0.61,
+    marketCap: "$562B", sector: "Financials", exchange: "NYSE", exchangeFlag: "🇺🇸",
+    description: "Global financial services including investment banking and asset management.",
+    priceHistory: [183,184,186,185,187,188,187,189,190,189,191,192,191,192,193,192,193,194,193,194,193,194,195,194,193,194,195,194,194,194],
   },
   V: {
-    ticker: "V",
-    name: "Visa Inc.",
-    price: 277.94,
-    change: 0.84,
-    changePercent: 0.3,
-    marketCap: "$565B",
-    sector: "Financials",
+    ticker: "V", name: "Visa Inc.", price: 277.94, currency: "USD", change: 0.84, changePercent: 0.3,
+    marketCap: "$565B", sector: "Financials", exchange: "NYSE", exchangeFlag: "🇺🇸",
     description: "Global payments technology connecting consumers, businesses, and financial institutions.",
-    priceHistory: [268, 269, 271, 270, 272, 273, 272, 274, 275, 274, 275, 276, 275, 276, 277, 276, 277, 278, 277, 278, 277, 278, 279, 278, 277, 278, 278, 277, 278, 277],
+    priceHistory: [268,269,271,270,272,273,272,274,275,274,275,276,275,276,277,276,277,278,277,278,277,278,279,278,277,278,278,277,278,277],
   },
-  BRK: {
-    ticker: "BRK",
-    name: "Berkshire Hathaway",
-    price: 415300,
-    change: 2300,
-    changePercent: 0.56,
-    marketCap: "$903B",
-    sector: "Financials",
-    description: "Multinational conglomerate holding company run by Warren Buffett.",
-    priceHistory: [405000, 406000, 407000, 408000, 409000, 410000, 409000, 411000, 412000, 411000, 412000, 413000, 412000, 413000, 414000, 413000, 414000, 415000, 414000, 415000, 414000, 415000, 416000, 415000, 414000, 415000, 416000, 415000, 415000, 415000],
+  // ─── United Kingdom (LSE) ─────────────────────────────────────────────────
+  "HSBA.L": {
+    ticker: "HSBA.L", name: "HSBC Holdings", price: 712.5, currency: "GBp", change: 8.4, changePercent: 1.19,
+    marketCap: "£139B", sector: "Financials", exchange: "LSE", exchangeFlag: "🇬🇧",
+    description: "One of the world's largest banking and financial services organisations.",
+    priceHistory: ph(700, 30),
+  },
+  "AZN.L": {
+    ticker: "AZN.L", name: "AstraZeneca PLC", price: 12480, currency: "GBp", change: 120, changePercent: 0.97,
+    marketCap: "£193B", sector: "Healthcare", exchange: "LSE", exchangeFlag: "🇬🇧",
+    description: "Multinational biopharmaceutical company focused on oncology, cardiovascular, and respiratory medicines.",
+    priceHistory: ph(12000, 30),
+  },
+  "SHEL.L": {
+    ticker: "SHEL.L", name: "Shell PLC", price: 2620, currency: "GBp", change: -18, changePercent: -0.68,
+    marketCap: "£162B", sector: "Energy", exchange: "LSE", exchangeFlag: "🇬🇧",
+    description: "Global energy company involved in oil, gas, and renewable energy.",
+    priceHistory: ph(2600, 30),
+  },
+  "BP.L": {
+    ticker: "BP.L", name: "BP PLC", price: 422, currency: "GBp", change: -3.4, changePercent: -0.8,
+    marketCap: "£76B", sector: "Energy", exchange: "LSE", exchangeFlag: "🇬🇧",
+    description: "Major oil and gas company investing in low-carbon energy transitions.",
+    priceHistory: ph(420, 30),
+  },
+  "ULVR.L": {
+    ticker: "ULVR.L", name: "Unilever PLC", price: 4312, currency: "GBp", change: 42, changePercent: 0.98,
+    marketCap: "£108B", sector: "Consumer Staples", exchange: "LSE", exchangeFlag: "🇬🇧",
+    description: "Consumer goods company with brands including Dove, Knorr, and Lipton.",
+    priceHistory: ph(4200, 30),
+  },
+  // ─── Germany (XETRA) ──────────────────────────────────────────────────────
+  "SAP.DE": {
+    ticker: "SAP.DE", name: "SAP SE", price: 198.4, currency: "EUR", change: 2.8, changePercent: 1.43,
+    marketCap: "€238B", sector: "Technology", exchange: "XETRA", exchangeFlag: "🇩🇪",
+    description: "Leading enterprise software company for business operations and customer relations.",
+    priceHistory: ph(190, 30),
+  },
+  "SIE.DE": {
+    ticker: "SIE.DE", name: "Siemens AG", price: 188.6, currency: "EUR", change: -1.4, changePercent: -0.74,
+    marketCap: "€147B", sector: "Industrials", exchange: "XETRA", exchangeFlag: "🇩🇪",
+    description: "Industrial conglomerate focused on automation, digitalization, and smart infrastructure.",
+    priceHistory: ph(185, 30),
+  },
+  "ALV.DE": {
+    ticker: "ALV.DE", name: "Allianz SE", price: 298.1, currency: "EUR", change: 3.2, changePercent: 1.08,
+    marketCap: "€121B", sector: "Financials", exchange: "XETRA", exchangeFlag: "🇩🇪",
+    description: "One of the world's largest insurance companies.",
+    priceHistory: ph(290, 30),
+  },
+  // ─── Japan (TSE) ──────────────────────────────────────────────────────────
+  "7203.T": {
+    ticker: "7203.T", name: "Toyota Motor Corp.", price: 3048, currency: "JPY", change: 28, changePercent: 0.93,
+    marketCap: "¥49.7T", sector: "Consumer Discretionary", exchange: "TSE", exchangeFlag: "🇯🇵",
+    description: "World's largest automaker, leading in hybrid and hydrogen vehicle technology.",
+    priceHistory: ph(3000, 30),
+  },
+  "6758.T": {
+    ticker: "6758.T", name: "Sony Group Corp.", price: 2980, currency: "JPY", change: -42, changePercent: -1.39,
+    marketCap: "¥18.1T", sector: "Technology", exchange: "TSE", exchangeFlag: "🇯🇵",
+    description: "Diversified conglomerate spanning electronics, gaming, entertainment, and financial services.",
+    priceHistory: ph(2950, 30),
+  },
+  "9432.T": {
+    ticker: "9432.T", name: "NTT Corp.", price: 158.6, currency: "JPY", change: 1.2, changePercent: 0.76,
+    marketCap: "¥13.5T", sector: "Telecommunications", exchange: "TSE", exchangeFlag: "🇯🇵",
+    description: "Japan's largest telecommunications conglomerate.",
+    priceHistory: ph(155, 30),
+  },
+  // ─── Hong Kong (HKEX) ─────────────────────────────────────────────────────
+  "0700.HK": {
+    ticker: "0700.HK", name: "Tencent Holdings", price: 384.4, currency: "HKD", change: 6.8, changePercent: 1.8,
+    marketCap: "HK$3.7T", sector: "Technology", exchange: "HKEX", exchangeFlag: "🇭🇰",
+    description: "China's largest internet company — gaming, social media (WeChat), cloud, and fintech.",
+    priceHistory: ph(375, 30),
+  },
+  "9988.HK": {
+    ticker: "9988.HK", name: "Alibaba Group", price: 98.5, currency: "HKD", change: -2.1, changePercent: -2.09,
+    marketCap: "HK$2.1T", sector: "Consumer Discretionary", exchange: "HKEX", exchangeFlag: "🇭🇰",
+    description: "China's largest e-commerce and cloud computing company.",
+    priceHistory: ph(100, 30),
+  },
+  // ─── Canada (TSX) ─────────────────────────────────────────────────────────
+  "SHOP.TO": {
+    ticker: "SHOP.TO", name: "Shopify Inc.", price: 112.8, currency: "CAD", change: 3.4, changePercent: 3.11,
+    marketCap: "CA$145B", sector: "Technology", exchange: "TSX", exchangeFlag: "🇨🇦",
+    description: "Commerce platform enabling businesses to start, grow, and manage retail operations globally.",
+    priceHistory: ph(108, 30),
+  },
+  "RY.TO": {
+    ticker: "RY.TO", name: "Royal Bank of Canada", price: 138.9, currency: "CAD", change: 0.9, changePercent: 0.65,
+    marketCap: "CA$197B", sector: "Financials", exchange: "TSX", exchangeFlag: "🇨🇦",
+    description: "Canada's largest bank by market capitalization.",
+    priceHistory: ph(136, 30),
+  },
+  // ─── Australia (ASX) ──────────────────────────────────────────────────────
+  "BHP.AX": {
+    ticker: "BHP.AX", name: "BHP Group", price: 40.2, currency: "AUD", change: 0.48, changePercent: 1.21,
+    marketCap: "A$208B", sector: "Materials", exchange: "ASX", exchangeFlag: "🇦🇺",
+    description: "World's largest mining company — iron ore, copper, coal, and nickel.",
+    priceHistory: ph(39, 30),
+  },
+  "CBA.AX": {
+    ticker: "CBA.AX", name: "Commonwealth Bank", price: 128.4, currency: "AUD", change: -0.6, changePercent: -0.47,
+    marketCap: "A$215B", sector: "Financials", exchange: "ASX", exchangeFlag: "🇦🇺",
+    description: "Australia's largest bank by market capitalisation.",
+    priceHistory: ph(128, 30),
+  },
+  // ─── Switzerland (SIX) ────────────────────────────────────────────────────
+  "NESN.SW": {
+    ticker: "NESN.SW", name: "Nestlé S.A.", price: 82.4, currency: "CHF", change: 0.6, changePercent: 0.73,
+    marketCap: "CHF 247B", sector: "Consumer Staples", exchange: "SIX", exchangeFlag: "🇨🇭",
+    description: "World's largest food and beverage company.",
+    priceHistory: ph(81, 30),
+  },
+  "ROG.SW": {
+    ticker: "ROG.SW", name: "Roche Holding AG", price: 238.5, currency: "CHF", change: -1.8, changePercent: -0.75,
+    marketCap: "CHF 131B", sector: "Healthcare", exchange: "SIX", exchangeFlag: "🇨🇭",
+    description: "Global pioneer in pharmaceuticals and diagnostics.",
+    priceHistory: ph(240, 30),
+  },
+  // ─── France (Euronext Paris) ──────────────────────────────────────────────
+  "MC.PA": {
+    ticker: "MC.PA", name: "LVMH", price: 642.8, currency: "EUR", change: 12.4, changePercent: 1.97,
+    marketCap: "€322B", sector: "Consumer Discretionary", exchange: "Euronext", exchangeFlag: "🇫🇷",
+    description: "World's largest luxury goods conglomerate — Louis Vuitton, Dior, Moët Hennessy.",
+    priceHistory: ph(625, 30),
+  },
+  "AIR.PA": {
+    ticker: "AIR.PA", name: "Airbus SE", price: 162.4, currency: "EUR", change: 2.8, changePercent: 1.75,
+    marketCap: "€130B", sector: "Industrials", exchange: "Euronext", exchangeFlag: "🇫🇷",
+    description: "World's leading aircraft manufacturer.",
+    priceHistory: ph(158, 30),
+  },
+  // ─── India (BSE / NSE) ────────────────────────────────────────────────────
+  "RELIANCE.NS": {
+    ticker: "RELIANCE.NS", name: "Reliance Industries", price: 2892, currency: "INR", change: 34, changePercent: 1.19,
+    marketCap: "₹19.7T", sector: "Energy", exchange: "NSE", exchangeFlag: "🇮🇳",
+    description: "India's largest conglomerate spanning energy, retail, digital services, and telecom.",
+    priceHistory: ph(2850, 30),
+  },
+  "INFY.NS": {
+    ticker: "INFY.NS", name: "Infosys Limited", price: 1834, currency: "INR", change: -12, changePercent: -0.65,
+    marketCap: "₹7.6T", sector: "Technology", exchange: "NSE", exchangeFlag: "🇮🇳",
+    description: "Global IT services and consulting company.",
+    priceHistory: ph(1840, 30),
   },
 };
 
 const MOCK_EVENTS: StockEvent[] = [
   {
-    id: "e1",
-    ticker: "AAPL",
-    type: "earnings",
+    id: "e1", ticker: "AAPL", type: "earnings",
     title: "Apple beats Q2 earnings estimates",
     what: "Apple reported Q2 2026 EPS of $1.89, beating analyst consensus of $1.76 by 7.4%. Revenue of $95.4B exceeded estimates of $93.9B. Services segment grew 12% YoY to $23.9B.",
-    why: "Services growth is critical — it's Apple's highest-margin segment and increasingly important to the investment thesis. Strong iPhone replacement cycles suggest demand remains resilient despite elevated prices.",
+    why: "Services growth is critical — it's Apple's highest-margin segment and increasingly important to the investment thesis. Strong iPhone replacement cycles suggest demand remains resilient.",
     unusual: "This marks the 6th consecutive quarter of Services revenue beats. The magnitude of the earnings beat (7.4%) is above Apple's trailing 8-quarter average beat of 4.2%.",
-    timestamp: "2026-04-11T16:30:00Z",
-    sentiment: "positive",
+    timestamp: "2026-04-11T16:30:00Z", sentiment: "positive",
   },
   {
-    id: "e2",
-    ticker: "TSLA",
-    type: "price_move",
+    id: "e2", ticker: "TSLA", type: "price_move",
     title: "Tesla drops 4.8% — delivery miss weighs",
     what: "Tesla shares declined 4.8% after Q1 2026 delivery figures came in at 336,681 vehicles, below analyst expectations of 371,000. This represents a 13.4% decline year-over-year.",
-    why: "Deliveries are the most visible signal of near-term demand health for Tesla. A miss of this magnitude raises questions about price elasticity and competition from BYD and legacy automakers entering the EV space.",
-    unusual: "The -13.4% YoY decline is the steepest in Tesla's history as a public company, surpassing the -6.5% decline in Q1 2024. Analyst estimates had already been revised down twice this quarter.",
-    timestamp: "2026-04-10T09:15:00Z",
-    sentiment: "negative",
+    why: "Deliveries are the most visible signal of near-term demand health for Tesla. A miss of this magnitude raises questions about competition from BYD and legacy automakers.",
+    unusual: "The -13.4% YoY decline is the steepest in Tesla's history as a public company, surpassing the -6.5% decline in Q1 2024.",
+    timestamp: "2026-04-10T09:15:00Z", sentiment: "negative",
   },
   {
-    id: "e3",
-    ticker: "NVDA",
-    type: "analyst",
+    id: "e3", ticker: "NVDA", type: "analyst",
     title: "Morgan Stanley raises NVDA price target to $1,000",
-    what: "Morgan Stanley upgraded NVIDIA's 12-month price target from $850 to $1,000, maintaining an Overweight rating. The firm cited accelerating data center AI infrastructure demand and expanding gross margins.",
-    why: "Analyst price target upgrades from tier-1 banks often reflect proprietary channel checks — conversations with hyperscaler procurement teams. A $1,000 target implies ~19% upside from current levels.",
-    unusual: "This is the 3rd upward PT revision from Morgan Stanley in the past 90 days, suggesting growing conviction. NVDA now has the highest average Wall Street PT of any S&P 500 mega-cap.",
-    timestamp: "2026-04-09T08:00:00Z",
-    sentiment: "positive",
+    what: "Morgan Stanley upgraded NVIDIA's 12-month price target from $850 to $1,000, maintaining an Overweight rating, citing accelerating data center AI infrastructure demand.",
+    why: "Analyst price target upgrades from tier-1 banks often reflect proprietary channel checks. A $1,000 target implies ~19% upside from current levels.",
+    unusual: "This is the 3rd upward PT revision from Morgan Stanley in the past 90 days, suggesting growing conviction.",
+    timestamp: "2026-04-09T08:00:00Z", sentiment: "positive",
   },
   {
-    id: "e4",
-    ticker: "META",
-    type: "announcement",
+    id: "e4", ticker: "META", type: "announcement",
     title: "Meta announces $10B AI infrastructure expansion",
-    what: "Meta announced plans to invest an additional $10B in AI data center infrastructure throughout 2026, increasing its full-year capex guidance to $38-40B. The investment targets custom silicon and large-scale GPU clusters.",
-    why: "Aggressive capex signals management's conviction that AI will drive meaningful monetization. The scale also creates a moat — smaller ad-tech competitors cannot match this compute investment.",
-    unusual: "The $10B incremental commitment is 25% above what analysts had modeled for the full year. Meta's capex-to-revenue ratio would reach its highest level since the early Facebook buildout phase.",
-    timestamp: "2026-04-08T14:00:00Z",
-    sentiment: "positive",
+    what: "Meta announced plans to invest an additional $10B in AI data center infrastructure throughout 2026, increasing its full-year capex guidance to $38-40B.",
+    why: "Aggressive capex signals management's conviction that AI will drive meaningful monetization. The scale creates a moat smaller competitors cannot match.",
+    unusual: "The $10B incremental commitment is 25% above what analysts had modelled for the full year.",
+    timestamp: "2026-04-08T14:00:00Z", sentiment: "positive",
   },
   {
-    id: "e5",
-    ticker: "MSFT",
-    type: "news",
+    id: "e5", ticker: "MSFT", type: "news",
     title: "Azure AI cloud growth accelerates to 33% YoY",
-    what: "Microsoft's Azure cloud platform posted 33% year-over-year growth in the most recent quarter, beating analyst expectations of 29%. AI-related Azure services contributed 7 percentage points of growth.",
-    why: "Azure's acceleration matters because it validates Microsoft's $13B+ OpenAI investment thesis. Cloud growth is the primary driver of Microsoft's valuation multiple — faster growth typically leads to multiple expansion.",
+    what: "Azure posted 33% year-over-year growth, beating analyst expectations of 29%. AI-related Azure services contributed 7 percentage points of growth.",
+    why: "Azure's acceleration validates Microsoft's $13B+ OpenAI investment thesis. Cloud growth is the primary driver of Microsoft's valuation multiple.",
     unusual: "The 7pp AI contribution to growth is up from 3pp six months ago, suggesting the AI attach rate is accelerating faster than consensus models anticipated.",
-    timestamp: "2026-04-07T17:30:00Z",
-    sentiment: "positive",
+    timestamp: "2026-04-07T17:30:00Z", sentiment: "positive",
+  },
+  {
+    id: "e6", ticker: "AZN.L", type: "earnings",
+    title: "AstraZeneca raises FY guidance on oncology strength",
+    what: "AstraZeneca raised its full-year 2026 revenue guidance to high-teens growth following strong Q1 results. Oncology drug Tagrisso and Enhertu drove outperformance.",
+    why: "Guidance upgrades in pharmaceuticals are significant — they reflect management's visibility into clinical and commercial pipelines. Tagrisso's lung cancer franchise is a multi-year growth engine.",
+    unusual: "This is AstraZeneca's second guidance upgrade in a single fiscal year, an unusual degree of confidence for a company of this size.",
+    timestamp: "2026-04-10T07:00:00Z", sentiment: "positive",
+  },
+  {
+    id: "e7", ticker: "0700.HK", type: "news",
+    title: "Tencent monetises WeChat AI features",
+    what: "Tencent unveiled paid AI assistant features within WeChat, with pricing at CNY 19.9/month. The product reached 5 million subscribers within 72 hours of launch.",
+    why: "WeChat has over 1.3 billion monthly active users. Even modest AI monetisation across this base represents a significant revenue opportunity that the market had not fully modelled.",
+    unusual: "The speed of subscription uptake (5M in 72 hours) surpasses comparable launches from Meta AI and OpenAI in their early phases.",
+    timestamp: "2026-04-09T04:00:00Z", sentiment: "positive",
   },
 ];
 
 const MOCK_DIGEST: DigestEntry[] = [
-  {
-    id: "d1",
-    ticker: "AAPL",
-    stockName: "Apple",
-    summary: "Apple beat Q2 earnings by 7.4%, driven by Services revenue of $23.9B — the segment's 6th consecutive quarterly beat. iPhone demand remains resilient.",
-    sentiment: "positive",
-    timestamp: "2026-04-12T07:00:00Z",
-  },
-  {
-    id: "d2",
-    ticker: "TSLA",
-    stockName: "Tesla",
-    summary: "Tesla's Q1 deliveries fell 13.4% YoY to 337K vehicles, the steepest decline in company history and well below analyst expectations of 371K.",
-    sentiment: "negative",
-    timestamp: "2026-04-12T07:00:00Z",
-  },
-  {
-    id: "d3",
-    ticker: "NVDA",
-    stockName: "NVIDIA",
-    summary: "Morgan Stanley raised its NVIDIA price target to $1,000, citing data center AI demand. This is the bank's 3rd upward revision in 90 days.",
-    sentiment: "positive",
-    timestamp: "2026-04-12T07:00:00Z",
-  },
-  {
-    id: "d4",
-    ticker: "META",
-    stockName: "Meta",
-    summary: "Meta expanded its 2026 AI capex guidance by $10B to $38-40B. The scale signals deep conviction in AI monetization but raised capex concerns.",
-    sentiment: "neutral",
-    timestamp: "2026-04-12T07:00:00Z",
-  },
-  {
-    id: "d5",
-    ticker: "MSFT",
-    stockName: "Microsoft",
-    summary: "Azure AI cloud growth accelerated to 33% YoY, with AI services contributing 7 percentage points — double the rate from six months ago.",
-    sentiment: "positive",
-    timestamp: "2026-04-12T07:00:00Z",
-  },
+  { id: "d1", ticker: "AAPL", stockName: "Apple", summary: "Apple beat Q2 earnings by 7.4%, driven by Services revenue of $23.9B — the segment's 6th consecutive quarterly beat. iPhone demand remains resilient.", sentiment: "positive", timestamp: "2026-04-12T07:00:00Z" },
+  { id: "d2", ticker: "TSLA", stockName: "Tesla", summary: "Tesla's Q1 deliveries fell 13.4% YoY to 337K vehicles, the steepest decline in company history and well below analyst expectations of 371K.", sentiment: "negative", timestamp: "2026-04-12T07:00:00Z" },
+  { id: "d3", ticker: "NVDA", stockName: "NVIDIA", summary: "Morgan Stanley raised its NVIDIA price target to $1,000, citing data center AI demand. This is the bank's 3rd upward revision in 90 days.", sentiment: "positive", timestamp: "2026-04-12T07:00:00Z" },
+  { id: "d4", ticker: "META", stockName: "Meta", summary: "Meta expanded its 2026 AI capex guidance by $10B to $38-40B. The scale signals deep conviction in AI monetization but raised capex concerns.", sentiment: "neutral", timestamp: "2026-04-12T07:00:00Z" },
+  { id: "d5", ticker: "MSFT", stockName: "Microsoft", summary: "Azure AI cloud growth accelerated to 33% YoY, with AI services contributing 7 percentage points — double the rate from six months ago.", sentiment: "positive", timestamp: "2026-04-12T07:00:00Z" },
+  { id: "d6", ticker: "AZN.L", stockName: "AstraZeneca", summary: "AstraZeneca raised FY guidance for the second time this year, driven by oncology drug Tagrisso and Enhertu outperformance.", sentiment: "positive", timestamp: "2026-04-12T07:00:00Z" },
+  { id: "d7", ticker: "0700.HK", stockName: "Tencent", summary: "Tencent's paid WeChat AI features attracted 5 million subscribers in 72 hours — a faster uptake than comparable launches at Meta or OpenAI.", sentiment: "positive", timestamp: "2026-04-12T07:00:00Z" },
 ];
 
 const MOCK_ALERTS: Alert[] = [
-  {
-    id: "a1",
-    ticker: "TSLA",
-    stockName: "Tesla",
-    type: "gap_down",
-    title: "TSLA opened 4.1% lower",
-    explanation: "Tesla gapped down at the open following yesterday's delivery miss. Pre-market volume was 3.2x the 30-day average, suggesting institutional repositioning.",
-    magnitude: "-4.1%",
-    timestamp: "2026-04-10T09:32:00Z",
-    read: false,
-  },
-  {
-    id: "a2",
-    ticker: "NVDA",
-    stockName: "NVIDIA",
-    type: "volume_surge",
-    title: "NVDA volume 2.8x above average",
-    explanation: "Following the Morgan Stanley PT upgrade, NVIDIA traded 2.8x its 30-day average volume. Large volume on upgrades suggests the news resonated with institutional buyers.",
-    magnitude: "+2.8x volume",
-    timestamp: "2026-04-09T11:00:00Z",
-    read: false,
-  },
-  {
-    id: "a3",
-    ticker: "AAPL",
-    stockName: "Apple",
-    type: "gap_up",
-    title: "AAPL up 2.2% on earnings beat",
-    explanation: "Apple's after-hours earnings beat translated to a pre-market gap-up. The move is modest relative to the magnitude of the earnings surprise, suggesting some investors may have already been positioned.",
-    magnitude: "+2.2%",
-    timestamp: "2026-04-11T09:30:00Z",
-    read: true,
-  },
+  { id: "a1", ticker: "TSLA", stockName: "Tesla", type: "gap_down", title: "TSLA opened 4.1% lower", explanation: "Tesla gapped down at the open following yesterday's delivery miss. Pre-market volume was 3.2x the 30-day average, suggesting institutional repositioning.", magnitude: "-4.1%", timestamp: "2026-04-10T09:32:00Z", read: false },
+  { id: "a2", ticker: "NVDA", stockName: "NVIDIA", type: "volume_surge", title: "NVDA volume 2.8x above average", explanation: "Following the Morgan Stanley PT upgrade, NVIDIA traded 2.8x its 30-day average volume. Large volume on upgrades suggests the news resonated with institutional buyers.", magnitude: "+2.8x volume", timestamp: "2026-04-09T11:00:00Z", read: false },
+  { id: "a3", ticker: "AAPL", stockName: "Apple", type: "gap_up", title: "AAPL up 2.2% on earnings beat", explanation: "Apple's after-hours earnings beat translated to a pre-market gap-up. The move is modest relative to the magnitude of the earnings surprise, suggesting some investors may have already been positioned.", magnitude: "+2.2%", timestamp: "2026-04-11T09:30:00Z", read: true },
 ];
 
 const WatchlistContext = createContext<WatchlistContextType | undefined>(undefined);
@@ -320,18 +356,10 @@ export function WatchlistProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY).then((val) => {
-      if (val) {
-        try {
-          setWatchlist(JSON.parse(val));
-        } catch {}
-      }
+      if (val) { try { setWatchlist(JSON.parse(val)); } catch {} }
     });
     AsyncStorage.getItem(ALERTS_KEY).then((val) => {
-      if (val) {
-        try {
-          setReadAlerts(new Set(JSON.parse(val)));
-        } catch {}
-      }
+      if (val) { try { setReadAlerts(new Set(JSON.parse(val))); } catch {} }
     });
   }, []);
 
@@ -358,10 +386,7 @@ export function WatchlistProvider({ children }: { children: React.ReactNode }) {
 
   const isInWatchlist = useCallback((ticker: string) => watchlist.includes(ticker), [watchlist]);
 
-  const alerts = MOCK_ALERTS.map((a) => ({
-    ...a,
-    read: readAlerts.has(a.id),
-  }));
+  const alerts = MOCK_ALERTS.map((a) => ({ ...a, read: readAlerts.has(a.id) }));
 
   const markAlertRead = useCallback((id: string) => {
     setReadAlerts((prev) => {
@@ -374,24 +399,10 @@ export function WatchlistProvider({ children }: { children: React.ReactNode }) {
 
   const digest = MOCK_DIGEST.filter((d) => watchlist.includes(d.ticker));
   const events = MOCK_EVENTS.filter((e) => watchlist.includes(e.ticker));
-
   const unreadAlertCount = alerts.filter((a) => !a.read && watchlist.includes(a.ticker)).length;
 
   return (
-    <WatchlistContext.Provider
-      value={{
-        watchlist,
-        addToWatchlist,
-        removeFromWatchlist,
-        isInWatchlist,
-        stocks: STOCK_DATA,
-        events,
-        digest,
-        alerts: alerts.filter((a) => watchlist.includes(a.ticker)),
-        markAlertRead,
-        unreadAlertCount,
-      }}
-    >
+    <WatchlistContext.Provider value={{ watchlist, addToWatchlist, removeFromWatchlist, isInWatchlist, stocks: STOCK_DATA, events, digest, alerts: alerts.filter((a) => watchlist.includes(a.ticker)), markAlertRead, unreadAlertCount }}>
       {children}
     </WatchlistContext.Provider>
   );
