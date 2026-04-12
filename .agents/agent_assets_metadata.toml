@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "o1IOgL1QecXxQzGa1Zmf1"
+uri = "file://artifacts/mobile/assets/images/icon.png"
+type = "image"
+title = "StockClarify app icon"

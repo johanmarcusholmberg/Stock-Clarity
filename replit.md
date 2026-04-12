@@ -16,6 +16,25 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
 
+## Artifacts
+
+### StockClarify Mobile App (`artifacts/mobile`)
+- **Type**: Expo (React Native)
+- **Preview Path**: `/`
+- **Description**: AI-powered investment companion for non-professional investors
+- **Features**:
+  - Personalized Watchlist with stock cards, mini sparkline charts, price/% change
+  - Daily Digest tab: brief daily summaries + expandable event cards (What/Why/Unusual)
+  - Alerts tab: unusual price/volume activity with plain-language explanations + unread badge
+  - Add Stocks tab: searchable list with one-tap add/remove from watchlist
+  - Stock Detail screen: 30-day price chart, company info, event history
+  - AsyncStorage persistence for watchlist and read alert state
+  - Dark navy color scheme (#0A1628) with teal accent (#00D4B8)
+- **Dependencies**: react-native-svg, @react-native-async-storage/async-storage
+
+### API Server (`artifacts/api-server`)
+- Express 5 backend at `/api`
+
 ## Key Commands
 
 - `pnpm run typecheck` — full typecheck across all packages
