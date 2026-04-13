@@ -429,9 +429,18 @@ export function WatchlistProvider({
   }, [saveFolders]);
 
   const deleteFolder = useCallback((id: string) => {
+    if (id === DEFAULT_FOLDER_ID) return;
     setFolders((prev) => {
       if (prev.length <= 1) return prev;
-      const next = prev.filter((f) => f.id !== id);
+      const folderToDelete = prev.find((f) => f.id === id);
+      const tickersToMove = folderToDelete?.tickers ?? [];
+      const next = prev
+        .filter((f) => f.id !== id)
+        .map((f) => {
+          if (f.id !== DEFAULT_FOLDER_ID || tickersToMove.length === 0) return f;
+          const merged = Array.from(new Set([...f.tickers, ...tickersToMove]));
+          return { ...f, tickers: merged };
+        });
       saveFolders(next);
       setActiveFolderIdState((currentActive) => {
         if (currentActive !== id) return currentActive;

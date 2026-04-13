@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   Alert,
   Modal,
@@ -16,6 +16,8 @@ import { useColors } from "@/hooks/useColors";
 import { useWatchlist, WatchlistFolder } from "@/context/WatchlistContext";
 import { PaywallSheet } from "@/components/PaywallSheet";
 
+const DEFAULT_FOLDER_ID = "default";
+
 export function FolderTabStrip() {
   const colors = useColors();
   const {
@@ -26,15 +28,33 @@ export function FolderTabStrip() {
     renameFolder,
     deleteFolder,
     canCreateFolder,
+    addToFolder,
+    stocks,
   } = useWatchlist();
 
   const [showPaywall, setShowPaywall] = useState(false);
+
+  // Create folder modal state
   const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [createStep, setCreateStep] = useState<1 | 2>(1);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [pendingFolderId, setPendingFolderId] = useState<string | null>(null);
+  const [selectedTickers, setSelectedTickers] = useState<Set<string>>(new Set());
+
+  // Rename modal state
   const [renameModalVisible, setRenameModalVisible] = useState(false);
+  const [renameFolderName, setRenameFolderName] = useState("");
+
+  // Context menu state
   const [contextMenuFolder, setContextMenuFolder] = useState<WatchlistFolder | null>(null);
   const [contextMenuVisible, setContextMenuVisible] = useState(false);
-  const [newFolderName, setNewFolderName] = useState("");
-  const [renameFolderName, setRenameFolderName] = useState("");
+
+  // Tickers in "My Watchlist" (default folder) for the stock picker
+  const myWatchlistTickers = useMemo(() => {
+    return folders.find((f) => f.id === DEFAULT_FOLDER_ID)?.tickers ?? [];
+  }, [folders]);
+
+  // ── Create folder ──────────────────────────────────────────────
 
   const handlePlusPress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -43,19 +63,53 @@ export function FolderTabStrip() {
       return;
     }
     setNewFolderName("");
+    setSelectedTickers(new Set());
+    setPendingFolderId(null);
+    setCreateStep(1);
     setCreateModalVisible(true);
   };
 
-  const handleCreateFolder = () => {
+  const handleCreateStep1 = () => {
     const name = newFolderName.trim();
     if (!name) return;
     const folder = createFolder(name);
-    if (folder) {
-      setActiveFolderId(folder.id);
+    if (!folder) return;
+    setActiveFolderId(folder.id);
+    setPendingFolderId(folder.id);
+    // If there are stocks in My Watchlist, go to step 2
+    if (myWatchlistTickers.length > 0) {
+      setSelectedTickers(new Set());
+      setCreateStep(2);
+    } else {
+      setCreateModalVisible(false);
+      setNewFolderName("");
+    }
+  };
+
+  const handleCreateStep2Done = () => {
+    if (pendingFolderId && selectedTickers.size > 0) {
+      selectedTickers.forEach((ticker) => {
+        addToFolder(ticker, pendingFolderId);
+      });
     }
     setCreateModalVisible(false);
     setNewFolderName("");
+    setSelectedTickers(new Set());
+    setPendingFolderId(null);
+    setCreateStep(1);
   };
+
+  const toggleTicker = (ticker: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSelectedTickers((prev) => {
+      const next = new Set(prev);
+      if (next.has(ticker)) next.delete(ticker);
+      else next.add(ticker);
+      return next;
+    });
+  };
+
+  // ── Tab interaction ────────────────────────────────────────────
 
   const handleTabPress = (id: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -67,6 +121,8 @@ export function FolderTabStrip() {
     setContextMenuFolder(folder);
     setContextMenuVisible(true);
   };
+
+  // ── Rename ─────────────────────────────────────────────────────
 
   const handleRenamePress = () => {
     if (!contextMenuFolder) return;
@@ -83,20 +139,23 @@ export function FolderTabStrip() {
     setContextMenuFolder(null);
   };
 
+  // ── Delete ─────────────────────────────────────────────────────
+
   const handleDeletePress = () => {
     if (!contextMenuFolder) return;
     setContextMenuVisible(false);
     const folderName = contextMenuFolder.name;
     const folderId = contextMenuFolder.id;
+    const message = "Stocks will be moved to My Watchlist";
     if (Platform.OS === "web") {
-      if (window.confirm(`Delete "${folderName}"? Stocks in this folder will be removed from it.`)) {
+      if (window.confirm(`Delete "${folderName}"?\n${message}`)) {
         deleteFolder(folderId);
         setContextMenuFolder(null);
       }
     } else {
       Alert.alert(
         `Delete "${folderName}"?`,
-        "Stocks in this folder will be removed from it.",
+        message,
         [
           { text: "Cancel", style: "cancel" },
           {
@@ -111,6 +170,8 @@ export function FolderTabStrip() {
       );
     }
   };
+
+  const canDelete = contextMenuFolder?.id !== DEFAULT_FOLDER_ID;
 
   return (
     <>
@@ -185,6 +246,7 @@ export function FolderTabStrip() {
         </ScrollView>
       </View>
 
+      {/* ── Create Folder Modal ── */}
       <Modal
         visible={createModalVisible}
         transparent
@@ -194,57 +256,129 @@ export function FolderTabStrip() {
         <TouchableOpacity
           style={styles.modalOverlay}
           activeOpacity={1}
-          onPress={() => setCreateModalVisible(false)}
+          onPress={() => {
+            if (createStep === 1) setCreateModalVisible(false);
+          }}
         >
           <View
             style={[styles.modalSheet, { backgroundColor: colors.card, borderColor: colors.border }]}
             onStartShouldSetResponder={() => true}
           >
-            <Text style={[styles.modalTitle, { color: colors.foreground }]}>New Folder</Text>
-            <TextInput
-              style={[
-                styles.input,
-                { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.secondary },
-              ]}
-              placeholder="Folder name (e.g. Tech Picks)"
-              placeholderTextColor={colors.mutedForeground}
-              value={newFolderName}
-              onChangeText={setNewFolderName}
-              autoFocus
-              maxLength={30}
-              returnKeyType="done"
-              onSubmitEditing={handleCreateFolder}
-            />
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
-                onPress={() => setCreateModalVisible(false)}
-              >
-                <Text style={[styles.modalBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.modalBtn,
-                  styles.modalBtnPrimary,
-                  { backgroundColor: newFolderName.trim() ? colors.primary : colors.secondary },
-                ]}
-                onPress={handleCreateFolder}
-                disabled={!newFolderName.trim()}
-              >
-                <Text
+            {createStep === 1 ? (
+              <>
+                <Text style={[styles.modalTitle, { color: colors.foreground }]}>New Folder</Text>
+                <TextInput
                   style={[
-                    styles.modalBtnText,
-                    { color: newFolderName.trim() ? colors.primaryForeground : colors.mutedForeground },
+                    styles.input,
+                    { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.secondary },
                   ]}
-                >
-                  Create
-                </Text>
-              </TouchableOpacity>
-            </View>
+                  placeholder="Folder name (e.g. Tech Picks)"
+                  placeholderTextColor={colors.mutedForeground}
+                  value={newFolderName}
+                  onChangeText={setNewFolderName}
+                  autoFocus
+                  maxLength={30}
+                  returnKeyType="done"
+                  onSubmitEditing={handleCreateStep1}
+                />
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[styles.modalBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
+                    onPress={() => setCreateModalVisible(false)}
+                  >
+                    <Text style={[styles.modalBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.modalBtn,
+                      styles.modalBtnPrimary,
+                      { backgroundColor: newFolderName.trim() ? colors.primary : colors.secondary },
+                    ]}
+                    onPress={handleCreateStep1}
+                    disabled={!newFolderName.trim()}
+                  >
+                    <Text
+                      style={[
+                        styles.modalBtnText,
+                        { color: newFolderName.trim() ? colors.primaryForeground : colors.mutedForeground },
+                      ]}
+                    >
+                      {myWatchlistTickers.length > 0 ? "Next" : "Create"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <>
+                <View style={styles.modalTitleRow}>
+                  <Text style={[styles.modalTitle, { color: colors.foreground }]}>Add Stocks</Text>
+                  <Text style={[styles.modalSubtitle, { color: colors.mutedForeground }]}>
+                    Tap to add from My Watchlist
+                  </Text>
+                </View>
+                <ScrollView style={styles.stockPickerList} showsVerticalScrollIndicator={false}>
+                  {myWatchlistTickers.map((ticker) => {
+                    const stock = stocks[ticker];
+                    const selected = selectedTickers.has(ticker);
+                    return (
+                      <TouchableOpacity
+                        key={ticker}
+                        style={[
+                          styles.stockPickerRow,
+                          {
+                            backgroundColor: selected ? `${colors.primary}15` : "transparent",
+                            borderColor: selected ? `${colors.primary}44` : colors.border,
+                          },
+                        ]}
+                        onPress={() => toggleTicker(ticker)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.stockPickerInfo}>
+                          <Text style={[styles.stockPickerTicker, { color: colors.foreground }]}>{ticker}</Text>
+                          {stock?.name ? (
+                            <Text style={[styles.stockPickerName, { color: colors.mutedForeground }]} numberOfLines={1}>
+                              {stock.name}
+                            </Text>
+                          ) : null}
+                        </View>
+                        <View
+                          style={[
+                            styles.checkbox,
+                            {
+                              backgroundColor: selected ? colors.primary : "transparent",
+                              borderColor: selected ? colors.primary : colors.border,
+                            },
+                          ]}
+                        >
+                          {selected && <Feather name="check" size={12} color={colors.primaryForeground} />}
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[styles.modalBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
+                    onPress={handleCreateStep2Done}
+                  >
+                    <Text style={[styles.modalBtnText, { color: colors.mutedForeground }]}>Skip</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalBtn, styles.modalBtnPrimary, { backgroundColor: colors.primary }]}
+                    onPress={handleCreateStep2Done}
+                  >
+                    <Text style={[styles.modalBtnText, { color: colors.primaryForeground }]}>
+                      {selectedTickers.size > 0 ? `Add ${selectedTickers.size}` : "Done"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
           </View>
         </TouchableOpacity>
       </Modal>
 
+      {/* ── Rename Folder Modal ── */}
       <Modal
         visible={renameModalVisible}
         transparent
@@ -305,6 +439,7 @@ export function FolderTabStrip() {
         </TouchableOpacity>
       </Modal>
 
+      {/* ── Context Menu ── */}
       <Modal
         visible={contextMenuVisible}
         transparent
@@ -327,7 +462,7 @@ export function FolderTabStrip() {
               <Feather name="edit-2" size={16} color={colors.foreground} />
               <Text style={[styles.contextMenuItemText, { color: colors.foreground }]}>Rename</Text>
             </TouchableOpacity>
-            {folders.length > 1 && (
+            {canDelete && (
               <>
                 <View style={[styles.contextMenuDivider, { backgroundColor: colors.border }]} />
                 <TouchableOpacity style={styles.contextMenuItem} onPress={handleDeletePress}>
@@ -409,10 +544,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 24,
     gap: 16,
+    maxHeight: "80%",
+  },
+  modalTitleRow: {
+    gap: 2,
   },
   modalTitle: {
     fontSize: 18,
     fontFamily: "Inter_700Bold",
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
   },
   input: {
     borderWidth: 1,
@@ -421,6 +564,39 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 15,
     fontFamily: "Inter_400Regular",
+  },
+  stockPickerList: {
+    maxHeight: 280,
+  },
+  stockPickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 8,
+    gap: 12,
+  },
+  stockPickerInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  stockPickerTicker: {
+    fontSize: 14,
+    fontFamily: "Inter_700Bold",
+  },
+  stockPickerName: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
   },
   modalButtons: {
     flexDirection: "row",

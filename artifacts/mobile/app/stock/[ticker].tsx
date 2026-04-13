@@ -784,7 +784,6 @@ export default function StockDetailScreen() {
   const isPositive = periodChangePct >= 0;
   const changeColor = isPositive ? colors.positive : colors.negative;
 
-  // Keep chartChangePct for the in-chart "this period" label (same computation)
   const chartChangePct = periodChangePct;
 
   // Y-axis padding per range — applied on top of actual data min/max inside the chart
@@ -880,13 +879,9 @@ export default function StockDetailScreen() {
               </Text>
             </View>
           </View>
-          <Text style={[styles.changeAbsolute, { color: changeColor }]}>
-            {periodChangePoints >= 0 ? "+" : ""}{currSym}{Math.abs(periodChangePoints).toFixed(2)} {periodLabel}
-          </Text>
-
           {/* ── Start/Open · End/Current|Close strip — all from chart data ── */}
           {stripStartPrice != null && periodEnd != null && (
-            <View style={styles.openCloseRow}>
+            <View style={[styles.openCloseRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <View style={styles.openCloseItem}>
                 <Text style={[styles.openCloseLabel, { color: colors.mutedForeground }]}>{stripStartLabel}</Text>
                 <Text style={[styles.openCloseValue, { color: colors.foreground }]}>
@@ -904,8 +899,10 @@ export default function StockDetailScreen() {
               <View style={styles.openCloseItem}>
                 <Text style={[styles.openCloseLabel, { color: colors.mutedForeground }]}>Change</Text>
                 <Text style={[styles.openCloseValue, { color: changeColor }]}>
+                  {periodChangePoints >= 0 ? "+" : ""}{periodChangePct.toFixed(2)}%
+                </Text>
+                <Text style={[styles.openCloseSubValue, { color: changeColor }]}>
                   {periodChangePoints >= 0 ? "+" : ""}{currSym}{Math.abs(periodChangePoints).toFixed(2)}
-                  {"\n"}{periodChangePct >= 0 ? "+" : ""}{periodChangePct.toFixed(2)}%
                 </Text>
               </View>
             </View>
@@ -971,15 +968,6 @@ export default function StockDetailScreen() {
               </TouchableOpacity>
             </View>
           </View>
-
-          {/* Chart % summary */}
-          {chartPrices.length >= 2 && (
-            <View style={{ paddingHorizontal: 16, marginBottom: 6 }}>
-              <Text style={{ color: chartChangePct >= 0 ? colors.positive : colors.negative, fontSize: 12, fontFamily: "Inter_600SemiBold" }}>
-                {chartChangePct >= 0 ? "+" : ""}{chartChangePct.toFixed(2)}% this period
-              </Text>
-            </View>
-          )}
 
           {chartLoading ? (
             <View style={{ height: CHART_HEIGHT + 20, alignItems: "center", justifyContent: "center" }}>
@@ -1199,7 +1187,6 @@ const styles = StyleSheet.create({
   priceText: { fontSize: 36, fontFamily: "Inter_700Bold", letterSpacing: -1 },
   changePill: { flexDirection: "row", alignItems: "center", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, gap: 4 },
   changeText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  changeAbsolute: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 2, marginBottom: 4 },
 
   chartCard: { marginHorizontal: 16, marginBottom: 16, paddingBottom: 12, borderRadius: 16, borderWidth: 1 },
   chartTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, marginBottom: 8 },
@@ -1248,11 +1235,12 @@ const styles = StyleSheet.create({
   tierChip: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginLeft: 2 },
   tierChipText: { fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
 
-  openCloseRow: { flexDirection: "row", alignItems: "center", marginTop: 14, backgroundColor: "transparent" },
-  openCloseItem: { flex: 1, alignItems: "center", gap: 3 },
+  openCloseRow: { flexDirection: "row", alignItems: "stretch", marginTop: 14, borderRadius: 14, borderWidth: 1, overflow: "hidden" },
+  openCloseItem: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 12, paddingHorizontal: 6, gap: 4 },
   openCloseLabel: { fontSize: 10, fontFamily: "Inter_400Regular", textTransform: "uppercase", letterSpacing: 0.5 },
-  openCloseValue: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  openCloseDivider: { width: 1, height: 30 },
+  openCloseValue: { fontSize: 13, fontFamily: "Inter_700Bold", textAlign: "center" },
+  openCloseSubValue: { fontSize: 11, fontFamily: "Inter_400Regular", textAlign: "center", opacity: 0.8 },
+  openCloseDivider: { width: 1, alignSelf: "stretch" },
   marketStatusRow: { marginTop: 10, flexDirection: "row" },
   marketStatusChip: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1 },
   marketStatusDot: { width: 6, height: 6, borderRadius: 3 },
