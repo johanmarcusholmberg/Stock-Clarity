@@ -2,7 +2,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/expo";
 import { useUser } from "@clerk/expo";
-import { getQuotes } from "@/services/stockApi";
+import { getQuotes, getChart } from "@/services/stockApi";
+
+// Re-export StockEvent so components can import it from here
+export type { StockEvent } from "@/services/stockApi";
 
 const API_BASE = (() => {
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
@@ -73,8 +76,10 @@ interface WatchlistContextType {
   isInFolder: (ticker: string, folderId: string) => boolean;
   stocks: Record<string, Stock>;
   alerts: Alert[];
+  events: Alert[];
   digest: DigestEntry[];
   markAlertRead: (id: string) => void;
+  markAllAlertsRead: () => void;
   unreadAlertCount: number;
   refreshQuotes: () => Promise<void>;
   folders: WatchlistFolder[];
@@ -303,7 +308,6 @@ export function WatchlistProvider({
             exchange: q.fullExchangeName || existing.exchange || "",
             exchangeFlag: existing.exchangeFlag || "🌐",
             description: existing.description || "",
-            // Generate directional price history matching actual change
             priceHistory: makePriceHistory(newPrice, newChangePct),
             pe: q.trailingPE ?? existing.pe,
           };
@@ -311,6 +315,22 @@ export function WatchlistProvider({
         AsyncStorage.setItem(STOCKS_KEY, JSON.stringify(next));
         return next;
       });
+
+      // Fetch 1Y chart data for each stock (for accurate mini chart sparklines)
+      // Stagger requests to avoid rate limiting
+      for (const ticker of allTickers.slice(0, 8)) {
+        try {
+          await new Promise((r) => setTimeout(r, 300));
+          const chart = await getChart(ticker, "1y", "1wk");
+          if (chart?.prices?.length >= 4) {
+            setStockData((prev) => {
+              if (!prev[ticker]) return prev;
+              const updated = { ...prev[ticker], priceHistory: chart.prices };
+              return { ...prev, [ticker]: updated };
+            });
+          }
+        } catch {}
+      }
     } catch {}
   }, [allTickers.join(",")]);
 
@@ -451,6 +471,15 @@ export function WatchlistProvider({
     });
   }, []);
 
+  const markAllAlertsRead = useCallback(() => {
+    setReadAlerts((prev) => {
+      const allIds = MOCK_ALERTS.map((a) => a.id);
+      const next = new Set([...prev, ...allIds]);
+      AsyncStorage.setItem(ALERTS_READ_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  }, []);
+
   const alerts = MOCK_ALERTS.map((a) => ({ ...a, read: readAlerts.has(a.id) }))
     .filter((a) => allTickers.includes(a.ticker));
   const unreadAlertCount = alerts.filter((a) => !a.read).length;
@@ -466,8 +495,10 @@ export function WatchlistProvider({
       isInFolder,
       stocks: stockData,
       alerts,
+      events: alerts,
       digest,
       markAlertRead,
+      markAllAlertsRead,
       unreadAlertCount,
       refreshQuotes,
       folders,

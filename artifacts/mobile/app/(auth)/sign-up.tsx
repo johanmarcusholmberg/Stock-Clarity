@@ -1,5 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { useSignUp } from "@clerk/expo/legacy";
+import { useOAuth } from "@clerk/expo";
 import { Link, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import React, { useState } from "react";
@@ -49,8 +50,11 @@ export default function SignUpScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { isLoaded, signUp, setActive } = useSignUp();
+  const { startOAuthFlow: startGoogleOAuth } = useOAuth({ strategy: "oauth_google" });
+  const { startOAuthFlow: startAppleOAuth } = useOAuth({ strategy: "oauth_apple" });
 
   const [email, setEmail] = useState("");
+  const [oauthLoading, setOAuthLoading] = useState<"google" | "apple" | null>(null);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [verificationCode, setVerificationCode] = useState("");
@@ -66,6 +70,36 @@ export default function SignUpScreen() {
     }
   });
   const [sessionId, setSessionId] = useState<string | null>(null);
+
+  const handleGoogleSignUp = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setOAuthLoading("google");
+    try {
+      const { createdSessionId, setActive: oauthSetActive } = await startGoogleOAuth();
+      if (createdSessionId && oauthSetActive) {
+        await oauthSetActive({ session: createdSessionId });
+        router.replace("/(tabs)");
+      }
+    } catch {
+    } finally {
+      setOAuthLoading(null);
+    }
+  };
+
+  const handleAppleSignUp = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setOAuthLoading("apple");
+    try {
+      const { createdSessionId, setActive: oauthSetActive } = await startAppleOAuth();
+      if (createdSessionId && oauthSetActive) {
+        await oauthSetActive({ session: createdSessionId });
+        router.replace("/(tabs)");
+      }
+    } catch {
+    } finally {
+      setOAuthLoading(null);
+    }
+  };
 
   const handleSignUp = async () => {
     if (!isLoaded || !signUp) return;
@@ -240,6 +274,43 @@ export default function SignUpScreen() {
           Track the stocks you care about with real-time data and AI-powered insights.
         </Text>
 
+        {/* Social sign-up buttons */}
+        <View style={styles.socialSection}>
+          <TouchableOpacity
+            style={[styles.socialButton, { backgroundColor: colors.card, borderColor: colors.border, opacity: oauthLoading === "apple" ? 0.5 : 1 }]}
+            onPress={handleGoogleSignUp}
+            disabled={!!oauthLoading}
+          >
+            {oauthLoading === "google" ? (
+              <ActivityIndicator color={colors.foreground} size="small" />
+            ) : (
+              <Text style={{ fontSize: 16, lineHeight: 18 }}>G</Text>
+            )}
+            <Text style={[styles.socialButtonText, { color: colors.foreground }]}>Continue with Google</Text>
+          </TouchableOpacity>
+          {Platform.OS === "ios" && (
+            <TouchableOpacity
+              style={[styles.socialButton, { backgroundColor: colors.card, borderColor: colors.border, opacity: oauthLoading === "google" ? 0.5 : 1 }]}
+              onPress={handleAppleSignUp}
+              disabled={!!oauthLoading}
+            >
+              {oauthLoading === "apple" ? (
+                <ActivityIndicator color={colors.foreground} size="small" />
+              ) : (
+                <Feather name="smartphone" size={16} color={colors.foreground} />
+              )}
+              <Text style={[styles.socialButtonText, { color: colors.foreground }]}>Continue with Apple</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Divider */}
+        <View style={styles.dividerRow}>
+          <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+          <Text style={[styles.dividerText, { color: colors.mutedForeground }]}>or</Text>
+          <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+        </View>
+
         <View style={styles.formSection}>
           <Text style={[styles.label, { color: colors.mutedForeground }]}>Email</Text>
           <TextInput
@@ -407,4 +478,18 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     marginTop: 4,
   },
+  socialSection: { gap: 10, marginBottom: 20, marginTop: 8 },
+  socialButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 13,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  socialButtonText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  dividerRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 20 },
+  dividerLine: { flex: 1, height: 1 },
+  dividerText: { fontSize: 13, fontFamily: "Inter_400Regular" },
 });

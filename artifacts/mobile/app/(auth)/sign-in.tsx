@@ -1,5 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { useSignIn } from "@clerk/expo/legacy";
+import { useOAuth } from "@clerk/expo";
 import { Link, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import React, { useState } from "react";
@@ -35,14 +36,51 @@ export default function SignInScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { isLoaded, signIn, setActive } = useSignIn();
+  const { startOAuthFlow: startGoogleOAuth } = useOAuth({ strategy: "oauth_google" });
+  const { startOAuthFlow: startAppleOAuth } = useOAuth({ strategy: "oauth_apple" });
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [verificationCode, setVerificationCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [oauthLoading, setOAuthLoading] = useState<"google" | "apple" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [needsMfa, setNeedsMfa] = useState(false);
+
+  const handleGoogleSignIn = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setOAuthLoading("google");
+    setError(null);
+    try {
+      const { createdSessionId, setActive: oauthSetActive } = await startGoogleOAuth();
+      if (createdSessionId && oauthSetActive) {
+        await oauthSetActive({ session: createdSessionId });
+        router.replace("/(tabs)");
+      }
+    } catch (err: unknown) {
+      setError(getClerkErrorMessage(err, "Google sign-in failed. Please try again."));
+    } finally {
+      setOAuthLoading(null);
+    }
+  };
+
+  const handleAppleSignIn = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setOAuthLoading("apple");
+    setError(null);
+    try {
+      const { createdSessionId, setActive: oauthSetActive } = await startAppleOAuth();
+      if (createdSessionId && oauthSetActive) {
+        await oauthSetActive({ session: createdSessionId });
+        router.replace("/(tabs)");
+      }
+    } catch (err: unknown) {
+      setError(getClerkErrorMessage(err, "Apple sign-in failed. Please try again."));
+    } finally {
+      setOAuthLoading(null);
+    }
+  };
 
   const handleSignIn = async () => {
     if (!isLoaded || !signIn) return;
@@ -164,6 +202,43 @@ export default function SignInScreen() {
         <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
           Real-time insights and AI-powered clarity for every stock you follow.
         </Text>
+
+        {/* Social sign-in buttons */}
+        <View style={styles.socialSection}>
+          <TouchableOpacity
+            style={[styles.socialButton, { backgroundColor: colors.card, borderColor: colors.border, opacity: oauthLoading === "apple" ? 0.5 : 1 }]}
+            onPress={handleGoogleSignIn}
+            disabled={!!oauthLoading}
+          >
+            {oauthLoading === "google" ? (
+              <ActivityIndicator color={colors.foreground} size="small" />
+            ) : (
+              <Text style={{ fontSize: 16, lineHeight: 18 }}>G</Text>
+            )}
+            <Text style={[styles.socialButtonText, { color: colors.foreground }]}>Continue with Google</Text>
+          </TouchableOpacity>
+          {Platform.OS === "ios" && (
+            <TouchableOpacity
+              style={[styles.socialButton, { backgroundColor: colors.card, borderColor: colors.border, opacity: oauthLoading === "google" ? 0.5 : 1 }]}
+              onPress={handleAppleSignIn}
+              disabled={!!oauthLoading}
+            >
+              {oauthLoading === "apple" ? (
+                <ActivityIndicator color={colors.foreground} size="small" />
+              ) : (
+                <Feather name="smartphone" size={16} color={colors.foreground} />
+              )}
+              <Text style={[styles.socialButtonText, { color: colors.foreground }]}>Continue with Apple</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Divider */}
+        <View style={styles.dividerRow}>
+          <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+          <Text style={[styles.dividerText, { color: colors.mutedForeground }]}>or</Text>
+          <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+        </View>
 
         <View style={styles.formSection}>
           <Text style={[styles.label, { color: colors.mutedForeground }]}>Email</Text>
@@ -319,4 +394,18 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     marginTop: 4,
   },
+  socialSection: { gap: 10, marginBottom: 20, marginTop: 8 },
+  socialButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 13,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  socialButtonText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  dividerRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 20 },
+  dividerLine: { flex: 1, height: 1 },
+  dividerText: { fontSize: 13, fontFamily: "Inter_400Regular" },
 });

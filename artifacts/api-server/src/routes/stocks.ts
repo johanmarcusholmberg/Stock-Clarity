@@ -39,7 +39,6 @@ let yfAuthExpires = 0;
 
 async function refreshYFAuth(): Promise<boolean> {
   try {
-    // Step 1: Get session cookie from Yahoo Finance
     const sessionRes = await fetch("https://fc.yahoo.com", {
       headers: BASE_HEADERS,
       redirect: "follow",
@@ -49,11 +48,9 @@ async function refreshYFAuth(): Promise<boolean> {
     const setCookieHeader = sessionRes.headers.get("set-cookie");
     if (!setCookieHeader) return false;
 
-    // Extract the A3 or B cookie
     const cookies = setCookieHeader.split(",").map((c) => c.trim().split(";")[0]).join("; ");
     yfCookie = cookies;
 
-    // Step 2: Get crumb using the cookie
     const crumbRes = await fetch(`${YF1}/v1/test/getcrumb`, {
       headers: { ...BASE_HEADERS, Cookie: yfCookie },
       signal: AbortSignal.timeout(8000),
@@ -64,7 +61,7 @@ async function refreshYFAuth(): Promise<boolean> {
     if (!crumb || crumb.includes("<") || crumb.length < 5) return false;
 
     yfCrumb = crumb.trim();
-    yfAuthExpires = Date.now() + 60 * 60 * 1000; // 1 hour
+    yfAuthExpires = Date.now() + 60 * 60 * 1000;
     console.log("[yfAuth] Got crumb:", yfCrumb.slice(0, 8) + "...");
     return true;
   } catch (err: any) {
@@ -88,7 +85,6 @@ function addCrumb(url: string): string {
   return `${url}${sep}crumb=${encodeURIComponent(yfCrumb)}`;
 }
 
-// ─── Robust Fetch ─────────────────────────────────────────────────────────────
 async function yfFetch(url: string, timeoutMs = 12000): Promise<any> {
   const headers = await getYFHeaders();
   const fullUrl = addCrumb(url);
@@ -97,7 +93,6 @@ async function yfFetch(url: string, timeoutMs = 12000): Promise<any> {
 
   if (res.status === 429) {
     console.error("[yfFetch] 429 rate limited:", url.split("?")[0]);
-    // Clear auth and retry after pause
     yfCrumb = null;
     yfCookie = null;
     await new Promise((r) => setTimeout(r, 4000));
@@ -159,6 +154,67 @@ async function fetchQuoteViaChart(symbol: string): Promise<any | null> {
   }
 }
 
+// ─── Google News RSS (second source) ─────────────────────────────────────────
+interface NewsItem {
+  title: string;
+  publisher: string;
+  url: string;
+  timestamp: string;
+  timestampMs: number;
+}
+
+async function fetchGoogleNewsRSS(query: string): Promise<NewsItem[]> {
+  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+        "Accept": "application/rss+xml, application/xml, text/xml, */*",
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return [];
+
+    const text = await res.text();
+    const items: NewsItem[] = [];
+    const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+    let match;
+
+    while ((match = itemRegex.exec(text)) !== null && items.length < 8) {
+      const itemText = match[1];
+      const rawTitle =
+        itemText.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/)?.[1] ||
+        itemText.match(/<title>(.*?)<\/title>/)?.[1] || "";
+      const title = rawTitle
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&#39;/g, "'")
+        .replace(/&quot;/g, '"')
+        .trim();
+      const link =
+        itemText.match(/<link>(.*?)<\/link>/)?.[1]?.trim() ||
+        itemText.match(/<guid[^>]*>(.*?)<\/guid>/)?.[1]?.trim() || "";
+      const pubDate = itemText.match(/<pubDate>(.*?)<\/pubDate>/)?.[1]?.trim() || "";
+      const source =
+        itemText.match(/<source[^>]*>([\s\S]*?)<\/source>/)?.[1]
+          ?.replace(/<!\[CDATA\[(.*?)\]\]>/, "$1")
+          ?.trim() || "News";
+
+      if (title && title.length > 10) {
+        const ts = pubDate ? new Date(pubDate).getTime() : Date.now();
+        if (!isNaN(ts)) {
+          items.push({ title, publisher: source, url: link, timestamp: new Date(ts).toISOString(), timestampMs: ts });
+        }
+      }
+    }
+    return items;
+  } catch (err: any) {
+    console.error("[GoogleNewsRSS]", err.message);
+    return [];
+  }
+}
+
 // ─── Search ───────────────────────────────────────────────────────────────────
 router.get("/search", async (req, res) => {
   const q = req.query.q as string;
@@ -203,7 +259,6 @@ router.get("/quote", async (req, res) => {
     for (const sym of symbolList) {
       const q = await fetchQuoteViaChart(sym);
       if (q) result.push(q);
-      // Small sequential delay to avoid rate limiting
       if (symbolList.length > 1) await new Promise((r) => setTimeout(r, 150));
     }
     res.json({ result });
@@ -259,112 +314,143 @@ router.get("/chart/:symbol", async (req, res) => {
   }
 });
 
-// ─── Events (AI-powered news) ─────────────────────────────────────────────────
+// ─── Events (AI-powered, multi-source, period-aware, relevance-filtered) ──────
 router.get("/events/:symbol", async (req, res) => {
   const { symbol } = req.params;
+  const period = (req.query.period as string) || "week";
 
-  const cacheKey = `events:${symbol}`;
+  const cacheKey = `events:${symbol}:${period}`;
   const cached = getFromCache<any[]>(cacheKey);
   if (cached) return void res.json({ events: cached });
 
   try {
-    const url = `${YF1}/v1/finance/search?q=${encodeURIComponent(symbol)}&quotesCount=0&newsCount=8&enableFuzzyQuery=false`;
-    const data = await yfFetch(url);
-    const rawNews: any[] = data?.news ?? [];
-    const items = rawNews.slice(0, 5);
+    const now = Date.now();
+    const cutoffs: Record<string, number> = {
+      day:   now - 1  * 24 * 60 * 60 * 1000,
+      week:  now - 7  * 24 * 60 * 60 * 1000,
+      month: now - 30 * 24 * 60 * 60 * 1000,
+      year:  now - 365 * 24 * 60 * 60 * 1000,
+    };
+    const cutoffMs = cutoffs[period] ?? cutoffs.week;
 
-    if (items.length === 0) return void res.json({ events: [] });
+    // Fetch Yahoo Finance news + Google News RSS in parallel
+    const [yfData, googleItems] = await Promise.allSettled([
+      yfFetch(`${YF1}/v1/finance/search?q=${encodeURIComponent(symbol)}&quotesCount=0&newsCount=10&enableFuzzyQuery=false`),
+      fetchGoogleNewsRSS(`${symbol} stock`),
+    ]);
 
-    const results = await Promise.allSettled(
-      items.map((item, idx) => {
-        try {
-          const title = item.title ?? "Untitled";
-          const publisher = item.publisher ?? "Unknown";
-          const timestamp = item.providerPublishTime
-            ? new Date(item.providerPublishTime * 1000).toISOString()
-            : new Date().toISOString();
+    const yfNews: any[] = yfData.status === "fulfilled" ? (yfData.value?.news ?? []).slice(0, 8) : [];
+    const gnItems: NewsItem[] = googleItems.status === "fulfilled" ? googleItems.value : [];
 
-          return openai.chat.completions.create({
-            model: "gpt-5-mini",
-            messages: [
-              {
-                role: "user",
-                content: `You are a financial analyst explaining news to everyday investors.
-
-Stock: ${symbol}
-News headline: "${title}"
-Source: ${publisher}
-
-Write 3 short plain-English sections about how this news affects ${symbol} specifically:
-WHAT: (1-2 sentences) What exactly happened with ${symbol}? Be factual and specific to this company.
-WHY: (1-2 sentences) Why does this matter for someone who owns or is considering ${symbol}?
-UNUSUAL: (1 sentence) What is noteworthy or surprising about this for ${symbol}?
-
-Respond only in this exact format:
-WHAT: [your answer]
-WHY: [your answer]
-UNUSUAL: [your answer]`,
-              },
-            ],
-          }).then((completion) => {
-            const text = completion.choices[0]?.message?.content ?? "";
-            const parse = (label: string): string => {
-              const m = text.match(new RegExp(`${label}:([\\s\\S]+?)(?=WHAT:|WHY:|UNUSUAL:|$)`, "i"));
-              return m?.[1]?.trim() ?? "";
-            };
-
-            const titleLower = title.toLowerCase();
-            const pos = ["beat", "surge", "gain", "rise", "growth", "record", "high", "upgrade", "profit", "strong", "exceed", "soar"];
-            const neg = ["miss", "drop", "fall", "decline", "loss", "cut", "downgrade", "warn", "weak", "below", "slump"];
-
-            return {
-              id: item.uuid ?? `event-${idx}`,
-              ticker: symbol,
-              type: detectEventType(titleLower),
-              title,
-              publisher,
-              url: item.link ?? "",
-              what: parse("WHAT") || title,
-              why: parse("WHY") || "This development may affect the stock's near-term performance.",
-              unusual: parse("UNUSUAL") || "Monitor for follow-up reactions in the days ahead.",
-              timestamp,
-              sentiment: pos.some(w => titleLower.includes(w)) ? "positive" : neg.some(w => titleLower.includes(w)) ? "negative" : "neutral",
-            };
-          });
-        } catch (syncErr: any) {
-          return Promise.reject(syncErr);
-        }
-      })
-    );
-
-    const events: any[] = results.map((result, idx) => {
-      if (result.status === "fulfilled") return result.value;
-      const item = items[idx];
-      console.error(`[events] AI/parse error for item ${idx}:`, (result.reason as any)?.message?.slice(0, 200));
-      return {
-        id: item.uuid ?? `event-${idx}`,
-        ticker: symbol,
-        type: "news",
-        title: item.title ?? "News",
-        publisher: item.publisher ?? "",
+    // Normalise and merge
+    const allArticles: Array<NewsItem & { sourceLabel: string; idx: number }> = [
+      ...yfNews.map((item: any, i: number) => ({
+        title: item.title ?? "",
+        publisher: item.publisher ?? "Yahoo Finance",
         url: item.link ?? "",
-        what: item.title ?? "News headline",
-        why: "This news may be relevant to your investment.",
-        unusual: "Check the full article for more context.",
-        timestamp: item.providerPublishTime
-          ? new Date(item.providerPublishTime * 1000).toISOString()
-          : new Date().toISOString(),
-        sentiment: "neutral",
+        timestamp: item.providerPublishTime ? new Date(item.providerPublishTime * 1000).toISOString() : new Date().toISOString(),
+        timestampMs: item.providerPublishTime ? item.providerPublishTime * 1000 : now,
+        sourceLabel: "Yahoo Finance",
+        idx: i,
+      })),
+      ...gnItems.map((item, i) => ({
+        ...item,
+        sourceLabel: item.publisher,
+        idx: yfNews.length + i,
+      })),
+    ]
+      .filter((a) => a.title.length > 10 && a.timestampMs >= cutoffMs)
+      // dedupe near-identical titles
+      .reduce<Array<NewsItem & { sourceLabel: string; idx: number }>>((acc, a) => {
+        const isDupe = acc.some((existing) => {
+          const overlap = longestCommonWords(existing.title, a.title);
+          return overlap >= 4;
+        });
+        if (!isDupe) acc.push(a);
+        return acc;
+      }, [])
+      .slice(0, 14);
+
+    if (allArticles.length === 0) return void res.json({ events: [] });
+
+    // ONE consolidated AI call: filter + group + summarise
+    const prompt = `You are a senior financial analyst. Analyse these news headlines for stock ticker "${symbol}".
+
+Headlines (numbered):
+${allArticles.map((a, i) => `${i + 1}. [${a.sourceLabel}] "${a.title}" (published: ${a.timestamp.slice(0, 10)})`).join("\n")}
+
+Tasks:
+1. DISCARD any headline that is NOT directly about ${symbol}'s business, financials, leadership, products, or market performance. Be strict.
+2. GROUP headlines about the same event or topic together.
+3. For each group (up to 5 groups total), produce a JSON object.
+
+Return ONLY a JSON array. No markdown, no prose. Format:
+[
+  {
+    "title": "Concise headline (max 80 chars)",
+    "type": "earnings" | "analyst" | "price_move" | "news",
+    "sentiment": "positive" | "negative" | "neutral",
+    "what": "1-2 sentences: exactly what happened with ${symbol}. Factual, specific.",
+    "why": "1-2 sentences: why this matters for ${symbol} investors.",
+    "unusual": "1 sentence: what is notable or surprising.",
+    "combinedFrom": [1, 3, 7],
+    "primarySource": 1
+  }
+]
+
+If fewer than 2 headlines are genuinely relevant to ${symbol}, return an empty array [].`;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-5-mini",
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const text = completion.choices[0]?.message?.content ?? "[]";
+    let parsed: any[] = [];
+    try {
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+    } catch {
+      parsed = [];
+    }
+
+    const events = parsed.slice(0, 5).map((e: any, idx: number) => {
+      const primaryIdx = (e.primarySource ?? 1) - 1;
+      const source = allArticles[primaryIdx] ?? allArticles[0];
+      const combinedCount = Array.isArray(e.combinedFrom) ? e.combinedFrom.length : 1;
+      return {
+        id: `event-${symbol}-${idx}-${Date.now()}`,
+        ticker: symbol,
+        type: e.type || "news",
+        title: e.title || source?.title || "Market Update",
+        publisher: combinedCount > 1 ? `${combinedCount} sources` : (source?.publisher || "News"),
+        url: source?.url || "",
+        what: e.what || "",
+        why: e.why || "",
+        unusual: e.unusual || "",
+        timestamp: source?.timestamp || new Date().toISOString(),
+        sentiment: e.sentiment || "neutral",
+        combinedCount,
       };
     });
 
-    setInCache(cacheKey, events, 15 * 60 * 1000);
+    const ttl =
+      period === "day" ? 20 * 60 * 1000
+      : period === "week" ? 60 * 60 * 1000
+      : 4 * 60 * 60 * 1000;
+
+    setInCache(cacheKey, events, ttl);
     res.json({ events });
   } catch (err: any) {
     console.error("[events]", err.message);
     res.status(500).json({ events: [], error: "Failed to get events" });
   }
 });
+
+function longestCommonWords(a: string, b: string): number {
+  const wa = new Set(a.toLowerCase().split(/\s+/));
+  return b.toLowerCase().split(/\s+/).filter((w) => w.length > 3 && wa.has(w)).length;
+}
 
 function detectEventType(titleLower: string): string {
   if (titleLower.includes("earn") || titleLower.includes("eps") || titleLower.includes("revenue")) return "earnings";
@@ -373,7 +459,6 @@ function detectEventType(titleLower: string): string {
   return "news";
 }
 
-// Warm up auth on startup
 setTimeout(() => refreshYFAuth(), 1000);
 
 export default router;

@@ -28,7 +28,7 @@ import { useColors } from "@/hooks/useColors";
 import { useWatchlist } from "@/context/WatchlistContext";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { PaywallSheet } from "@/components/PaywallSheet";
-import { getChart, getQuotes, getEvents, CHART_RANGES, formatPrice, formatMarketCap, exchangeToFlag, type StockEvent } from "@/services/stockApi";
+import { getChart, getQuotes, getEvents, CHART_RANGES, EVENT_PERIODS, formatPrice, formatMarketCap, exchangeToFlag, type StockEvent, type EventPeriod } from "@/services/stockApi";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const CHART_HEIGHT = 185;
@@ -429,6 +429,7 @@ export default function StockDetailScreen() {
   const [chartMode, setChartMode] = useState<ChartMode>("price");
   const [events, setEvents] = useState<StockEvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(true);
+  const [selectedPeriod, setSelectedPeriod] = useState<EventPeriod>("week");
   const [selectedRange, setSelectedRange] = useState(2); // 1M default
   const [stockViewable, setStockViewable] = useState(true);
   const [paywallReason, setPaywallReason] = useState<"ai_stock_limit" | "stock_daily_limit">("ai_stock_limit");
@@ -483,11 +484,12 @@ export default function StockDetailScreen() {
   useEffect(() => {
     if (!ticker) return;
     setEventsLoading(true);
-    getEvents(ticker)
+    setEvents([]);
+    getEvents(ticker, selectedPeriod)
       .then((evts) => setEvents(evts))
       .catch(() => setEvents([]))
       .finally(() => setEventsLoading(false));
-  }, [ticker]);
+  }, [ticker, selectedPeriod]);
 
   // Derived values
   const price = liveQuote?.regularMarketPrice ?? cachedStock?.price ?? 0;
@@ -712,6 +714,33 @@ export default function StockDetailScreen() {
             )}
           </View>
 
+          {/* Period picker */}
+          <View style={{ flexDirection: "row", gap: 6, marginBottom: 14, marginTop: 4 }}>
+            {EVENT_PERIODS.map((p) => {
+              const active = selectedPeriod === p.key;
+              return (
+                <TouchableOpacity
+                  key={p.key}
+                  style={[
+                    styles.periodPill,
+                    {
+                      backgroundColor: active ? colors.primary : colors.secondary,
+                      borderColor: active ? colors.primary : colors.border,
+                    },
+                  ]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setSelectedPeriod(p.key);
+                  }}
+                >
+                  <Text style={[styles.periodPillText, { color: active ? colors.primaryForeground : colors.mutedForeground }]}>
+                    {p.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
           {/* Stock limit banner */}
           {!stockViewable && (
             <TouchableOpacity
@@ -831,6 +860,8 @@ const styles = StyleSheet.create({
 
   eventsLoading: { alignItems: "center", gap: 10, paddingVertical: 24 },
   eventsLoadingText: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  periodPill: { paddingHorizontal: 11, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
+  periodPillText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
   noEvents: { padding: 20, borderRadius: 12, borderWidth: 1, borderStyle: "dashed", alignItems: "center" },
   noEventsText: { fontSize: 13, fontFamily: "Inter_400Regular" },
 

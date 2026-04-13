@@ -6,13 +6,14 @@ import { useAuth } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription } from "@/context/SubscriptionContext";
 
-const ICON_SIZE = 24;
+const ICON_SIZE = 23;
 
 export default function TabLayout() {
   const { tier, isAdmin } = useSubscription();
   const { isSignedIn, isLoaded } = useAuth();
   const colors = useColors();
   const isWeb = Platform.OS === "web";
+
   if (!isLoaded) return null;
   if (!isSignedIn) return <Redirect href="/(auth)/sign-in" />;
 
@@ -27,7 +28,7 @@ export default function TabLayout() {
           borderTopWidth: 1,
           borderTopColor: colors.border,
           elevation: 0,
-          height: isWeb ? 84 : 60,
+          height: isWeb ? 84 : 62,
           paddingBottom: isWeb ? 16 : 8,
           paddingTop: 8,
         },
@@ -36,44 +37,42 @@ export default function TabLayout() {
           fontFamily: "Inter_600SemiBold",
           marginTop: 2,
         },
-        tabBarIconStyle: {
-          marginBottom: 0,
-        },
       }}
     >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "Watchlist",
-          tabBarIcon: ({ color, focused }) => (
-            <Feather name={focused ? "bar-chart-2" : "bar-chart-2"} size={ICON_SIZE} color={color} />
-          ),
-        }}
-      />
       <Tabs.Screen
         name="digest"
         options={{
           title: "Digest",
-          tabBarIcon: ({ color, focused }) => (
-            <Feather name="book-open" size={ICON_SIZE} color={color} />
-          ),
+          tabBarIcon: ({ color }) => <Feather name="book-open" size={ICON_SIZE} color={color} />,
         }}
       />
       <Tabs.Screen
         name="search"
         options={{
           title: "Search",
+          tabBarIcon: ({ color }) => <Feather name="search" size={ICON_SIZE} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: "Home",
           tabBarIcon: ({ color, focused }) => (
             <View style={{
               backgroundColor: focused ? colors.primary : colors.primary + "22",
-              width: 40,
-              height: 40,
-              borderRadius: 20,
+              width: 44,
+              height: 44,
+              borderRadius: 22,
               alignItems: "center",
               justifyContent: "center",
-              marginTop: -8,
+              marginTop: -10,
+              shadowColor: colors.primary,
+              shadowOpacity: focused ? 0.4 : 0,
+              shadowRadius: 8,
+              shadowOffset: { width: 0, height: 4 },
+              elevation: focused ? 6 : 0,
             }}>
-              <Feather name="search" size={20} color={focused ? colors.primaryForeground : colors.primary} />
+              <Feather name="home" size={20} color={focused ? colors.primaryForeground : colors.primary} />
             </View>
           ),
           tabBarLabel: () => null,
@@ -83,18 +82,22 @@ export default function TabLayout() {
         name="insights"
         options={{
           title: "Insights",
-          tabBarIcon: ({ color, focused }) => (
-            <Feather name="pie-chart" size={ICON_SIZE} color={color} />
-          ),
+          tabBarIcon: ({ color }) => <Feather name="pie-chart" size={ICON_SIZE} color={color} />,
         }}
       />
       <Tabs.Screen
         name="account"
         options={{
           title: "Account",
-          tabBarIcon: ({ color, focused }) => (
-            <Feather name="user" size={ICON_SIZE} color={color} />
-          ),
+          tabBarIcon: ({ color }) => <Feather name="user" size={ICON_SIZE} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="alerts"
+        options={{
+          href: null,
+          tabBarButton: () => null,
+          tabBarIcon: ({ color }) => <Feather name="bell" size={ICON_SIZE} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -102,9 +105,7 @@ export default function TabLayout() {
         options={{
           title: "Admin",
           tabBarButton: isAdmin ? undefined : () => null,
-          tabBarIcon: ({ color, focused }) => (
-            <Feather name="shield" size={ICON_SIZE} color={color} />
-          ),
+          tabBarIcon: ({ color }) => <Feather name="shield" size={ICON_SIZE} color={color} />,
         }}
       />
     </Tabs>

@@ -12,14 +12,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { useWatchlist } from "@/context/WatchlistContext";
 import DigestCard from "@/components/DigestCard";
-import EventCard from "@/components/EventCard";
+import AlertCard from "@/components/AlertCard";
 
 type Tab = "digest" | "events";
 
 export default function DigestScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { digest, events } = useWatchlist();
+  const { digest, alerts } = useWatchlist();
   const [activeTab, setActiveTab] = useState<Tab>("digest");
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
@@ -40,7 +40,7 @@ export default function DigestScreen() {
       <Text style={[styles.screenTitle, { color: colors.foreground }]}>Market Digest</Text>
       <Text style={[styles.date, { color: colors.mutedForeground }]}>{today}</Text>
 
-      {digest.length === 0 && events.length === 0 ? (
+      {digest.length === 0 && alerts.length === 0 ? (
         <View style={[styles.emptyContainer, { borderColor: colors.border }]}>
           <Feather name="book-open" size={32} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Nothing to digest</Text>
@@ -88,8 +88,8 @@ export default function DigestScreen() {
               <Text style={[styles.sectionNote, { color: colors.mutedForeground }]}>
                 Tap any event to expand — each one covers what happened, why it may matter, and how unusual it is.
               </Text>
-              {events.map((event) => (
-                <EventCard key={event.id} event={event} />
+              {alerts.map((alert) => (
+                <AlertCard key={alert.id} alert={alert} />
               ))}
             </View>
           )}

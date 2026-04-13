@@ -28,7 +28,7 @@ const ALERT_FILTERS: { key: AlertFilter; label: string; icon: string }[] = [
 export default function AlertsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { alerts, unreadAlertCount } = useWatchlist();
+  const { alerts, unreadAlertCount, markAllAlertsRead } = useWatchlist();
   const [filter, setFilter] = useState<AlertFilter>("all");
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
@@ -50,11 +50,22 @@ export default function AlertsScreen() {
     >
       <View style={styles.titleRow}>
         <Text style={[styles.screenTitle, { color: colors.foreground }]}>Alerts</Text>
-        {unreadAlertCount > 0 && (
-          <View style={[styles.countBadge, { backgroundColor: `${colors.primary}22`, borderColor: `${colors.primary}44` }]}>
-            <Text style={[styles.countText, { color: colors.primary }]}>{unreadAlertCount} new</Text>
-          </View>
-        )}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          {unreadAlertCount > 0 && (
+            <View style={[styles.countBadge, { backgroundColor: `${colors.primary}22`, borderColor: `${colors.primary}44` }]}>
+              <Text style={[styles.countText, { color: colors.primary }]}>{unreadAlertCount} new</Text>
+            </View>
+          )}
+          {unreadAlertCount > 0 && (
+            <TouchableOpacity
+              style={[styles.markAllButton, { backgroundColor: colors.secondary, borderColor: colors.border }]}
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); markAllAlertsRead(); }}
+            >
+              <Feather name="check-circle" size={13} color={colors.mutedForeground} />
+              <Text style={[styles.markAllText, { color: colors.mutedForeground }]}>Mark all read</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
       <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
         Unusual activity on your watchlist — with plain-language explanations.
@@ -137,6 +148,8 @@ const styles = StyleSheet.create({
   filterChip: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, borderWidth: 1, gap: 5 },
   filterChipText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
   groupLabel: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 1, marginBottom: 8 },
+  markAllButton: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1 },
+  markAllText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
   empty: {
     alignItems: "center", paddingVertical: 48, gap: 10, borderWidth: 1,
     borderStyle: "dashed", borderRadius: 16, paddingHorizontal: 24, marginTop: 8,

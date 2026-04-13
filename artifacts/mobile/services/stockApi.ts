@@ -49,7 +49,7 @@ export interface ChartData {
 export interface StockEvent {
   id: string;
   ticker: string;
-  type: string;
+  type: "earnings" | "analyst" | "price_move" | "news" | "announcement";
   title: string;
   publisher: string;
   url: string;
@@ -58,7 +58,10 @@ export interface StockEvent {
   unusual: string;
   timestamp: string;
   sentiment: "positive" | "negative" | "neutral";
+  combinedCount?: number;
 }
+
+export type EventPeriod = "day" | "week" | "month" | "year";
 
 export const CHART_RANGES: { label: string; range: string; interval: string }[] = [
   { label: "1D", range: "1d", interval: "5m" },
@@ -68,6 +71,13 @@ export const CHART_RANGES: { label: string; range: string; interval: string }[] 
   { label: "1Y", range: "1y", interval: "1wk" },
   { label: "3Y", range: "3y", interval: "1mo" },
   { label: "5Y", range: "5y", interval: "1mo" },
+];
+
+export const EVENT_PERIODS: { key: EventPeriod; label: string }[] = [
+  { key: "day",   label: "Today" },
+  { key: "week",  label: "This Week" },
+  { key: "month", label: "This Month" },
+  { key: "year",  label: "This Year" },
 ];
 
 export async function searchStocks(query: string): Promise<SearchResult[]> {
@@ -89,8 +99,8 @@ export async function getChart(symbol: string, range: string, interval: string):
   return res.json();
 }
 
-export async function getEvents(symbol: string): Promise<StockEvent[]> {
-  const res = await fetch(`${API_BASE}/stocks/events/${encodeURIComponent(symbol)}`);
+export async function getEvents(symbol: string, period: EventPeriod = "week"): Promise<StockEvent[]> {
+  const res = await fetch(`${API_BASE}/stocks/events/${encodeURIComponent(symbol)}?period=${period}`);
   const data = await res.json();
   return data.events ?? [];
 }

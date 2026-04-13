@@ -43,7 +43,7 @@ export default function WatchlistScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user } = useUser();
-  const { watchlist, stocks, unreadAlertCount, folders, activeFolderId, displayName } = useWatchlist();
+  const { watchlist, stocks, unreadAlertCount, folders, activeFolderId, displayName, markAllAlertsRead } = useWatchlist();
   const [filter, setFilter] = useState<Filter>("all");
   const params = useLocalSearchParams<{ pendingTimezone?: string }>();
 
@@ -93,17 +93,17 @@ export default function WatchlistScreen() {
             <Text style={[styles.appTitle, { color: colors.foreground }]}>StockClarify</Text>
           </View>
           <View style={styles.headerButtons}>
-            {unreadAlertCount > 0 && (
-              <TouchableOpacity
-                style={[styles.iconButton, { backgroundColor: colors.secondary }]}
-                onPress={() => router.push("/(tabs)/alerts")}
-              >
-                <Feather name="bell" size={18} color={colors.primary} />
+            <TouchableOpacity
+              style={[styles.iconButton, { backgroundColor: colors.secondary }]}
+              onPress={() => router.push("/(tabs)/alerts")}
+            >
+              <Feather name="bell" size={18} color={unreadAlertCount > 0 ? colors.primary : colors.mutedForeground} />
+              {unreadAlertCount > 0 && (
                 <View style={[styles.badge, { backgroundColor: colors.primary }]}>
                   <Text style={[styles.badgeText, { color: colors.primaryForeground }]}>{unreadAlertCount}</Text>
                 </View>
-              </TouchableOpacity>
-            )}
+              )}
+            </TouchableOpacity>
           </View>
         </View>
 
