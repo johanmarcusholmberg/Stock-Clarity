@@ -58,7 +58,7 @@ interface SubscriptionState {
   refresh: () => void;
   fetchPlans: () => void;
   startCheckout: (priceId: string) => Promise<string | null>;
-  openPortal: () => Promise<string | null>;
+  openPortal: () => Promise<{ url: string | null; error?: string }>;
   adminOverrideTier: (tier: Tier, targetUserId?: string) => Promise<boolean>;
 }
 
@@ -86,7 +86,7 @@ const SubscriptionContext = createContext<SubscriptionState>({
   refresh: () => {},
   fetchPlans: () => {},
   startCheckout: async () => null,
-  openPortal: async () => null,
+  openPortal: async () => ({ url: null }),
   adminOverrideTier: async () => false,
 });
 
@@ -224,7 +224,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       const res = await fetch(`${API_BASE}/payment/checkout`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ priceId, userId }),
+        body: JSON.stringify({ priceId, userId, email }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -232,21 +232,21 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       }
     } catch {}
     return null;
-  }, [userId]);
+  }, [userId, email]);
 
-  const openPortal = useCallback(async (): Promise<string | null> => {
+  const openPortal = useCallback(async (): Promise<{ url: string | null; error?: string }> => {
     try {
       const res = await fetch(`${API_BASE}/payment/portal`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        return data.url ?? null;
-      }
-    } catch {}
-    return null;
+      const data = await res.json();
+      if (res.ok) return { url: data.url ?? null };
+      return { url: null, error: data.error ?? "Portal unavailable" };
+    } catch {
+      return { url: null, error: "Network error" };
+    }
   }, [userId]);
 
   const adminOverrideTier = useCallback(async (newTier: Tier, targetUserId?: string): Promise<boolean> => {

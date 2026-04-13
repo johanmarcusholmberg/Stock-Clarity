@@ -99,9 +99,21 @@ export default function AccountScreen() {
     }
     setPortalLoading(true);
     try {
-      const url = await openPortal();
-      if (url) await Linking.openURL(url);
-      else Alert.alert("Error", "Could not open subscription portal. Please try again.");
+      const { url, error } = await openPortal();
+      if (url) {
+        await Linking.openURL(url);
+      } else if (error === "No subscription found") {
+        Alert.alert(
+          "No billing account",
+          "There's no Stripe billing account linked to your profile. This can happen if your plan was activated manually. To manage billing, please subscribe through the app.",
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "View Plans", onPress: () => setShowPaywall(true) },
+          ]
+        );
+      } else {
+        Alert.alert("Unavailable", "Could not open the subscription portal. Please try again later.");
+      }
     } finally {
       setPortalLoading(false);
     }

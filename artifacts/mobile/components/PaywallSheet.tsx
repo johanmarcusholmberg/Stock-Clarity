@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
+  Alert,
   Linking,
   Dimensions,
   Platform,
@@ -65,7 +66,11 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general" }: Pr
     setLoadingPriceId(price.id);
     try {
       const url = await startCheckout(price.id);
-      if (url) await Linking.openURL(url);
+      if (url) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert("Checkout unavailable", "Could not start checkout. Please try again in a moment.");
+      }
     } finally {
       setLoadingPriceId(null);
     }
