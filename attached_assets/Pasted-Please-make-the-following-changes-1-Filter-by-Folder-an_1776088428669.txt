@@ -1,0 +1,29 @@
+Please make the following changes:
+1. Filter by Folder and Stock in the Digest Section
+Add filtering capabilities to the digest section so users can narrow down the content they see:
+
+Add a folder filter that lets the user select one or more of their folders to only show digest content relevant to stocks within those folders
+Add a stock filter that lets the user select specific individual stocks to show only digest content related to those stocks
+Both filters should be accessible from the top of the digest view in a clean and unobtrusive way — for example as a filter icon or dropdown that expands when tapped
+If no filter is applied, the digest should show content for all stocks as it currently does
+
+
+2. Unify Search Function When Adding Stocks to a Folder
+The search function used when adding a stock from within a folder view is currently not returning the same results as the main search. This needs to be fixed:
+
+The search used inside the folder add-stock flow must use the exact same search function, data source, and logic as the main app search — they should never return different results for the same query
+Test specifically with "SSAB" and any other stocks that were previously unfindable to confirm the fix works
+There should be no separate or reduced search implementation anywhere in the app — all search entry points must route through the same unified search
+
+
+3. Fix Folder Deletion — Cancel Button Not Working
+The folder deletion flow is currently broken — the folder gets deleted regardless of whether the user selects "OK" or "Cancel". Fix the following:
+
+"Cancel" must fully abort the deletion and return the user to the folder with no changes made
+Replace the current single "OK" confirmation with two clearly distinct options:
+
+"Delete folder only" — removes the folder but keeps all stocks in "My Watchlist" and any other folders they belong to
+"Delete folder and remove stocks" — removes the folder and fully removes all its stocks from the Watchlist and all other folders
+
+
+Neither action should trigger until the user explicitly selects one of these two options — no accidental deletions

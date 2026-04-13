@@ -2,8 +2,9 @@ import { Feather } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Haptics from "expo-haptics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import {
+  Alert,
   Platform,
   ScrollView,
   StyleSheet,
@@ -17,6 +18,9 @@ import { useColors } from "@/hooks/useColors";
 import { useWatchlist } from "@/context/WatchlistContext";
 import StockCard from "@/components/StockCard";
 import { FolderTabStrip } from "@/components/FolderTabStrip";
+import { FolderAddSheet } from "@/components/FolderAddSheet";
+
+const DEFAULT_FOLDER_ID = "default";
 
 function getTimeAwareGreeting(name: string, timezone?: string): string {
   const greetName = name ? `, ${name}` : "";
@@ -44,9 +48,22 @@ export default function WatchlistScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user } = useUser();
-  const { watchlist, stocks, unreadAlertCount, folders, activeFolderId, displayName, markAllAlertsRead } = useWatchlist();
+  const {
+    watchlist,
+    stocks,
+    unreadAlertCount,
+    folders,
+    activeFolderId,
+    displayName,
+    removeFromFolder,
+    deleteFolder,
+  } = useWatchlist();
+
   const [filter, setFilter] = useState<Filter>("all");
   const [showPercent, setShowPercent] = useState(true);
+  const [editMode, setEditMode] = useState(false);
+  const [pendingRemovals, setPendingRemovals] = useState<Set<string>>(new Set());
+  const [addSheetVisible, setAddSheetVisible] = useState(false);
   const params = useLocalSearchParams<{ pendingTimezone?: string }>();
 
   useEffect(() => {
@@ -86,18 +103,83 @@ export default function WatchlistScreen() {
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
 
   const activeFolder = folders.find((f) => f.id === activeFolderId);
+  const isDefaultFolder = activeFolderId === DEFAULT_FOLDER_ID;
 
   const allWatched = watchlist.map((ticker) => stocks[ticker]).filter(Boolean);
   const gainers = allWatched.filter((s) => s.changePercent >= 0);
   const losers = allWatched.filter((s) => s.changePercent < 0);
 
-  const displayed = filter === "gainers" ? gainers : filter === "losers" ? losers : allWatched;
+  const baseDisplayed = filter === "gainers" ? gainers : filter === "losers" ? losers : allWatched;
+  const displayed = editMode
+    ? baseDisplayed.filter((s) => !pendingRemovals.has(s.ticker))
+    : baseDisplayed;
 
   const FILTERS: { key: Filter; label: string; count: number }[] = [
     { key: "all", label: "All", count: allWatched.length },
     { key: "gainers", label: "Gainers", count: gainers.length },
     { key: "losers", label: "Losers", count: losers.length },
   ];
+
+  const handleEnterEdit = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setPendingRemovals(new Set());
+    setEditMode(true);
+  }, []);
+
+  const handleDoneEdit = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    pendingRemovals.forEach((ticker) => {
+      removeFromFolder(ticker, activeFolderId);
+    });
+    setPendingRemovals(new Set());
+    setEditMode(false);
+  }, [pendingRemovals, removeFromFolder, activeFolderId]);
+
+  const handlePendingRemove = useCallback((ticker: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setPendingRemovals((prev) => {
+      const next = new Set(prev);
+      next.add(ticker);
+      return next;
+    });
+  }, []);
+
+  const handleDeleteFolder = useCallback(() => {
+    if (!activeFolder || isDefaultFolder) return;
+    const folderName = activeFolder.name;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (Platform.OS === "web") {
+      const removeStocks = window.confirm(
+        `Delete "${folderName}"?\n\nOK = Remove folder and stocks from all folders\nCancel = Remove folder only (keep stocks in My Watchlist)`
+      );
+      deleteFolder(activeFolderId, removeStocks);
+      setEditMode(false);
+    } else {
+      Alert.alert(
+        `Delete "${folderName}"?`,
+        "What should happen to the stocks in this folder?",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Remove folder only",
+            style: "default",
+            onPress: () => {
+              deleteFolder(activeFolderId, false);
+              setEditMode(false);
+            },
+          },
+          {
+            text: "Remove folder and stocks",
+            style: "destructive",
+            onPress: () => {
+              deleteFolder(activeFolderId, true);
+              setEditMode(false);
+            },
+          },
+        ]
+      );
+    }
+  }, [activeFolder, isDefaultFolder, activeFolderId, deleteFolder]);
 
   return (
     <View style={[styles.fill, { backgroundColor: colors.background }]}>
@@ -141,19 +223,51 @@ export default function WatchlistScreen() {
 
         <FolderTabStrip />
 
-        {/* Toolbar row 1: section title + Add Stock */}
-        <View style={[styles.toolbarRow, { paddingHorizontal: 16, marginBottom: 10 }]}>
-          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
-            {activeFolder?.name ?? "Watchlist"}
-          </Text>
-          <TouchableOpacity
-            style={[styles.addButton, { backgroundColor: colors.primary }]}
-            onPress={() => router.push("/(tabs)/search")}
-          >
-            <Feather name="plus" size={14} color={colors.primaryForeground} />
-            <Text style={[styles.addButtonText, { color: colors.primaryForeground }]}>Add Stock</Text>
-          </TouchableOpacity>
-        </View>
+        {/* Toolbar row 1: section title + action buttons */}
+        {editMode ? (
+          <View style={[styles.toolbarRow, { paddingHorizontal: 16, marginBottom: 10 }]}>
+            {!isDefaultFolder ? (
+              <TouchableOpacity
+                style={[styles.deleteButton, { backgroundColor: colors.negative + "18", borderColor: colors.negative + "44" }]}
+                onPress={handleDeleteFolder}
+              >
+                <Feather name="trash-2" size={13} color={colors.negative} />
+                <Text style={[styles.deleteButtonText, { color: colors.negative }]}>Delete Folder</Text>
+              </TouchableOpacity>
+            ) : (
+              <View />
+            )}
+            <TouchableOpacity
+              style={[styles.doneButton, { backgroundColor: colors.primary }]}
+              onPress={handleDoneEdit}
+            >
+              <Text style={[styles.doneButtonText, { color: colors.primaryForeground }]}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={[styles.toolbarRow, { paddingHorizontal: 16, marginBottom: 10 }]}>
+            <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
+              {activeFolder?.name ?? "Watchlist"}
+            </Text>
+            <View style={styles.toolbarRight}>
+              {allWatched.length > 0 && (
+                <TouchableOpacity
+                  style={[styles.editButton, { backgroundColor: colors.secondary, borderColor: colors.border }]}
+                  onPress={handleEnterEdit}
+                >
+                  <Text style={[styles.editButtonText, { color: colors.foreground }]}>Edit</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={[styles.addButton, { backgroundColor: colors.primary }]}
+                onPress={() => setAddSheetVisible(true)}
+              >
+                <Feather name="plus" size={14} color={colors.primaryForeground} />
+                <Text style={[styles.addButtonText, { color: colors.primaryForeground }]}>Add Stock</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* Toolbar row 2: filters (left) + %/$ toggle (right) */}
         <View style={[styles.filterRow, { marginBottom: 12, paddingHorizontal: 16, justifyContent: "space-between" }]}>
@@ -206,20 +320,38 @@ export default function WatchlistScreen() {
             </Text>
             <TouchableOpacity
               style={[styles.emptyButton, { backgroundColor: colors.primary }]}
-              onPress={() => router.push("/(tabs)/search")}
+              onPress={() => setAddSheetVisible(true)}
             >
               <Text style={[styles.emptyButtonText, { color: colors.primaryForeground }]}>Browse world markets</Text>
             </TouchableOpacity>
+          </View>
+        ) : displayed.length === 0 && editMode ? (
+          <View style={[styles.emptyFilter, { borderColor: colors.border }]}>
+            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>All stocks removed. Tap Done to confirm.</Text>
           </View>
         ) : displayed.length === 0 ? (
           <View style={[styles.emptyFilter, { borderColor: colors.border }]}>
             <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No {filter} right now.</Text>
           </View>
         ) : (
-          displayed.map((stock) => <StockCard key={stock.ticker} stock={stock} showPercent={showPercent} />)
+          displayed.map((stock) => (
+            <StockCard
+              key={stock.ticker}
+              stock={stock}
+              showPercent={showPercent}
+              editMode={editMode}
+              onRemove={() => handlePendingRemove(stock.ticker)}
+            />
+          ))
         )}
       </ScrollView>
 
+      <FolderAddSheet
+        visible={addSheetVisible}
+        onClose={() => setAddSheetVisible(false)}
+        folderId={activeFolderId}
+        folderName={activeFolder?.name ?? "My Watchlist"}
+      />
     </View>
   );
 }
@@ -239,8 +371,15 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 11, fontFamily: "Inter_400Regular" },
   toolbarRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sectionTitle: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  toolbarRight: { flexDirection: "row", alignItems: "center", gap: 8 },
   addButton: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, gap: 5 },
   addButtonText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  editButton: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, borderWidth: 1 },
+  editButtonText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  doneButton: { paddingHorizontal: 18, paddingVertical: 8, borderRadius: 10 },
+  doneButtonText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  deleteButton: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1, gap: 5 },
+  deleteButtonText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   filterRow: { flexDirection: "row", alignItems: "center" },
   filterChips: { flexDirection: "row", gap: 8 },
   changeToggle: { flexDirection: "row", alignItems: "center", borderRadius: 8, borderWidth: 1, overflow: "hidden" },

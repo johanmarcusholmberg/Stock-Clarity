@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from "react";
 import {
-  Alert,
   Modal,
   ScrollView,
   StyleSheet,
@@ -8,7 +7,6 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  Platform,
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { Feather } from "@expo/vector-icons";
@@ -26,7 +24,6 @@ export function FolderTabStrip() {
     setActiveFolderId,
     createFolder,
     renameFolder,
-    deleteFolder,
     canCreateFolder,
     addToFolder,
     stocks,
@@ -34,27 +31,20 @@ export function FolderTabStrip() {
 
   const [showPaywall, setShowPaywall] = useState(false);
 
-  // Create folder modal state
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [createStep, setCreateStep] = useState<1 | 2>(1);
   const [newFolderName, setNewFolderName] = useState("");
   const [pendingFolderId, setPendingFolderId] = useState<string | null>(null);
   const [selectedTickers, setSelectedTickers] = useState<Set<string>>(new Set());
 
-  // Rename modal state
   const [renameModalVisible, setRenameModalVisible] = useState(false);
   const [renameFolderName, setRenameFolderName] = useState("");
+  const [renamingFolder, setRenamingFolder] = useState<WatchlistFolder | null>(null);
 
-  // Context menu state
-  const [contextMenuFolder, setContextMenuFolder] = useState<WatchlistFolder | null>(null);
-  const [contextMenuVisible, setContextMenuVisible] = useState(false);
-
-  // Tickers in "My Watchlist" (default folder) for the stock picker
-  const myWatchlistTickers = useMemo(() => {
-    return folders.find((f) => f.id === DEFAULT_FOLDER_ID)?.tickers ?? [];
-  }, [folders]);
-
-  // ── Create folder ──────────────────────────────────────────────
+  const myWatchlistTickers = useMemo(
+    () => folders.find((f) => f.id === DEFAULT_FOLDER_ID)?.tickers ?? [],
+    [folders]
+  );
 
   const handlePlusPress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -76,7 +66,6 @@ export function FolderTabStrip() {
     if (!folder) return;
     setActiveFolderId(folder.id);
     setPendingFolderId(folder.id);
-    // If there are stocks in My Watchlist, go to step 2
     if (myWatchlistTickers.length > 0) {
       setSelectedTickers(new Set());
       setCreateStep(2);
@@ -109,8 +98,6 @@ export function FolderTabStrip() {
     });
   };
 
-  // ── Tab interaction ────────────────────────────────────────────
-
   const handleTabPress = (id: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setActiveFolderId(id);
@@ -118,68 +105,18 @@ export function FolderTabStrip() {
 
   const handleTabLongPress = (folder: WatchlistFolder) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setContextMenuFolder(folder);
-    setContextMenuVisible(true);
-  };
-
-  // ── Rename ─────────────────────────────────────────────────────
-
-  const handleRenamePress = () => {
-    if (!contextMenuFolder) return;
-    setContextMenuVisible(false);
-    setRenameFolderName(contextMenuFolder.name);
+    setRenamingFolder(folder);
+    setRenameFolderName(folder.name);
     setRenameModalVisible(true);
   };
 
   const handleRenameConfirm = () => {
     const name = renameFolderName.trim();
-    if (!name || !contextMenuFolder) return;
-    renameFolder(contextMenuFolder.id, name);
+    if (!name || !renamingFolder) return;
+    renameFolder(renamingFolder.id, name);
     setRenameModalVisible(false);
-    setContextMenuFolder(null);
+    setRenamingFolder(null);
   };
-
-  // ── Delete ─────────────────────────────────────────────────────
-
-  const handleDeletePress = () => {
-    if (!contextMenuFolder) return;
-    setContextMenuVisible(false);
-    const folderName = contextMenuFolder.name;
-    const folderId = contextMenuFolder.id;
-    if (Platform.OS === "web") {
-      const keepStocks = window.confirm(`Delete "${folderName}"?\n\nOK = keep stocks in My Watchlist\nCancel = abort`);
-      if (keepStocks) {
-        deleteFolder(folderId, false);
-        setContextMenuFolder(null);
-      }
-    } else {
-      Alert.alert(
-        `Delete "${folderName}"?`,
-        "What should happen to the stocks inside?",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Keep in My Watchlist",
-            style: "default",
-            onPress: () => {
-              deleteFolder(folderId, false);
-              setContextMenuFolder(null);
-            },
-          },
-          {
-            text: "Remove stocks too",
-            style: "destructive",
-            onPress: () => {
-              deleteFolder(folderId, true);
-              setContextMenuFolder(null);
-            },
-          },
-        ]
-      );
-    }
-  };
-
-  const canDelete = contextMenuFolder?.id !== DEFAULT_FOLDER_ID;
 
   return (
     <>
@@ -237,24 +174,6 @@ export function FolderTabStrip() {
                       {folder.tickers.length}
                     </Text>
                   </View>
-                )}
-                {!isDefault && (
-                  <TouchableOpacity
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      setContextMenuFolder(folder);
-                      setContextMenuVisible(true);
-                    }}
-                    hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
-                    activeOpacity={0.5}
-                    style={styles.tabMenuBtn}
-                  >
-                    <Feather
-                      name="more-horizontal"
-                      size={13}
-                      color={isActive ? `${colors.primaryForeground}BB` : colors.mutedForeground}
-                    />
-                  </TouchableOpacity>
                 )}
               </TouchableOpacity>
             );
@@ -466,42 +385,6 @@ export function FolderTabStrip() {
         </TouchableOpacity>
       </Modal>
 
-      {/* ── Context Menu ── */}
-      <Modal
-        visible={contextMenuVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setContextMenuVisible(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setContextMenuVisible(false)}
-        >
-          <View
-            style={[styles.contextMenu, { backgroundColor: colors.card, borderColor: colors.border }]}
-            onStartShouldSetResponder={() => true}
-          >
-            <Text style={[styles.contextMenuTitle, { color: colors.mutedForeground }]} numberOfLines={1}>
-              {contextMenuFolder?.name}
-            </Text>
-            <TouchableOpacity style={styles.contextMenuItem} onPress={handleRenamePress}>
-              <Feather name="edit-2" size={16} color={colors.foreground} />
-              <Text style={[styles.contextMenuItemText, { color: colors.foreground }]}>Rename</Text>
-            </TouchableOpacity>
-            {canDelete && (
-              <>
-                <View style={[styles.contextMenuDivider, { backgroundColor: colors.border }]} />
-                <TouchableOpacity style={styles.contextMenuItem} onPress={handleDeletePress}>
-                  <Feather name="trash-2" size={16} color={colors.negative} />
-                  <Text style={[styles.contextMenuItemText, { color: colors.negative }]}>Delete</Text>
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
-        </TouchableOpacity>
-      </Modal>
-
       <PaywallSheet
         visible={showPaywall}
         onClose={() => setShowPaywall(false)}
@@ -548,11 +431,6 @@ const styles = StyleSheet.create({
   countText: {
     fontSize: 10,
     fontFamily: "Inter_700Bold",
-  },
-  tabMenuBtn: {
-    marginLeft: 2,
-    padding: 2,
-    borderRadius: 4,
   },
   addTab: {
     width: 36,
@@ -647,35 +525,5 @@ const styles = StyleSheet.create({
   modalBtnText: {
     fontSize: 14,
     fontFamily: "Inter_600SemiBold",
-  },
-  contextMenu: {
-    width: 220,
-    borderRadius: 16,
-    borderWidth: 1,
-    overflow: "hidden",
-    paddingVertical: 4,
-  },
-  contextMenuTitle: {
-    fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  contextMenuItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 13,
-  },
-  contextMenuItemText: {
-    fontSize: 15,
-    fontFamily: "Inter_500Medium",
-  },
-  contextMenuDivider: {
-    height: 1,
-    marginHorizontal: 16,
   },
 });

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -12,7 +12,9 @@ import {
   Linking,
   Platform,
   Animated,
+  Modal,
 } from "react-native";
+import { DrumRollPicker } from "@/components/DrumRollPicker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -73,6 +75,18 @@ export default function AccountScreen() {
 
   const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs | null>(null);
   const [notifSaving, setNotifSaving] = useState(false);
+  const [timePickerVisible, setTimePickerVisible] = useState(false);
+
+  const toH12 = (h24: number) => h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
+  const toH24 = (h12: number, ampm: "AM" | "PM") => {
+    if (ampm === "AM") return h12 === 12 ? 0 : h12;
+    return h12 === 12 ? 12 : h12 + 12;
+  };
+  const currentH12 = notifPrefs ? toH12(notifPrefs.hour) : 8;
+  const currentAMPM: "AM" | "PM" = notifPrefs ? (notifPrefs.hour < 12 ? "AM" : "PM") : "AM";
+  const [pickerH12, setPickerH12] = useState(currentH12);
+  const [pickerMinute, setPickerMinute] = useState(notifPrefs?.minute ?? 0);
+  const [pickerAMPM, setPickerAMPM] = useState<"AM" | "PM">(currentAMPM);
 
   const toastOpacity = useRef(new Animated.Value(0)).current;
   const toastAnimRef = useRef<ReturnType<typeof Animated.sequence> | null>(null);
@@ -240,6 +254,25 @@ export default function AccountScreen() {
     }
   };
 
+  const HOURS = ["1","2","3","4","5","6","7","8","9","10","11","12"];
+  const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
+
+  const openTimePicker = useCallback(() => {
+    if (!notifPrefs) return;
+    setPickerH12(toH12(notifPrefs.hour));
+    setPickerMinute(notifPrefs.minute ?? 0);
+    setPickerAMPM(notifPrefs.hour < 12 ? "AM" : "PM");
+    setTimePickerVisible(true);
+  }, [notifPrefs]);
+
+  const confirmTimePicker = useCallback(() => {
+    const h24 = toH24(pickerH12, pickerAMPM);
+    setTimePickerVisible(false);
+    if (!notifPrefs) return;
+    handleNotifUpdate((p) => ({ ...p, hour: h24, minute: pickerMinute }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickerH12, pickerMinute, pickerAMPM, notifPrefs]);
+
   const categories: { value: FeedbackCategory; label: string; icon: FeatherIconName }[] = [
     { value: "general", label: "General", icon: "message-circle" },
     { value: "bug", label: "Bug Report", icon: "alert-triangle" },
@@ -320,6 +353,18 @@ export default function AccountScreen() {
     },
     nameEditActions: { flexDirection: "row", alignItems: "center", gap: 8 },
     nameActionBtn: { padding: 4 },
+    timePickerOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center", padding: 24 },
+    timePickerSheet: { width: "100%", maxWidth: 340, borderRadius: 20, borderWidth: 1, padding: 24, gap: 20 },
+    timePickerTitle: { fontSize: 18, fontFamily: "Inter_700Bold", textAlign: "center" },
+    timePickerRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 },
+    timePickerColon: { fontSize: 28, fontFamily: "Inter_700Bold", marginHorizontal: 4, marginBottom: 4 },
+    timePickerAMPM: { gap: 8, marginLeft: 12 },
+    timePickerPeriodBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, borderWidth: 1.5, alignItems: "center" },
+    timePickerPeriodText: { fontSize: 14, fontFamily: "Inter_700Bold" },
+    timePickerButtons: { flexDirection: "row", gap: 10 },
+    timePickerCancelBtn: { flex: 1, paddingVertical: 13, borderRadius: 12, borderWidth: 1, alignItems: "center" },
+    timePickerConfirmBtn: { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: "center" },
+    timePickerBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
   });
 
   const aiPercent = aiSummariesLimit > 999 ? 0 : Math.min(100, (aiSummariesUsedToday / aiSummariesLimit) * 100);
@@ -436,24 +481,23 @@ export default function AccountScreen() {
               </View>
             )}
             {/* AI Usage */}
-            <View style={[s.row, s.rowLast]}>
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <View style={[s.rowIcon, { marginRight: 0 }]}><Feather name="cpu" size={18} color={colors.primary} /></View>
-                  <Text style={[s.rowLabel, { flex: 0 }]}>AI Summaries Today</Text>
-                </View>
-                {tier === "free" ? (
-                  <>
-                    <View style={s.aiBar}>
-                      <View style={[s.aiBarFill, { width: `${aiPercent}%`, backgroundColor: aiPercent >= 80 ? colors.negative : colors.primary }]} />
-                    </View>
-                    <Text style={s.usageText}>{aiSummariesUsedToday} / {aiSummariesLimit} used · {aiSummariesRemaining} remaining</Text>
-                  </>
-                ) : (
-                  <Text style={[s.usageText, { marginTop: 4 }]}>Unlimited on {tierLabels[tier]}</Text>
-                )}
-              </View>
+            <View style={[s.row, tier !== "free" ? s.rowLast : {}]}>
+              <View style={s.rowIcon}><Feather name="cpu" size={18} color={colors.primary} /></View>
+              <Text style={s.rowLabel}>AI Summaries</Text>
+              {tier !== "free" ? (
+                <Text style={[s.rowValue, { color: colors.positive }]}>Unlimited</Text>
+              ) : (
+                <Text style={s.rowValue}>{aiSummariesRemaining} left today</Text>
+              )}
             </View>
+            {tier === "free" && (
+              <View style={[s.row, s.rowLast, { flexDirection: "column", alignItems: "stretch", gap: 6, paddingTop: 4 }]}>
+                <View style={s.aiBar}>
+                  <View style={[s.aiBarFill, { width: `${aiPercent}%`, backgroundColor: aiPercent >= 80 ? colors.negative : colors.primary }]} />
+                </View>
+                <Text style={s.usageText}>{aiSummariesUsedToday} / {aiSummariesLimit} used</Text>
+              </View>
+            )}
 
             {tier === "free" ? (
               <TouchableOpacity style={s.upgradeBtn} onPress={() => setShowPaywall(true)}>
@@ -538,59 +582,15 @@ export default function AccountScreen() {
                     ))}
                   </View>
 
-                  {/* Delivery time */}
-                  <View style={[s.row]}>
+                  {/* Delivery time — tappable row opens drum-roll modal */}
+                  <TouchableOpacity style={[s.row]} onPress={openTimePicker} activeOpacity={0.7}>
                     <View style={s.rowIcon}><Feather name="clock" size={18} color={colors.primary} /></View>
                     <Text style={[s.rowLabel]}>Delivery Time</Text>
-                    <Text style={[s.rowValue]}>{formatNotifTime(notifPrefs.hour, notifPrefs.minute ?? 0)}</Text>
-                  </View>
-                  <View style={{ paddingHorizontal: 16, paddingBottom: 14, gap: 10 }}>
-                    <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
-                      {[6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21].map((h) => {
-                        const active = notifPrefs.hour === h;
-                        const label = h === 12 ? "12pm" : h > 12 ? `${h - 12}pm` : `${h}am`;
-                        return (
-                          <TouchableOpacity
-                            key={h}
-                            style={{
-                              paddingVertical: 7, paddingHorizontal: 11, borderRadius: 8, borderWidth: 1.5,
-                              borderColor: active ? colors.primary : colors.border,
-                              backgroundColor: active ? colors.primary + "18" : "transparent",
-                            }}
-                            onPress={() => handleNotifUpdate((p) => ({ ...p, hour: h }))}
-                          >
-                            <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: active ? colors.primary : colors.mutedForeground }}>
-                              {label}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <Text style={[s.rowValue]}>{formatNotifTime(notifPrefs.hour, notifPrefs.minute ?? 0)}</Text>
+                      <Feather name="chevron-right" size={14} color={colors.mutedForeground} />
                     </View>
-                    <View style={{ flexDirection: "row", gap: 6 }}>
-                      {[0, 15, 30, 45].map((m) => {
-                        const active = (notifPrefs.minute ?? 0) === m;
-                        return (
-                          <TouchableOpacity
-                            key={m}
-                            style={{
-                              flex: 1, paddingVertical: 7, borderRadius: 8, borderWidth: 1.5,
-                              borderColor: active ? colors.primary : colors.border,
-                              backgroundColor: active ? colors.primary + "18" : "transparent",
-                              alignItems: "center",
-                            }}
-                            onPress={() => handleNotifUpdate((p) => ({ ...p, minute: m }))}
-                          >
-                            <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: active ? colors.primary : colors.mutedForeground }}>
-                              :{String(m).padStart(2, "0")}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                    <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: colors.mutedForeground }}>
-                      Your watchlist data will be refreshed before delivery when the app is active.
-                    </Text>
-                  </View>
+                  </TouchableOpacity>
 
                   {/* Delivery method */}
                   <View style={[s.row]}>
@@ -778,6 +778,75 @@ export default function AccountScreen() {
       </ScrollView>
 
       <PaywallSheet visible={showPaywall} onClose={() => setShowPaywall(false)} triggerReason="general" currentTier={tier} />
+
+      {/* ── Time Picker Modal ── */}
+      <Modal
+        visible={timePickerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTimePickerVisible(false)}
+      >
+        <TouchableOpacity
+          style={s.timePickerOverlay}
+          activeOpacity={1}
+          onPress={() => setTimePickerVisible(false)}
+        >
+          <View
+            style={[s.timePickerSheet, { backgroundColor: colors.card, borderColor: colors.border }]}
+            onStartShouldSetResponder={() => true}
+          >
+            <Text style={[s.timePickerTitle, { color: colors.foreground }]}>Delivery Time</Text>
+            <View style={s.timePickerRow}>
+              <DrumRollPicker
+                items={HOURS}
+                selectedIndex={pickerH12 - 1}
+                onSelect={(i) => setPickerH12(i + 1)}
+                width={72}
+              />
+              <Text style={[s.timePickerColon, { color: colors.foreground }]}>:</Text>
+              <DrumRollPicker
+                items={MINUTES}
+                selectedIndex={pickerMinute}
+                onSelect={(i) => setPickerMinute(i)}
+                width={72}
+              />
+              <View style={s.timePickerAMPM}>
+                {(["AM", "PM"] as const).map((period) => (
+                  <TouchableOpacity
+                    key={period}
+                    style={[
+                      s.timePickerPeriodBtn,
+                      {
+                        backgroundColor: pickerAMPM === period ? colors.primary : colors.secondary,
+                        borderColor: pickerAMPM === period ? colors.primary : colors.border,
+                      },
+                    ]}
+                    onPress={() => setPickerAMPM(period)}
+                  >
+                    <Text style={[s.timePickerPeriodText, { color: pickerAMPM === period ? colors.primaryForeground : colors.mutedForeground }]}>
+                      {period}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+            <View style={s.timePickerButtons}>
+              <TouchableOpacity
+                style={[s.timePickerCancelBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
+                onPress={() => setTimePickerVisible(false)}
+              >
+                <Text style={[s.timePickerBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.timePickerConfirmBtn, { backgroundColor: colors.primary }]}
+                onPress={confirmTimePicker}
+              >
+                <Text style={[s.timePickerBtnText, { color: colors.primaryForeground }]}>Set Time</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }
