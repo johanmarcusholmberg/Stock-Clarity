@@ -115,15 +115,19 @@ interface ChartProps {
   timestamps: number[];
   interval: string;
   color: string;
+  positiveColor: string;
+  negativeColor: string;
   borderColor: string;
   mutedColor: string;
   width: number;
   currency: string;
   mode: ChartMode;
+  yMin?: number;
+  yMax?: number;
   onHoverChange?: (index: number | null) => void;
 }
 
-function InteractiveChart({ prices, timestamps, interval, color, borderColor, mutedColor, width, currency, mode, onHoverChange }: ChartProps) {
+function InteractiveChart({ prices, timestamps, interval, color, positiveColor, negativeColor, borderColor, mutedColor, width, currency, mode, yMin: forcedYMin, yMax: forcedYMax, onHoverChange }: ChartProps) {
   const [touchIndex, setTouchIndex] = useState<number | null>(null);
 
   const plotLeft = Y_AXIS_WIDTH;
@@ -142,14 +146,16 @@ function InteractiveChart({ prices, timestamps, interval, color, borderColor, mu
     return prices;
   }, [prices, mode]);
 
-  const minVal = Math.min(...displayValues);
-  const maxVal = Math.max(...displayValues);
+  const dataMin = displayValues.length ? Math.min(...displayValues) : 0;
+  const dataMax = displayValues.length ? Math.max(...displayValues) : 1;
+  const minVal = (mode === "price" && forcedYMin !== undefined) ? forcedYMin : dataMin;
+  const maxVal = (mode === "price" && forcedYMax !== undefined) ? forcedYMax : dataMax;
   const valRange = maxVal - minVal || 1;
 
   const toSvgX = (idx: number) =>
     plotLeft + (idx / Math.max(displayValues.length - 1, 1)) * plotWidth;
   const toSvgY = (val: number) =>
-    plotTop + (1 - (val - minVal) / valRange) * plotAreaHeight;
+    plotTop + (1 - (Math.max(minVal, Math.min(maxVal, val)) - minVal) / valRange) * plotAreaHeight;
 
   const pathPoints = displayValues.map((v, i) => ({ x: toSvgX(i), y: toSvgY(v) }));
   const pathD = pathPoints.length
@@ -160,18 +166,27 @@ function InteractiveChart({ prices, timestamps, interval, color, borderColor, mu
     ? `${pathD}L${lastPt.x.toFixed(1)},${plotBottom}L${plotLeft},${plotBottom}Z`
     : "";
 
-  // Y-axis labels
-  const midVal = (minVal + maxVal) / 2;
-  const yLabels = [
-    { val: maxVal, y: plotTop },
-    { val: midVal, y: (plotTop + plotBottom) / 2 },
-    { val: minVal, y: plotBottom },
-  ];
+  // Y-axis: 5 evenly spaced ticks
+  const NUM_Y_TICKS = 5;
+  const yLabels = Array.from({ length: NUM_Y_TICKS }, (_, i) => {
+    const frac = i / (NUM_Y_TICKS - 1);
+    const val = maxVal - frac * (maxVal - minVal);
+    const y = plotTop + frac * plotAreaHeight;
+    return { val, y };
+  });
 
   // Crosshair
   const crosshairX = touchIndex !== null ? toSvgX(touchIndex) : null;
   const crosshairY = touchIndex !== null ? toSvgY(displayValues[touchIndex]) : null;
   const crosshairVal = touchIndex !== null ? displayValues[touchIndex] : null;
+
+  // Direction-based crosshair color: green if going up from previous point, red if down
+  const hoverDirColor = useMemo(() => {
+    if (touchIndex === null || !displayValues.length) return color;
+    const curr = displayValues[touchIndex];
+    const prev = touchIndex > 0 ? displayValues[touchIndex - 1] : displayValues[touchIndex];
+    return curr >= prev ? positiveColor : negativeColor;
+  }, [touchIndex, displayValues, positiveColor, negativeColor, color]);
 
   const panResponder = useMemo(
     () =>
@@ -214,7 +229,7 @@ function InteractiveChart({ prices, timestamps, interval, color, borderColor, mu
             chartStyles.tooltip,
             {
               left: tooltipLeft,
-              backgroundColor: color,
+              backgroundColor: hoverDirColor,
               width: tooltipWidth,
             },
           ]}
@@ -285,12 +300,12 @@ function InteractiveChart({ prices, timestamps, interval, color, borderColor, mu
                 y1={plotTop}
                 x2={crosshairX}
                 y2={plotBottom}
-                stroke={color}
+                stroke={hoverDirColor}
                 strokeWidth={1}
                 strokeDasharray="4,3"
               />
-              <Circle cx={crosshairX} cy={crosshairY} r={7} fill={color} fillOpacity={0.2} />
-              <Circle cx={crosshairX} cy={crosshairY} r={4} fill={color} />
+              <Circle cx={crosshairX} cy={crosshairY} r={7} fill={hoverDirColor} fillOpacity={0.2} />
+              <Circle cx={crosshairX} cy={crosshairY} r={4} fill={hoverDirColor} />
             </>
           )}
         </Svg>
@@ -495,7 +510,6 @@ export default function StockDetailScreen() {
   const [liveQuote, setLiveQuote] = useState<any>(null);
   const [chartPrices, setChartPrices] = useState<number[]>([]);
   const [chartTimestamps, setChartTimestamps] = useState<number[]>([]);
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [chartLoading, setChartLoading] = useState(true);
   const [chartMode, setChartMode] = useState<ChartMode>("price");
   const [events, setEvents] = useState<StockEvent[]>([]);
@@ -583,19 +597,31 @@ export default function StockDetailScreen() {
   const isPositive = changePercent >= 0;
   const changeColor = isPositive ? colors.positive : colors.negative;
 
-  const hoveredPrice = hoveredIndex !== null ? chartPrices[hoveredIndex] ?? null : null;
-  const hoveredIsPositive = hoveredPrice !== null && chartPrices.length > 0
-    ? hoveredPrice >= chartPrices[0]
-    : isPositive;
-  const dynamicChangeColor = hoveredPrice !== null
-    ? (hoveredIsPositive ? colors.positive : colors.negative)
-    : changeColor;
-
   // Chart % change from first to last
   const chartChangePct =
     chartPrices.length >= 2
       ? ((chartPrices[chartPrices.length - 1] - chartPrices[0]) / (chartPrices[0] || 1)) * 100
       : 0;
+
+  // Y-axis bounds per range category
+  const chartYBounds = useMemo((): { yMin?: number; yMax?: number } => {
+    if (!chartPrices.length) return {};
+    const ri = selectedRange;
+    if (ri === 0 || ri === 1) {
+      // 1D, 1W: ±2 from current price
+      return { yMin: price - 2, yMax: price + 2 };
+    }
+    if (ri === 2 || ri === 3) {
+      // 1M, YTD: ±5 from current price
+      return { yMin: price - 5, yMax: price + 5 };
+    }
+    // 1Y, 3Y, 5Y: nearest 25
+    const low = Math.min(...chartPrices);
+    const high = Math.max(...chartPrices);
+    const yMin = Math.floor(low / 25) * 25;
+    const yMax = Math.ceil(high / 25) * 25;
+    return { yMin: yMin === yMax ? yMin - 25 : yMin, yMax: yMin === yMax ? yMax + 25 : yMax };
+  }, [selectedRange, chartPrices, price]);
 
   // Per-stock AI tracking
   const summaryCount = ticker ? aiUsageForStock(ticker) : 0;
@@ -675,14 +701,14 @@ export default function StockDetailScreen() {
             <Text style={[styles.priceText, { color: colors.foreground }]}>
               {currSym}{formatPrice(price, currency)}
             </Text>
-            <View style={[styles.changePill, { backgroundColor: `${dynamicChangeColor}22` }]}>
-              <Feather name={hoveredIsPositive ? "trending-up" : "trending-down"} size={13} color={dynamicChangeColor} />
-              <Text style={[styles.changeText, { color: dynamicChangeColor }]}>
+            <View style={[styles.changePill, { backgroundColor: `${changeColor}22` }]}>
+              <Feather name={isPositive ? "trending-up" : "trending-down"} size={13} color={changeColor} />
+              <Text style={[styles.changeText, { color: changeColor }]}>
                 {isPositive ? "+" : ""}{changePercent.toFixed(2)}%
               </Text>
             </View>
           </View>
-          <Text style={[styles.changeAbsolute, { color: dynamicChangeColor }]}>
+          <Text style={[styles.changeAbsolute, { color: changeColor }]}>
             {change >= 0 ? "+" : ""}{currSym}{Math.abs(change).toFixed(2)} today
           </Text>
         </View>
@@ -751,12 +777,15 @@ export default function StockDetailScreen() {
               timestamps={chartTimestamps}
               interval={CHART_RANGES[selectedRange].interval}
               color={chartChangePct >= 0 ? colors.positive : colors.negative}
+              positiveColor={colors.positive}
+              negativeColor={colors.negative}
               borderColor={colors.border}
               mutedColor={colors.mutedForeground}
               width={chartWidth}
               currency={currency}
               mode={chartMode}
-              onHoverChange={setHoveredIndex}
+              yMin={chartYBounds.yMin}
+              yMax={chartYBounds.yMax}
             />
           )}
         </View>
