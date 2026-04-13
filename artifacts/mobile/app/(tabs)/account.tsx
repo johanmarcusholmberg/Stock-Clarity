@@ -14,12 +14,15 @@ import {
   Animated,
   Modal,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { router } from "expo-router";
 import { DrumRollPicker } from "@/components/DrumRollPicker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useAuth, useUser } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
+import { useTheme } from "@/context/ThemeContext";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { useWatchlist } from "@/context/WatchlistContext";
 import { PaywallSheet } from "@/components/PaywallSheet";
@@ -50,6 +53,7 @@ type FeatherIconName = React.ComponentProps<typeof Feather>["name"];
 
 export default function AccountScreen() {
   const colors = useColors();
+  const { theme, setTheme } = useTheme();
   const insets = useSafeAreaInsets();
   const { signOut, userId } = useAuth();
   const { user } = useUser();
@@ -124,10 +128,35 @@ export default function AccountScreen() {
     premium: "Premium",
   };
 
-  const handleSignOut = async () => {
+  const handleSignOut = () => {
     Alert.alert("Sign out", "Are you sure you want to sign out?", [
       { text: "Cancel", style: "cancel" },
-      { text: "Sign out", style: "destructive", onPress: () => signOut() },
+      {
+        text: "Sign out",
+        style: "destructive",
+        onPress: async () => {
+          // Clear all user-specific cached data so the next user starts clean
+          try {
+            await AsyncStorage.multiRemove([
+              "@stockclarify_stocks_v2",
+              "@stockclarify_alerts_read",
+              "@stockclarify_folders_v1",
+              "@stockclarify_active_folder_v1",
+              "@stockclarify_digest_daily",
+              "@stockclarify_digest_weekly",
+              "@stockclarify_digest_daily_date",
+              "@stockclarify_digest_weekly_date",
+              "@stockclarify_show_percent",
+            ]);
+          } catch {}
+          // Terminate the Clerk session
+          try {
+            await signOut();
+          } catch {}
+          // Replace navigation history so back-button cannot return to the app
+          router.replace("/(auth)/sign-in");
+        },
+      },
     ]);
   };
 
@@ -455,6 +484,30 @@ export default function AccountScreen() {
               <Text style={s.rowLabel} numberOfLines={1}>
                 {user?.primaryEmailAddress?.emailAddress ?? "—"}
               </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Appearance */}
+        <View style={s.section}>
+          <Text style={s.sectionTitle}>Appearance</Text>
+          <View style={s.card}>
+            <View style={[s.row, s.rowLast]}>
+              <View style={s.rowIcon}>
+                <Feather name={theme === "bright" ? "sun" : "moon"} size={18} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.rowLabel}>Bright Mode</Text>
+                <Text style={[s.rowValue, { fontSize: 12, marginTop: 1 }]}>
+                  {theme === "bright" ? "Light background · active" : "Dark background · default"}
+                </Text>
+              </View>
+              <Switch
+                value={theme === "bright"}
+                onValueChange={(v) => setTheme(v ? "bright" : "dark")}
+                trackColor={{ false: colors.border, true: colors.primary }}
+                thumbColor={theme === "bright" ? colors.primaryForeground : "#FFFFFF"}
+              />
             </View>
           </View>
         </View>
