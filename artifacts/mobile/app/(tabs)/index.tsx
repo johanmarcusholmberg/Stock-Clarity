@@ -16,13 +16,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { useWatchlist } from "@/context/WatchlistContext";
 import StockCard from "@/components/StockCard";
+import { FolderTabStrip } from "@/components/FolderTabStrip";
 
 type Filter = "all" | "gainers" | "losers";
 
 export default function WatchlistScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { watchlist, stocks, unreadAlertCount } = useWatchlist();
+  const { watchlist, stocks, unreadAlertCount, folders, activeFolderId } = useWatchlist();
   const { signOut } = useAuth();
   const { user } = useUser();
   const [profileOpen, setProfileOpen] = useState(false);
@@ -30,6 +31,8 @@ export default function WatchlistScreen() {
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
+
+  const activeFolder = folders.find((f) => f.id === activeFolderId);
 
   const allWatched = watchlist.map((ticker) => stocks[ticker]).filter(Boolean);
   const gainers = allWatched.filter((s) => s.changePercent >= 0);
@@ -55,12 +58,8 @@ export default function WatchlistScreen() {
 
   return (
     <View style={[styles.fill, { backgroundColor: colors.background }]}>
-      <ScrollView
-        style={styles.fill}
-        contentContainerStyle={{ paddingTop: topPadding + 16, paddingBottom: bottomPadding, paddingHorizontal: 16 }}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.titleRow}>
+      <View style={{ paddingTop: topPadding + 16 }}>
+        <View style={[styles.titleRow, { paddingHorizontal: 16 }]}>
           <View>
             <Text style={[styles.greeting, { color: colors.mutedForeground }]}>
               {user?.firstName ? `Good morning, ${user.firstName}` : "Good morning"}
@@ -88,7 +87,7 @@ export default function WatchlistScreen() {
           </View>
         </View>
 
-        <View style={[styles.statsRow, { marginTop: 20 }]}>
+        <View style={[styles.statsRow, { marginTop: 20, paddingHorizontal: 16, marginBottom: 16 }]}>
           <View style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Text style={[styles.statValue, { color: colors.foreground }]}>{allWatched.length}</Text>
             <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Watching</Text>
@@ -103,8 +102,12 @@ export default function WatchlistScreen() {
           </View>
         </View>
 
-        <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>My Watchlist</Text>
+        <FolderTabStrip />
+
+        <View style={[styles.sectionHeader, { paddingHorizontal: 16, marginBottom: 10 }]}>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
+            {activeFolder?.name ?? "Watchlist"}
+          </Text>
           <TouchableOpacity
             style={[styles.addButton, { backgroundColor: `${colors.primary}22`, borderColor: `${colors.primary}44` }]}
             onPress={() => router.push("/(tabs)/search")}
@@ -114,7 +117,7 @@ export default function WatchlistScreen() {
           </TouchableOpacity>
         </View>
 
-        <View style={[styles.filterRow, { marginBottom: 12 }]}>
+        <View style={[styles.filterRow, { marginBottom: 12, paddingHorizontal: 16 }]}>
           {FILTERS.map((f) => (
             <TouchableOpacity
               key={f.key}
@@ -138,7 +141,13 @@ export default function WatchlistScreen() {
             </TouchableOpacity>
           ))}
         </View>
+      </View>
 
+      <ScrollView
+        style={styles.fill}
+        contentContainerStyle={{ paddingBottom: bottomPadding, paddingHorizontal: 16 }}
+        showsVerticalScrollIndicator={false}
+      >
         {displayed.length === 0 && allWatched.length === 0 ? (
           <View style={[styles.empty, { borderColor: colors.border }]}>
             <Feather name="bar-chart-2" size={32} color={colors.mutedForeground} />
@@ -197,11 +206,11 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 9, fontFamily: "Inter_700Bold" },
   avatarButton: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   avatarText: { fontSize: 13, fontFamily: "Inter_700Bold" },
-  statsRow: { flexDirection: "row", gap: 10, marginBottom: 20 },
+  statsRow: { flexDirection: "row", gap: 10 },
   statCard: { flex: 1, paddingVertical: 14, paddingHorizontal: 12, borderRadius: 14, borderWidth: 1, alignItems: "center" },
   statValue: { fontSize: 22, fontFamily: "Inter_700Bold", marginBottom: 2 },
   statLabel: { fontSize: 11, fontFamily: "Inter_400Regular" },
-  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sectionTitle: { fontSize: 18, fontFamily: "Inter_700Bold" },
   addButton: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, gap: 4 },
   addButtonText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },

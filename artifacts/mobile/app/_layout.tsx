@@ -17,7 +17,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { WatchlistProvider } from "@/context/WatchlistContext";
-import { SubscriptionProvider } from "@/context/SubscriptionContext";
+import { SubscriptionProvider, useSubscription } from "@/context/SubscriptionContext";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -34,6 +34,11 @@ function RootLayoutNav() {
       <Stack.Screen name="stock/[ticker]" options={{ headerShown: false, presentation: "card" }} />
     </Stack>
   );
+}
+
+function WatchlistProviderWithTier({ children }: { children: React.ReactNode }) {
+  const { tier } = useSubscription();
+  return <WatchlistProvider tier={tier}>{children}</WatchlistProvider>;
 }
 
 export default function RootLayout() {
@@ -58,15 +63,15 @@ export default function RootLayout() {
         <SafeAreaProvider>
           <ErrorBoundary>
             <QueryClientProvider client={queryClient}>
-              <WatchlistProvider>
-                <SubscriptionProvider>
-                <GestureHandlerRootView>
-                  <KeyboardProvider>
-                    <RootLayoutNav />
-                  </KeyboardProvider>
-                </GestureHandlerRootView>
-                </SubscriptionProvider>
-              </WatchlistProvider>
+              <SubscriptionProvider>
+                <WatchlistProviderWithTier>
+                  <GestureHandlerRootView>
+                    <KeyboardProvider>
+                      <RootLayoutNav />
+                    </KeyboardProvider>
+                  </GestureHandlerRootView>
+                </WatchlistProviderWithTier>
+              </SubscriptionProvider>
             </QueryClientProvider>
           </ErrorBoundary>
         </SafeAreaProvider>

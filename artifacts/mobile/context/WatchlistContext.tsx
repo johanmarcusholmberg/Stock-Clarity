@@ -39,6 +39,12 @@ export interface DigestEntry {
   timestamp: string;
 }
 
+export interface WatchlistFolder {
+  id: string;
+  name: string;
+  tickers: string[];
+}
+
 interface AddStockData {
   ticker: string;
   name?: string;
@@ -52,8 +58,8 @@ interface AddStockData {
 
 interface WatchlistContextType {
   watchlist: string[];
-  addToWatchlist: (ticker: string, data?: AddStockData) => void;
-  removeFromWatchlist: (ticker: string) => void;
+  addToWatchlist: (ticker: string, data?: AddStockData, folderId?: string) => void;
+  removeFromWatchlist: (ticker: string, folderId?: string) => void;
   isInWatchlist: (ticker: string) => boolean;
   stocks: Record<string, Stock>;
   alerts: Alert[];
@@ -61,6 +67,16 @@ interface WatchlistContextType {
   markAlertRead: (id: string) => void;
   unreadAlertCount: number;
   refreshQuotes: () => Promise<void>;
+  folders: WatchlistFolder[];
+  activeFolderId: string;
+  setActiveFolderId: (id: string) => void;
+  createFolder: (name: string) => WatchlistFolder | null;
+  renameFolder: (id: string, name: string) => void;
+  deleteFolder: (id: string) => void;
+  addToFolder: (ticker: string, folderId: string, data?: AddStockData) => void;
+  removeFromFolder: (ticker: string, folderId: string) => void;
+  folderLimit: number;
+  canCreateFolder: boolean;
 }
 
 const ph = (seed: number, len = 30): number[] =>
@@ -96,30 +112,105 @@ const WatchlistContext = createContext<WatchlistContextType | undefined>(undefin
 const WATCHLIST_KEY = "@stockclarify_watchlist_v2";
 const STOCKS_KEY = "@stockclarify_stocks_v2";
 const ALERTS_READ_KEY = "@stockclarify_alerts_read";
+const FOLDERS_KEY = "@stockclarify_folders_v1";
+const ACTIVE_FOLDER_KEY = "@stockclarify_active_folder_v1";
 
-export function WatchlistProvider({ children }: { children: React.ReactNode }) {
-  const [watchlist, setWatchlist] = useState<string[]>(["AAPL", "NVDA", "MSFT", "TSLA", "META"]);
+const DEFAULT_FOLDER_ID = "default";
+
+function makeDefaultFolder(tickers: string[]): WatchlistFolder {
+  return { id: DEFAULT_FOLDER_ID, name: "My Watchlist", tickers };
+}
+
+function generateId(): string {
+  return `folder_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+export function WatchlistProvider({
+  children,
+  tier = "free",
+}: {
+  children: React.ReactNode;
+  tier?: "free" | "pro" | "premium";
+}) {
+  const DEFAULT_TICKERS = ["AAPL", "NVDA", "MSFT", "TSLA", "META"];
+
+  const [folders, setFolders] = useState<WatchlistFolder[]>([makeDefaultFolder(DEFAULT_TICKERS)]);
+  const [activeFolderId, setActiveFolderIdState] = useState<string>(DEFAULT_FOLDER_ID);
   const [stockData, setStockData] = useState<Record<string, Stock>>(SEED_STOCKS);
   const [readAlerts, setReadAlerts] = useState<Set<string>>(new Set());
+  const [initialized, setInitialized] = useState(false);
 
-  // Load persisted data
+  const folderLimit = tier === "free" ? 2 : 10;
+  const canCreateFolder = folders.length < folderLimit;
+
+  const allTickers = Array.from(new Set(folders.flatMap((f) => f.tickers)));
+
+  const watchlist = (() => {
+    const active = folders.find((f) => f.id === activeFolderId);
+    return active ? active.tickers : [];
+  })();
+
+  const saveFolders = useCallback((flds: WatchlistFolder[]) => {
+    AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(flds));
+  }, []);
+
   useEffect(() => {
     Promise.all([
       AsyncStorage.getItem(WATCHLIST_KEY),
       AsyncStorage.getItem(STOCKS_KEY),
       AsyncStorage.getItem(ALERTS_READ_KEY),
-    ]).then(([wl, sd, ra]) => {
-      if (wl) { try { setWatchlist(JSON.parse(wl)); } catch {} }
-      if (sd) { try { const parsed = JSON.parse(sd); setStockData((prev) => ({ ...SEED_STOCKS, ...prev, ...parsed })); } catch {} }
-      if (ra) { try { setReadAlerts(new Set(JSON.parse(ra))); } catch {} }
+      AsyncStorage.getItem(FOLDERS_KEY),
+      AsyncStorage.getItem(ACTIVE_FOLDER_KEY),
+    ]).then(([wl, sd, ra, fl, af]) => {
+      if (fl) {
+        try {
+          const parsed: WatchlistFolder[] = JSON.parse(fl);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setFolders(parsed);
+            if (af) {
+              try {
+                const savedActiveId = JSON.parse(af);
+                if (parsed.find((f) => f.id === savedActiveId)) {
+                  setActiveFolderIdState(savedActiveId);
+                } else {
+                  setActiveFolderIdState(parsed[0].id);
+                }
+              } catch {
+                setActiveFolderIdState(parsed[0].id);
+              }
+            } else {
+              setActiveFolderIdState(parsed[0].id);
+            }
+          }
+        } catch {}
+      } else if (wl) {
+        try {
+          const tickers: string[] = JSON.parse(wl);
+          const migrated = makeDefaultFolder(tickers);
+          setFolders([migrated]);
+          saveFolders([migrated]);
+        } catch {}
+      }
+
+      if (sd) {
+        try {
+          const parsed = JSON.parse(sd);
+          setStockData((prev) => ({ ...SEED_STOCKS, ...prev, ...parsed }));
+        } catch {}
+      }
+      if (ra) {
+        try {
+          setReadAlerts(new Set(JSON.parse(ra)));
+        } catch {}
+      }
+      setInitialized(true);
     });
   }, []);
 
-  // Refresh live quotes for all watched stocks
   const refreshQuotes = useCallback(async () => {
-    if (!watchlist.length) return;
+    if (!allTickers.length) return;
     try {
-      const quotes = await getQuotes(watchlist);
+      const quotes = await getQuotes(allTickers);
       if (!quotes.length) return;
       setStockData((prev) => {
         const next = { ...prev };
@@ -147,22 +238,66 @@ export function WatchlistProvider({ children }: { children: React.ReactNode }) {
         return next;
       });
     } catch {}
-  }, [watchlist]);
+  }, [allTickers.join(",")]);
 
-  // Auto-refresh quotes when watchlist changes
   useEffect(() => {
-    refreshQuotes();
-  }, [watchlist.join(",")]);
+    if (initialized) refreshQuotes();
+  }, [allTickers.join(","), initialized]);
 
-  const saveWatchlist = useCallback((list: string[]) => {
-    AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(list));
+  const setActiveFolderId = useCallback((id: string) => {
+    setActiveFolderIdState(id);
+    AsyncStorage.setItem(ACTIVE_FOLDER_KEY, JSON.stringify(id));
   }, []);
 
-  const addToWatchlist = useCallback((ticker: string, data?: AddStockData) => {
-    setWatchlist((prev) => {
-      if (prev.includes(ticker)) return prev;
-      const next = [...prev, ticker];
-      saveWatchlist(next);
+  const foldersRef = useRef<WatchlistFolder[]>(folders);
+  useEffect(() => { foldersRef.current = folders; }, [folders]);
+
+  const createFolder = useCallback((name: string): WatchlistFolder | null => {
+    const trimmedName = name.trim();
+    if (!trimmedName) return null;
+    if (foldersRef.current.length >= folderLimit) return null;
+
+    const newFolder: WatchlistFolder = { id: generateId(), name: trimmedName, tickers: [] };
+    setFolders((prev) => {
+      if (prev.length >= folderLimit) return prev;
+      const next = [...prev, newFolder];
+      saveFolders(next);
+      return next;
+    });
+    return newFolder;
+  }, [folderLimit, saveFolders]);
+
+  const renameFolder = useCallback((id: string, name: string) => {
+    setFolders((prev) => {
+      const next = prev.map((f) => f.id === id ? { ...f, name: name.trim() } : f);
+      saveFolders(next);
+      return next;
+    });
+  }, [saveFolders]);
+
+  const deleteFolder = useCallback((id: string) => {
+    setFolders((prev) => {
+      if (prev.length <= 1) return prev;
+      const next = prev.filter((f) => f.id !== id);
+      saveFolders(next);
+      setActiveFolderIdState((currentActive) => {
+        if (currentActive !== id) return currentActive;
+        const newActive = next[0]?.id ?? currentActive;
+        AsyncStorage.setItem(ACTIVE_FOLDER_KEY, JSON.stringify(newActive));
+        return newActive;
+      });
+      return next;
+    });
+  }, [saveFolders]);
+
+  const addToFolder = useCallback((ticker: string, folderId: string, data?: AddStockData) => {
+    setFolders((prev) => {
+      const next = prev.map((f) => {
+        if (f.id !== folderId) return f;
+        if (f.tickers.includes(ticker)) return f;
+        return { ...f, tickers: [...f.tickers, ticker] };
+      });
+      saveFolders(next);
       return next;
     });
 
@@ -189,17 +324,32 @@ export function WatchlistProvider({ children }: { children: React.ReactNode }) {
         return next;
       });
     }
-  }, [saveWatchlist]);
+  }, [saveFolders]);
 
-  const removeFromWatchlist = useCallback((ticker: string) => {
-    setWatchlist((prev) => {
-      const next = prev.filter((t) => t !== ticker);
-      saveWatchlist(next);
+  const removeFromFolder = useCallback((ticker: string, folderId: string) => {
+    setFolders((prev) => {
+      const next = prev.map((f) => {
+        if (f.id !== folderId) return f;
+        return { ...f, tickers: f.tickers.filter((t) => t !== ticker) };
+      });
+      saveFolders(next);
       return next;
     });
-  }, [saveWatchlist]);
+  }, [saveFolders]);
 
-  const isInWatchlist = useCallback((ticker: string) => watchlist.includes(ticker), [watchlist]);
+  const addToWatchlist = useCallback((ticker: string, data?: AddStockData, folderId?: string) => {
+    const targetId = folderId ?? activeFolderId;
+    addToFolder(ticker, targetId, data);
+  }, [addToFolder, activeFolderId]);
+
+  const removeFromWatchlist = useCallback((ticker: string, folderId?: string) => {
+    const targetId = folderId ?? activeFolderId;
+    removeFromFolder(ticker, targetId);
+  }, [removeFromFolder, activeFolderId]);
+
+  const isInWatchlist = useCallback((ticker: string) => {
+    return folders.some((f) => f.tickers.includes(ticker));
+  }, [folders]);
 
   const markAlertRead = useCallback((id: string) => {
     setReadAlerts((prev) => {
@@ -211,14 +361,32 @@ export function WatchlistProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const alerts = MOCK_ALERTS.map((a) => ({ ...a, read: readAlerts.has(a.id) }))
-    .filter((a) => watchlist.includes(a.ticker));
+    .filter((a) => allTickers.includes(a.ticker));
   const unreadAlertCount = alerts.filter((a) => !a.read).length;
-  const digest = MOCK_DIGEST.filter((d) => watchlist.includes(d.ticker));
+  const digest = MOCK_DIGEST.filter((d) => allTickers.includes(d.ticker));
 
   return (
     <WatchlistContext.Provider value={{
-      watchlist, addToWatchlist, removeFromWatchlist, isInWatchlist,
-      stocks: stockData, alerts, digest, markAlertRead, unreadAlertCount, refreshQuotes,
+      watchlist,
+      addToWatchlist,
+      removeFromWatchlist,
+      isInWatchlist,
+      stocks: stockData,
+      alerts,
+      digest,
+      markAlertRead,
+      unreadAlertCount,
+      refreshQuotes,
+      folders,
+      activeFolderId,
+      setActiveFolderId,
+      createFolder,
+      renameFolder,
+      deleteFolder,
+      addToFolder,
+      removeFromFolder,
+      folderLimit,
+      canCreateFolder,
     }}>
       {children}
     </WatchlistContext.Provider>

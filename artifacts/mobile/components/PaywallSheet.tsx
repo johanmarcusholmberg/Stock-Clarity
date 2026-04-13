@@ -18,7 +18,7 @@ import { useSubscription, Plan } from "@/context/SubscriptionContext";
 interface Props {
   visible: boolean;
   onClose: () => void;
-  triggerReason?: "ai_limit" | "watchlist_limit" | "general";
+  triggerReason?: "ai_limit" | "watchlist_limit" | "folder_limit" | "general";
 }
 
 const FEATURE_MAP: Record<string, string[]> = {
@@ -51,6 +51,7 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general" }: Pr
   const reasonText: Record<string, string> = {
     ai_limit: "You've used all 5 free AI summaries today.",
     watchlist_limit: "Upgrade to track more stocks.",
+    folder_limit: "Free users can have up to 2 folders. Upgrade for up to 10.",
     general: "Unlock the full StockClarify experience.",
   };
 
