@@ -9,15 +9,15 @@ async function createProducts() {
       name: "StockClarify Pro",
       description: "Unlimited AI news summaries, unlimited watchlist stocks, advanced analytics",
       metadata: { tier: "pro", sort_order: "1", ai_summaries_per_day: "unlimited", watchlist_limit: "50" },
-      priceMonthly: 999, // $9.99
-      priceYearly: 9500, // $95.00 (~20% off)
+      priceMonthly: 499, // $4.99
+      priceYearly: 4799, // $47.99 (~20% off)
     },
     {
       name: "StockClarify Premium",
       description: "Everything in Pro + priority support, exclusive market insights, and early access to new features",
       metadata: { tier: "premium", sort_order: "2", ai_summaries_per_day: "unlimited", watchlist_limit: "unlimited" },
-      priceMonthly: 1999, // $19.99
-      priceYearly: 18999, // $189.99 (~21% off)
+      priceMonthly: 999, // $9.99
+      priceYearly: 9599, // $95.99 (~20% off)
     },
   ];
 

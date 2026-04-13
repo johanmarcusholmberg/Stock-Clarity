@@ -80,8 +80,10 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general" }: Pr
     handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: "center", marginTop: 12, marginBottom: 8 },
     header: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
     closeBtn: { position: "absolute", right: 20, top: 8, padding: 8 },
-    badge: { backgroundColor: colors.primary + "22", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, alignSelf: "flex-start", marginBottom: 8 },
+    badge: { backgroundColor: colors.primary + "22", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, alignSelf: "flex-start" },
     badgeText: { color: colors.primary, fontSize: 11, fontFamily: "Inter_600SemiBold" },
+    launchBadge: { backgroundColor: "#FF6B0022", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, alignSelf: "flex-start", borderWidth: 1, borderColor: "#FF6B0044" },
+    launchBadgeText: { color: "#FF6B00", fontSize: 11, fontFamily: "Inter_600SemiBold" },
     title: { color: colors.foreground, fontSize: 22, fontFamily: "Inter_700Bold", marginBottom: 4 },
     subtitle: { color: colors.mutedForeground, fontSize: 14, fontFamily: "Inter_400Regular" },
     toggle: { flexDirection: "row", backgroundColor: colors.secondary, borderRadius: 12, padding: 4, marginHorizontal: 24, marginVertical: 16 },
@@ -118,8 +120,13 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general" }: Pr
             <TouchableOpacity style={s.closeBtn} onPress={onClose}>
               <Feather name="x" size={20} color={colors.mutedForeground} />
             </TouchableOpacity>
-            <View style={s.badge}>
-              <Text style={s.badgeText}>⚡ UPGRADE</Text>
+            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+              <View style={s.badge}>
+                <Text style={s.badgeText}>⚡ UPGRADE</Text>
+              </View>
+              <View style={s.launchBadge}>
+                <Text style={s.launchBadgeText}>🎉 LAUNCH OFFER</Text>
+              </View>
             </View>
             <Text style={s.title}>StockClarify Pro</Text>
             <Text style={s.subtitle}>{reasonText[triggerReason]}</Text>
@@ -198,6 +205,9 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general" }: Pr
             <View style={{ height: 16 }} />
           </ScrollView>
           <View style={s.footer}>
+            <Text style={[s.footerText, { color: "#FF6B00", marginBottom: 6, fontFamily: "Inter_600SemiBold" }]}>
+              Early subscribers keep this price for 12 months. Pricing may change after that.
+            </Text>
             <Text style={s.footerText}>Cancel anytime · Secure payment via Stripe · Restore purchases on sign in</Text>
           </View>
         </View>
