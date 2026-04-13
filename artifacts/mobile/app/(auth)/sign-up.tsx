@@ -3,7 +3,7 @@ import { useSignUp } from "@clerk/expo/legacy";
 import { useOAuth } from "@clerk/expo";
 import { Link, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -17,6 +17,20 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
+
+interface PasswordRule {
+  key: string;
+  label: string;
+  test: (pw: string) => boolean;
+}
+
+const PASSWORD_RULES: PasswordRule[] = [
+  { key: "length", label: "8+ characters", test: (pw) => pw.length >= 8 },
+  { key: "upper", label: "Uppercase letter", test: (pw) => /[A-Z]/.test(pw) },
+  { key: "lower", label: "Lowercase letter", test: (pw) => /[a-z]/.test(pw) },
+  { key: "number", label: "Number", test: (pw) => /[0-9]/.test(pw) },
+  { key: "special", label: "Special character", test: (pw) => /[^A-Za-z0-9]/.test(pw) },
+];
 
 function getClerkErrorMessage(err: unknown, fallback: string): string {
   if (
@@ -57,6 +71,14 @@ export default function SignUpScreen() {
   const [oauthLoading, setOAuthLoading] = useState<"google" | "apple" | null>(null);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [passwordTouched, setPasswordTouched] = useState(false);
+
+  const passwordRuleResults = useMemo(
+    () => PASSWORD_RULES.map((r) => ({ ...r, met: r.test(password) })),
+    [password]
+  );
+  const allPasswordRulesMet = passwordRuleResults.every((r) => r.met);
+  const passwordStrength = passwordRuleResults.filter((r) => r.met).length;
   const [verificationCode, setVerificationCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -104,6 +126,12 @@ export default function SignUpScreen() {
   const handleSignUp = async () => {
     if (!isLoaded || !signUp) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setPasswordTouched(true);
+    if (!allPasswordRulesMet) {
+      const missing = passwordRuleResults.filter((r) => !r.met).map((r) => r.label);
+      setError(`Password must include: ${missing.join(", ")}.`);
+      return;
+    }
     setIsLoading(true);
     setError(null);
     try {
@@ -331,7 +359,7 @@ export default function SignUpScreen() {
               value={password}
               placeholder="••••••••"
               placeholderTextColor={colors.mutedForeground}
-              onChangeText={setPassword}
+              onChangeText={(v) => { setPassword(v); setPasswordTouched(true); }}
               secureTextEntry={!showPassword}
             />
             <TouchableOpacity
@@ -341,6 +369,56 @@ export default function SignUpScreen() {
               <Feather name={showPassword ? "eye-off" : "eye"} size={16} color={colors.mutedForeground} />
             </TouchableOpacity>
           </View>
+
+          {/* Password strength indicator — shown after user starts typing */}
+          {passwordTouched && password.length > 0 && (
+            <View style={{ marginTop: 10, gap: 0 }}>
+              {/* Strength bar */}
+              <View style={{ flexDirection: "row", gap: 4, marginBottom: 10 }}>
+                {Array.from({ length: 5 }).map((_, i) => {
+                  const filled = i < passwordStrength;
+                  const barColor =
+                    passwordStrength <= 1 ? "#ef4444"
+                    : passwordStrength <= 2 ? "#f97316"
+                    : passwordStrength <= 3 ? "#eab308"
+                    : passwordStrength <= 4 ? "#84cc16"
+                    : "#22c55e";
+                  return (
+                    <View
+                      key={i}
+                      style={{
+                        flex: 1,
+                        height: 4,
+                        borderRadius: 2,
+                        backgroundColor: filled ? barColor : colors.border,
+                      }}
+                    />
+                  );
+                })}
+              </View>
+              {/* Checklist */}
+              <View style={{ gap: 4 }}>
+                {passwordRuleResults.map((rule) => (
+                  <View key={rule.key} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Feather
+                      name={rule.met ? "check-circle" : "circle"}
+                      size={13}
+                      color={rule.met ? "#22c55e" : colors.mutedForeground}
+                    />
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        fontFamily: "Inter_400Regular",
+                        color: rule.met ? "#22c55e" : colors.mutedForeground,
+                      }}
+                    >
+                      {rule.label}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
         </View>
 
         {error && (
@@ -351,6 +429,7 @@ export default function SignUpScreen() {
           style={[styles.primaryButton, { backgroundColor: colors.primary, opacity: (!email || !password || isLoading) ? 0.5 : 1 }]}
           onPress={handleSignUp}
           disabled={!email || !password || isLoading}
+          accessibilityLabel="Create account"
         >
           {isLoading
             ? <ActivityIndicator color={colors.primaryForeground} />
