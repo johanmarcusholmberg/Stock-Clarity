@@ -725,11 +725,7 @@ export default function StockDetailScreen() {
       .finally(() => setEventsLoading(false));
   }, [ticker, selectedPeriod]);
 
-  // Derived values
-  const price = liveQuote?.regularMarketPrice ?? cachedStock?.price ?? 0;
-  const change = liveQuote?.regularMarketChange ?? cachedStock?.change ?? 0;
-  const changePercent = liveQuote?.regularMarketChangePercent ?? cachedStock?.changePercent ?? 0;
-  const openPrice = liveQuote?.regularMarketOpen ?? null;
+  // ── Non-price metadata (never range-dependent) ───────────────────
   const currency = liveQuote?.currency ?? cachedStock?.currency ?? "USD";
   const currSym = getCurrencySymbol(currency);
   const marketCap = formatMarketCap(liveQuote?.marketCap ?? undefined);
@@ -742,20 +738,54 @@ export default function StockDetailScreen() {
   const volume = liveQuote?.regularMarketVolume;
   const pe = liveQuote?.trailingPE;
 
-  const isPositive = changePercent >= 0;
-  const changeColor = isPositive ? colors.positive : colors.negative;
-
   // Market open/closed status derived from exchange
   const marketOpen = useMemo(() => {
     const exch = liveQuote?.exchange ?? liveQuote?.fullExchangeName ?? exchange;
     return exch ? isMarketOpen(exch) : false;
   }, [liveQuote?.exchange, liveQuote?.fullExchangeName, exchange]);
 
-  // Chart % change from first to last
-  const chartChangePct =
-    chartPrices.length >= 2
-      ? ((chartPrices[chartPrices.length - 1] - chartPrices[0]) / (chartPrices[0] || 1)) * 100
-      : 0;
+  // ── Chart-derived statistics — always in sync with the graph ─────
+  // All period stats come from the same chartPrices array the graph renders.
+  // This guarantees the pill, change row, and open/start strip always match
+  // what's visually shown, regardless of which time-frame is selected.
+  const chartFirst = chartPrices.length > 0 ? chartPrices[0] : null;
+  const chartLast  = chartPrices.length > 0 ? chartPrices[chartPrices.length - 1] : null;
+
+  // Hero price: live quote for 1D when market is open (true real-time tick),
+  // otherwise use the last bar of the chart so it matches the graph endpoint.
+  const is1D = CHART_RANGES[selectedRange].range === "1d";
+  const price = (is1D && marketOpen)
+    ? (liveQuote?.regularMarketPrice ?? chartLast ?? cachedStock?.price ?? 0)
+    : (chartLast ?? liveQuote?.regularMarketPrice ?? cachedStock?.price ?? 0);
+
+  // Period start/end come purely from chart data
+  const periodStart: number | null = chartFirst;
+  const periodEnd: number | null   = chartLast ?? (liveQuote?.regularMarketPrice ?? null);
+
+  // Change relative to the start of the selected chart window
+  const periodChangePoints = (periodStart != null && periodEnd != null)
+    ? periodEnd - periodStart
+    : (liveQuote?.regularMarketChange ?? cachedStock?.change ?? 0);
+  const periodChangePct = (periodStart != null && Math.abs(periodStart) > 0 && periodEnd != null)
+    ? ((periodEnd - periodStart) / Math.abs(periodStart)) * 100
+    : (liveQuote?.regularMarketChangePercent ?? cachedStock?.changePercent ?? 0);
+
+  // Label for the change row: "today" only for 1D, otherwise "this {range}"
+  const periodLabel = is1D ? "today" : `this ${CHART_RANGES[selectedRange].label}`;
+
+  // For the open/start strip: use today's open for 1D, chart first bar otherwise
+  // (chart[0] already equals today's open for 1D, but fallback to liveQuote for safety)
+  const stripStartPrice: number | null = is1D
+    ? (liveQuote?.regularMarketOpen ?? chartFirst)
+    : chartFirst;
+  const stripStartLabel = is1D ? "Open" : "Start";
+  const stripEndLabel   = is1D ? (marketOpen ? "Current" : "Close") : "End";
+
+  const isPositive = periodChangePct >= 0;
+  const changeColor = isPositive ? colors.positive : colors.negative;
+
+  // Keep chartChangePct for the in-chart "this period" label (same computation)
+  const chartChangePct = periodChangePct;
 
   // Y-axis padding per range — applied on top of actual data min/max inside the chart
   // Rules: 1D ±1.5, 1W ±3, 1M ±5, YTD ±8, 1Y ±15, 3Y ±20, 5Y ±25
@@ -846,45 +876,37 @@ export default function StockDetailScreen() {
             <View style={[styles.changePill, { backgroundColor: `${changeColor}22` }]}>
               <Feather name={isPositive ? "trending-up" : "trending-down"} size={13} color={changeColor} />
               <Text style={[styles.changeText, { color: changeColor }]}>
-                {isPositive ? "+" : ""}{changePercent.toFixed(2)}%
+                {isPositive ? "+" : ""}{periodChangePct.toFixed(2)}%
               </Text>
             </View>
           </View>
           <Text style={[styles.changeAbsolute, { color: changeColor }]}>
-            {change >= 0 ? "+" : ""}{currSym}{Math.abs(change).toFixed(2)} today
+            {periodChangePoints >= 0 ? "+" : ""}{currSym}{Math.abs(periodChangePoints).toFixed(2)} {periodLabel}
           </Text>
 
-          {/* ── Open / Current|Close row ── */}
-          {openPrice != null && (
+          {/* ── Start/Open · End/Current|Close strip — all from chart data ── */}
+          {stripStartPrice != null && periodEnd != null && (
             <View style={styles.openCloseRow}>
               <View style={styles.openCloseItem}>
-                <Text style={[styles.openCloseLabel, { color: colors.mutedForeground }]}>Open</Text>
+                <Text style={[styles.openCloseLabel, { color: colors.mutedForeground }]}>{stripStartLabel}</Text>
                 <Text style={[styles.openCloseValue, { color: colors.foreground }]}>
-                  {currSym}{formatPrice(openPrice, currency)}
+                  {currSym}{formatPrice(stripStartPrice, currency)}
                 </Text>
               </View>
               <View style={[styles.openCloseDivider, { backgroundColor: colors.border }]} />
               <View style={styles.openCloseItem}>
-                <Text style={[styles.openCloseLabel, { color: colors.mutedForeground }]}>
-                  {marketOpen ? "Current" : "Close"}
-                </Text>
+                <Text style={[styles.openCloseLabel, { color: colors.mutedForeground }]}>{stripEndLabel}</Text>
                 <Text style={[styles.openCloseValue, { color: colors.foreground }]}>
-                  {currSym}{formatPrice(price, currency)}
+                  {currSym}{formatPrice(periodEnd, currency)}
                 </Text>
               </View>
               <View style={[styles.openCloseDivider, { backgroundColor: colors.border }]} />
               <View style={styles.openCloseItem}>
                 <Text style={[styles.openCloseLabel, { color: colors.mutedForeground }]}>Change</Text>
-                {(() => {
-                  const diff = price - openPrice;
-                  const diffPct = openPrice !== 0 ? (diff / openPrice) * 100 : 0;
-                  const diffColor = diff >= 0 ? colors.positive : colors.negative;
-                  return (
-                    <Text style={[styles.openCloseValue, { color: diffColor }]}>
-                      {diff >= 0 ? "+" : ""}{currSym}{Math.abs(diff).toFixed(2)} / {diffPct >= 0 ? "+" : ""}{diffPct.toFixed(2)}%
-                    </Text>
-                  );
-                })()}
+                <Text style={[styles.openCloseValue, { color: changeColor }]}>
+                  {periodChangePoints >= 0 ? "+" : ""}{currSym}{Math.abs(periodChangePoints).toFixed(2)}
+                  {"\n"}{periodChangePct >= 0 ? "+" : ""}{periodChangePct.toFixed(2)}%
+                </Text>
               </View>
             </View>
           )}
