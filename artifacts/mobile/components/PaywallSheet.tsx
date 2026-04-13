@@ -18,18 +18,20 @@ import { useSubscription, Plan } from "@/context/SubscriptionContext";
 interface Props {
   visible: boolean;
   onClose: () => void;
-  triggerReason?: "ai_limit" | "watchlist_limit" | "folder_limit" | "general";
+  triggerReason?: "ai_limit" | "watchlist_limit" | "folder_limit" | "ai_stock_limit" | "stock_daily_limit" | "general";
 }
 
 const FEATURE_MAP: Record<string, string[]> = {
   pro: [
-    "Unlimited AI news summaries",
+    "10 stocks with AI analysis per day",
+    "3 AI summaries per stock",
     "Up to 50 stocks in watchlist",
-    "Advanced price analytics",
+    "Interactive price charts",
     "Priority data refresh",
   ],
   premium: [
-    "Everything in Pro",
+    "Unlimited stocks with AI per day",
+    "5 AI summaries per stock",
     "Unlimited watchlist stocks",
     "Exclusive market insights",
     "Early access to new features",
@@ -49,7 +51,9 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general" }: Pr
   }, [visible]);
 
   const reasonText: Record<string, string> = {
-    ai_limit: "You've used all 5 free AI summaries today.",
+    ai_limit: "You've used all free AI summaries for today.",
+    ai_stock_limit: "You've used your free AI summary for this stock today.",
+    stock_daily_limit: "You've reached your daily limit of 3 stocks with AI analysis. Upgrade for more.",
     watchlist_limit: "Upgrade to track more stocks.",
     folder_limit: "Free users can have up to 2 folders. Upgrade for up to 10.",
     general: "Unlock the full StockClarify experience.",

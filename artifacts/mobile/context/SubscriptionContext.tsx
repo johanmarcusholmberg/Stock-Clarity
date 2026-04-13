@@ -24,14 +24,33 @@ export interface Plan {
   }>;
 }
 
+// Per-tier limits for the stock detail page
+export const TIER_LIMITS: Record<Tier, { stocksPerDay: number; summariesPerStock: number }> = {
+  free:    { stocksPerDay: 3,        summariesPerStock: 1 },
+  pro:     { stocksPerDay: 10,       summariesPerStock: 3 },
+  premium: { stocksPerDay: Infinity, summariesPerStock: 5 },
+};
+
 interface SubscriptionState {
   tier: Tier;
   isLoading: boolean;
   isAdmin: boolean;
+  // Per-stock tracking (stock detail page)
+  stocksSeenToday: string[];
+  stocksLimit: number;
+  summariesPerStockLimit: number;
+  canViewStock: (ticker: string) => boolean;
+  canUseAIForStock: (ticker: string) => boolean;
+  recordStockView: (ticker: string) => void;
+  recordAIUsageForStock: (ticker: string) => void;
+  aiUsageForStock: (ticker: string) => number;
+  // Legacy global AI tracking (EventCard in digest/insights)
   aiSummariesUsedToday: number;
   aiSummariesLimit: number;
   aiSummariesRemaining: number;
   canUseAI: boolean;
+  recordAIUsage: () => void;
+  // Plans / checkout
   plans: Plan[];
   plansLoading: boolean;
   checkoutUrl: string | null;
@@ -40,7 +59,6 @@ interface SubscriptionState {
   fetchPlans: () => void;
   startCheckout: (priceId: string) => Promise<string | null>;
   openPortal: () => Promise<string | null>;
-  recordAIUsage: () => void;
   adminOverrideTier: (tier: Tier, targetUserId?: string) => Promise<boolean>;
 }
 
@@ -48,10 +66,19 @@ const SubscriptionContext = createContext<SubscriptionState>({
   tier: "free",
   isLoading: true,
   isAdmin: false,
+  stocksSeenToday: [],
+  stocksLimit: 3,
+  summariesPerStockLimit: 1,
+  canViewStock: () => true,
+  canUseAIForStock: () => true,
+  recordStockView: () => {},
+  recordAIUsageForStock: () => {},
+  aiUsageForStock: () => 0,
   aiSummariesUsedToday: 0,
-  aiSummariesLimit: 5,
-  aiSummariesRemaining: 5,
+  aiSummariesLimit: 1,
+  aiSummariesRemaining: 1,
   canUseAI: true,
+  recordAIUsage: () => {},
   plans: [],
   plansLoading: false,
   checkoutUrl: null,
@@ -60,7 +87,6 @@ const SubscriptionContext = createContext<SubscriptionState>({
   fetchPlans: () => {},
   startCheckout: async () => null,
   openPortal: async () => null,
-  recordAIUsage: () => {},
   adminOverrideTier: async () => false,
 });
 
@@ -70,18 +96,77 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const [tier, setTier] = useState<Tier>("free");
   const [isLoading, setIsLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [aiUsed, setAiUsed] = useState(0);
+
+  // Per-stock tracking
+  const [stocksSeen, setStocksSeen] = useState<string[]>([]);
+  const [aiUsageByStock, setAiUsageByStock] = useState<Record<string, number>>({});
+
+  // Legacy global AI count (for EventCard in digest/insights)
+  const [aiUsedGlobal, setAiUsedGlobal] = useState(0);
+
   const [plans, setPlans] = useState<Plan[]>([]);
   const [plansLoading, setPlansLoading] = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<"active" | "trialing" | null>(null);
   const lastResetDate = useRef<string>("");
 
-  const limits: Record<Tier, number> = { free: 5, pro: 999, premium: 9999 };
-  const aiLimit = limits[tier];
-  const aiRemaining = Math.max(0, aiLimit - aiUsed);
-  const canUseAI = aiRemaining > 0;
-
   const email = user?.primaryEmailAddress?.emailAddress;
+
+  const tierLimits = TIER_LIMITS[tier];
+  const stocksLimit = tierLimits.stocksPerDay;
+  const summariesPerStockLimit = tierLimits.summariesPerStock;
+
+  // Legacy global limit (5 for free, effectively unlimited for paid)
+  const globalAiLimit = tier === "free" ? 5 : 9999;
+  const aiSummariesRemaining = Math.max(0, globalAiLimit - aiUsedGlobal);
+  const canUseAI = aiSummariesRemaining > 0;
+
+  const canViewStock = useCallback((ticker: string): boolean => {
+    if (stocksLimit === Infinity) return true;
+    if (stocksSeen.includes(ticker)) return true;
+    return stocksSeen.length < stocksLimit;
+  }, [stocksSeen, stocksLimit]);
+
+  const canUseAIForStock = useCallback((ticker: string): boolean => {
+    return (aiUsageByStock[ticker] ?? 0) < summariesPerStockLimit;
+  }, [aiUsageByStock, summariesPerStockLimit]);
+
+  const recordStockView = useCallback((ticker: string) => {
+    setStocksSeen((prev) => {
+      if (prev.includes(ticker)) return prev;
+      return [...prev, ticker];
+    });
+  }, []);
+
+  const recordAIUsageForStock = useCallback((ticker: string) => {
+    setAiUsageByStock((prev) => ({
+      ...prev,
+      [ticker]: (prev[ticker] ?? 0) + 1,
+    }));
+    // Also track globally for analytics
+    if (userId) {
+      fetch(`${API_BASE}/analytics/track`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, eventType: "ai_summary_viewed", metadata: { ticker } }),
+      }).catch(() => {});
+    }
+  }, [userId]);
+
+  const aiUsageForStock = useCallback((ticker: string): number => {
+    return aiUsageByStock[ticker] ?? 0;
+  }, [aiUsageByStock]);
+
+  // Legacy global record (EventCard in digest/insights)
+  const recordAIUsage = useCallback(() => {
+    setAiUsedGlobal((prev) => prev + 1);
+    if (userId) {
+      fetch(`${API_BASE}/analytics/track`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, eventType: "ai_summary_viewed" }),
+      }).catch(() => {});
+    }
+  }, [userId]);
 
   const fetchSubscription = useCallback(async () => {
     if (!userId || !isSignedIn) {
@@ -164,17 +249,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     return null;
   }, [userId]);
 
-  const recordAIUsage = useCallback(() => {
-    setAiUsed((prev) => prev + 1);
-    if (userId) {
-      fetch(`${API_BASE}/analytics/track`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, eventType: "ai_summary_viewed" }),
-      }).catch(() => {});
-    }
-  }, [userId]);
-
   const adminOverrideTier = useCallback(async (newTier: Tier, targetUserId?: string): Promise<boolean> => {
     if (!userId || !email) return false;
     try {
@@ -189,7 +263,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         }),
       });
       if (res.ok) {
-        // If overriding own tier, update local state immediately
         if (!targetUserId || targetUserId === userId) {
           setTier(newTier);
         }
@@ -199,11 +272,14 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     return false;
   }, [userId, email]);
 
+  // Reset daily counters at midnight
   useEffect(() => {
     const today = new Date().toISOString().split("T")[0];
     if (lastResetDate.current !== today) {
       lastResetDate.current = today;
-      setAiUsed(0);
+      setAiUsedGlobal(0);
+      setStocksSeen([]);
+      setAiUsageByStock({});
     }
   }, []);
 
@@ -212,7 +288,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   }, [fetchSubscription]);
 
   useEffect(() => {
-    // Check admin status once the user email is loaded
     if (email && userId) {
       checkAdminStatus();
     }
@@ -241,16 +316,27 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     };
   }, [fetchSubscription]);
 
+  const aiSummariesUsedToday = Object.values(aiUsageByStock).reduce((a, b) => a + b, 0) + aiUsedGlobal;
+
   return (
     <SubscriptionContext.Provider
       value={{
         tier,
         isLoading,
         isAdmin,
-        aiSummariesUsedToday: aiUsed,
-        aiSummariesLimit: aiLimit,
-        aiSummariesRemaining: aiRemaining,
+        stocksSeenToday: stocksSeen,
+        stocksLimit,
+        summariesPerStockLimit,
+        canViewStock,
+        canUseAIForStock,
+        recordStockView,
+        recordAIUsageForStock,
+        aiUsageForStock,
+        aiSummariesUsedToday,
+        aiSummariesLimit: summariesPerStockLimit,
+        aiSummariesRemaining,
         canUseAI,
+        recordAIUsage,
         plans,
         plansLoading,
         checkoutUrl: null,
@@ -259,7 +345,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         fetchPlans,
         startCheckout,
         openPortal,
-        recordAIUsage,
         adminOverrideTier,
       }}
     >

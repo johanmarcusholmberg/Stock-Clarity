@@ -30,9 +30,10 @@ export default function EventCard({ event }: Props) {
   const colors = useColors();
   const [expanded, setExpanded] = useState(false);
   const [showPaywall, setShowPaywall] = useState(false);
-  const { canUseAI, tier, aiSummariesRemaining, recordAIUsage } = useSubscription();
+  const { tier, canUseAIForStock, recordAIUsageForStock, summariesPerStockLimit } = useSubscription();
 
   const hasAISummary = !!(event.what || event.why || event.unusual);
+  const canUseAI = canUseAIForStock(event.ticker);
 
   const sentimentColor =
     event.sentiment === "positive"
@@ -42,12 +43,12 @@ export default function EventCard({ event }: Props) {
       : colors.warning;
 
   const handlePress = () => {
-    if (!expanded && hasAISummary && !canUseAI && tier === "free") {
+    if (!expanded && hasAISummary && !canUseAI) {
       setShowPaywall(true);
       return;
     }
     if (!expanded && hasAISummary) {
-      recordAIUsage();
+      recordAIUsageForStock(event.ticker);
     }
     setExpanded((v) => !v);
   };
@@ -96,7 +97,7 @@ export default function EventCard({ event }: Props) {
 
         {!expanded && hasAISummary && canUseAI && (
           <Text style={[styles.tapHint, { color: colors.mutedForeground }]}>
-            Tap for AI analysis · {tier === "free" ? `${aiSummariesRemaining} left today` : "Unlimited"}
+            Tap for AI analysis · {tier === "premium" ? "Unlimited" : `${summariesPerStockLimit} per stock`}
           </Text>
         )}
       </TouchableOpacity>
