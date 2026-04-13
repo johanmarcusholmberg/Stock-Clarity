@@ -60,6 +60,13 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="insights"
+        options={{
+          title: "Insights",
+          tabBarIcon: ({ color, size }) => <Feather name="pie-chart" size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="search"
         options={{
           title: "Add",

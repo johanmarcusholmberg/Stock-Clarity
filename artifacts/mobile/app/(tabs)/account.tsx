@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
   View,
   Text,
@@ -46,6 +46,10 @@ export default function AccountScreen() {
   const [feedbackRating, setFeedbackRating] = useState(0);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
+  const [devTapCount, setDevTapCount] = useState(0);
+  const [devToolsVisible, setDevToolsVisible] = useState(false);
+  const [devTierLoading, setDevTierLoading] = useState(false);
+  const devTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const tierColors: Record<string, string> = {
     free: colors.mutedForeground,
@@ -63,6 +67,40 @@ export default function AccountScreen() {
       { text: "Cancel", style: "cancel" },
       { text: "Sign out", style: "destructive", onPress: () => signOut() },
     ]);
+  };
+
+  const handleVersionTap = () => {
+    const next = devTapCount + 1;
+    setDevTapCount(next);
+    if (devTapTimer.current) clearTimeout(devTapTimer.current);
+    devTapTimer.current = setTimeout(() => setDevTapCount(0), 2000);
+    if (next >= 5) {
+      setDevToolsVisible(true);
+      setDevTapCount(0);
+      Alert.alert("Dev Tools Unlocked", "Developer testing tools are now visible.");
+    }
+  };
+
+  const handleDevSetTier = async (newTier: "free" | "pro" | "premium") => {
+    if (!userId) return;
+    setDevTierLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/dev/tier`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, tier: newTier }),
+      });
+      if (res.ok) {
+        refresh();
+        Alert.alert("Tier Updated", `Your account is now on the ${newTier} plan. Pull to refresh if the UI doesn't update immediately.`);
+      } else {
+        Alert.alert("Error", "Failed to update tier. Make sure the API server is running.");
+      }
+    } catch {
+      Alert.alert("Error", "Network error. Make sure the API server is running.");
+    } finally {
+      setDevTierLoading(false);
+    }
   };
 
   const handleManageSubscription = async () => {
@@ -315,9 +353,87 @@ export default function AccountScreen() {
           </View>
         </View>
 
+        {/* Dev Tools (hidden — tap version label 5 times to reveal) */}
+        {devToolsVisible && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>Developer Tools</Text>
+            <View style={s.card}>
+              <View style={{ padding: 16 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                  <Feather name="tool" size={16} color={colors.warning} />
+                  <Text style={{ color: colors.foreground, fontSize: 15, fontFamily: "Inter_700Bold" }}>Subscription Tier Override</Text>
+                </View>
+                <Text style={{ color: colors.mutedForeground, fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 14, lineHeight: 18 }}>
+                  Switch your account tier to test tier-gated features. Changes persist in the database.
+                </Text>
+                {devTierLoading ? (
+                  <ActivityIndicator color={colors.primary} style={{ marginVertical: 10 }} />
+                ) : (
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    {(["free", "pro", "premium"] as const).map((t) => (
+                      <TouchableOpacity
+                        key={t}
+                        style={[
+                          { flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: "center", borderWidth: 1.5 },
+                          tier === t
+                            ? { backgroundColor: tierColors[t] + "22", borderColor: tierColors[t] }
+                            : { backgroundColor: colors.secondary, borderColor: colors.border },
+                        ]}
+                        onPress={() => handleDevSetTier(t)}
+                      >
+                        <Text style={[
+                          { fontSize: 13, fontFamily: "Inter_700Bold" },
+                          { color: tier === t ? tierColors[t] : colors.mutedForeground },
+                        ]}>
+                          {t.charAt(0).toUpperCase() + t.slice(1)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </View>
+
+              <View style={{ height: 1, backgroundColor: colors.border }} />
+
+              <View style={{ padding: 16 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                  <Feather name="credit-card" size={16} color={colors.primary} />
+                  <Text style={{ color: colors.foreground, fontSize: 15, fontFamily: "Inter_700Bold" }}>Payment Testing</Text>
+                </View>
+                <Text style={{ color: colors.mutedForeground, fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 14, lineHeight: 18 }}>
+                  Open the upgrade flow to test the checkout experience. Use Stripe test card: 4242 4242 4242 4242.
+                </Text>
+                <TouchableOpacity
+                  style={{ backgroundColor: colors.primary, borderRadius: 10, paddingVertical: 11, alignItems: "center", marginBottom: 8 }}
+                  onPress={() => setShowPaywall(true)}
+                >
+                  <Text style={{ color: colors.primaryForeground, fontFamily: "Inter_700Bold", fontSize: 14 }}>Open Paywall / Upgrade Flow</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ height: 1, backgroundColor: colors.border }} />
+
+              <TouchableOpacity
+                style={{ padding: 16, flexDirection: "row", alignItems: "center", gap: 10 }}
+                onPress={() => setDevToolsVisible(false)}
+              >
+                <Feather name="eye-off" size={15} color={colors.mutedForeground} />
+                <Text style={{ color: colors.mutedForeground, fontSize: 14, fontFamily: "Inter_400Regular" }}>Hide Developer Tools</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {/* Sign out */}
         <TouchableOpacity style={s.signOutBtn} onPress={handleSignOut}>
           <Text style={s.signOutText}>Sign Out</Text>
+        </TouchableOpacity>
+
+        {/* Version — tap 5× to reveal dev tools */}
+        <TouchableOpacity onPress={handleVersionTap} activeOpacity={0.7} style={{ alignItems: "center", paddingVertical: 8 }}>
+          <Text style={{ color: colors.border, fontSize: 12, fontFamily: "Inter_400Regular" }}>
+            StockClarify v1.0{devTapCount > 0 ? ` (${5 - devTapCount} more taps…)` : ""}
+          </Text>
         </TouchableOpacity>
 
         <View style={{ height: 40 }} />

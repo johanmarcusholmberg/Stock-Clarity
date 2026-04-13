@@ -1,12 +1,17 @@
 import { Router } from "express";
 import { query } from "../db";
+import { storage } from "../storage";
 
 const router = Router();
 
-// Middleware: require admin key
+// Middleware: require admin key. Fails CLOSED — returns 503 if secret is unset.
 function requireAdmin(req: any, res: any, next: any) {
+  const secret = process.env.ADMIN_SECRET_KEY;
+  if (!secret) {
+    return void res.status(503).json({ error: "Admin access not configured — set ADMIN_SECRET_KEY" });
+  }
   const key = req.headers["x-admin-key"] ?? req.query.key;
-  if (!process.env.ADMIN_SECRET_KEY || key === process.env.ADMIN_SECRET_KEY) {
+  if (key === secret) {
     return next();
   }
   res.status(401).json({ error: "Unauthorized" });
@@ -15,7 +20,8 @@ function requireAdmin(req: any, res: any, next: any) {
 // ── Admin Dashboard HTML ──────────────────────────────────────────────────────
 router.get("/", async (req, res) => {
   const key = req.query.key as string;
-  const isAuth = !process.env.ADMIN_SECRET_KEY || key === process.env.ADMIN_SECRET_KEY;
+  const secret = process.env.ADMIN_SECRET_KEY;
+  const isAuth = !!secret && key === secret;
 
   if (!isAuth) {
     return void res.send(`<!DOCTYPE html>
@@ -37,14 +43,15 @@ button{width:100%;padding:12px;border-radius:8px;border:none;background:#14b8a6;
 </div></body></html>`);
   }
 
-  // Fetch stats
+  // Fetch stats and users
   let stats = { users: 0, events_today: 0, errors_today: 0, feedback_new: 0, avg_rating: 0 };
   let trending: any[] = [];
   let recentErrors: any[] = [];
   let recentFeedback: any[] = [];
+  let users: any[] = [];
 
   try {
-    const [usersRes, eventsRes, errorsRes, feedbackRes, trendingRes, recentErrorsRes, recentFeedbackRes] = await Promise.all([
+    const [usersRes, eventsRes, errorsRes, feedbackRes, trendingRes, recentErrorsRes, recentFeedbackRes, usersListRes] = await Promise.all([
       query("SELECT COUNT(*) as c FROM users"),
       query("SELECT COUNT(*) as c FROM user_events WHERE created_at > NOW() - INTERVAL '24 hours'"),
       query("SELECT COUNT(*) as c FROM error_logs WHERE created_at > NOW() - INTERVAL '24 hours'"),
@@ -52,6 +59,7 @@ button{width:100%;padding:12px;border-radius:8px;border:none;background:#14b8a6;
       query(`SELECT ticker, stock_name, COUNT(*) as views FROM stock_views WHERE created_at > NOW() - INTERVAL '7 days' GROUP BY ticker, stock_name ORDER BY views DESC LIMIT 5`),
       query("SELECT id, error_type, message, endpoint, created_at FROM error_logs ORDER BY created_at DESC LIMIT 10"),
       query("SELECT id, category, message, rating, email, status, created_at FROM feedback ORDER BY created_at DESC LIMIT 10"),
+      query("SELECT clerk_user_id, email, tier, stripe_customer_id, stripe_subscription_id, created_at FROM users ORDER BY created_at DESC LIMIT 50"),
     ]);
     stats.users = parseInt(usersRes[0]?.c ?? "0");
     stats.events_today = parseInt(eventsRes[0]?.c ?? "0");
@@ -62,6 +70,7 @@ button{width:100%;padding:12px;border-radius:8px;border:none;background:#14b8a6;
     trending = trendingRes;
     recentErrors = recentErrorsRes;
     recentFeedback = recentFeedbackRes;
+    users = usersListRes;
   } catch {}
 
   const style = `<style>
@@ -78,7 +87,7 @@ button{width:100%;padding:12px;border-radius:8px;border:none;background:#14b8a6;
     h2{font-size:16px;font-weight:600;margin-bottom:16px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;font-size:12px}
     table{width:100%;border-collapse:collapse}
     th{text-align:left;padding:8px 12px;font-size:11px;color:#64748b;border-bottom:1px solid #1e293b;text-transform:uppercase}
-    td{padding:10px 12px;font-size:13px;border-bottom:1px solid #0f172a}
+    td{padding:10px 12px;font-size:13px;border-bottom:1px solid #0f172a;vertical-align:middle}
     tr:last-child td{border-bottom:none}
     .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
     .badge-new{background:#14b8a622;color:#14b8a6}
@@ -86,17 +95,47 @@ button{width:100%;padding:12px;border-radius:8px;border:none;background:#14b8a6;
     .badge-feature{background:#8b5cf622;color:#8b5cf6}
     .badge-billing{background:#f59e0b22;color:#f59e0b}
     .badge-error{background:#ef444422;color:#ef4444}
+    .badge-free{background:#64748b22;color:#94a3b8}
+    .badge-pro{background:#14b8a622;color:#14b8a6}
+    .badge-premium{background:#f59e0b22;color:#f59e0b}
     .error-msg{color:#ef4444;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .stars{color:#f59e0b}
+    .tier-form{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+    .tier-btn{padding:4px 10px;border-radius:6px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;font-size:12px;cursor:pointer;transition:background 0.15s}
+    .tier-btn:hover{background:#334155}
+    .tier-btn.active-free{border-color:#64748b;background:#64748b33;color:#94a3b8;font-weight:700}
+    .tier-btn.active-pro{border-color:#14b8a6;background:#14b8a633;color:#14b8a6;font-weight:700}
+    .tier-btn.active-premium{border-color:#f59e0b;background:#f59e0b33;color:#f59e0b;font-weight:700}
+    .uid{font-family:monospace;font-size:11px;color:#475569;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .toast{position:fixed;bottom:24px;right:24px;background:#14b8a6;color:#000;padding:12px 20px;border-radius:10px;font-weight:600;font-size:13px;opacity:0;transition:opacity 0.3s;pointer-events:none;z-index:999}
     @media(max-width:600px){.grid{grid-template-columns:1fr 1fr}}
   </style>`;
 
   const starsHtml = (r: number) => r ? "★".repeat(r) + "☆".repeat(5 - r) : "—";
+  const keyParam = key ? `&key=${encodeURIComponent(key)}` : "";
+
+  const usersRows = users.length
+    ? users.map(u => `<tr>
+        <td class="uid" title="${u.clerk_user_id}">${u.clerk_user_id}</td>
+        <td>${u.email ?? "—"}</td>
+        <td><span class="badge badge-${u.tier ?? 'free'}">${u.tier ?? 'free'}</span></td>
+        <td>${u.stripe_customer_id ? `<span style="font-family:monospace;font-size:11px;color:#475569">${u.stripe_customer_id}</span>` : "—"}</td>
+        <td>
+          <div class="tier-form">
+            <button class="tier-btn ${(u.tier ?? 'free') === 'free' ? 'active-free' : ''}" onclick="setTier('${u.clerk_user_id}','free',this)">Free</button>
+            <button class="tier-btn ${u.tier === 'pro' ? 'active-pro' : ''}" onclick="setTier('${u.clerk_user_id}','pro',this)">Pro</button>
+            <button class="tier-btn ${u.tier === 'premium' ? 'active-premium' : ''}" onclick="setTier('${u.clerk_user_id}','premium',this)">Premium</button>
+          </div>
+        </td>
+        <td style="color:#64748b">${new Date(u.created_at).toLocaleDateString()}</td>
+      </tr>`).join("")
+    : '<tr><td colspan="6" style="color:#64748b;padding:20px">No users yet</td></tr>';
 
   res.send(`<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>StockClarify Admin</title>${style}</head>
 <body>
+  <div id="toast" class="toast"></div>
   <div class="header">
     <div class="logo">SC</div>
     <div><h1>StockClarify Admin</h1><p class="sub">Dashboard · ${new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</p></div>
@@ -108,6 +147,16 @@ button{width:100%;padding:12px;border-radius:8px;border:none;background:#14b8a6;
     <div class="stat"><div class="val">${stats.errors_today}</div><div class="lbl">Errors Today</div></div>
     <div class="stat"><div class="val">${stats.feedback_new}</div><div class="lbl">New Feedback</div></div>
     <div class="stat"><div class="val">${stats.avg_rating > 0 ? stats.avg_rating + "★" : "—"}</div><div class="lbl">Avg Rating</div></div>
+  </div>
+
+  <div class="section">
+    <h2>👥 Users &amp; Subscriptions</h2>
+    <div style="overflow-x:auto">
+      <table>
+        <tr><th>User ID</th><th>Email</th><th>Tier</th><th>Stripe Customer</th><th>Override Tier</th><th>Joined</th></tr>
+        ${usersRows}
+      </table>
+    </div>
   </div>
 
   <div class="section">
@@ -146,7 +195,45 @@ button{width:100%;padding:12px;border-radius:8px;border:none;background:#14b8a6;
   </div>
 
   <p style="text-align:center;color:#1e293b;margin-top:24px;font-size:12px">StockClarify Admin Dashboard · Auto-refreshes every 5 minutes</p>
-  <script>setTimeout(() => location.reload(), 300000)</script>
+  <script>
+    setTimeout(() => location.reload(), 300000);
+
+    function showToast(msg, ok) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.style.background = ok ? '#14b8a6' : '#ef4444';
+      t.style.opacity = '1';
+      setTimeout(() => t.style.opacity = '0', 2500);
+    }
+
+    async function setTier(userId, tier, btn) {
+      const key = new URLSearchParams(location.search).get('key') || '';
+      try {
+        const res = await fetch('/api/admin/users/' + encodeURIComponent(userId) + '/tier', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'x-admin-key': key },
+          body: JSON.stringify({ tier })
+        });
+        if (res.ok) {
+          // Update active button styles in this row
+          const row = btn.closest('tr');
+          row.querySelectorAll('.tier-btn').forEach(b => {
+            b.className = 'tier-btn';
+          });
+          btn.className = 'tier-btn active-' + tier;
+          // Update the badge in column 3
+          const badge = row.querySelector('.badge');
+          badge.className = 'badge badge-' + tier;
+          badge.textContent = tier;
+          showToast('Tier updated to ' + tier, true);
+        } else {
+          showToast('Failed to update tier', false);
+        }
+      } catch {
+        showToast('Network error', false);
+      }
+    }
+  </script>
 </body></html>`);
 });
 
@@ -170,6 +257,33 @@ router.get("/stats", requireAdmin, async (_req, res) => {
       tierBreakdown,
       popularEvents: eventTypes,
     });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── User List API ─────────────────────────────────────────────────────────────
+router.get("/users", requireAdmin, async (_req, res) => {
+  try {
+    const rows = await query(
+      "SELECT clerk_user_id, email, tier, stripe_customer_id, stripe_subscription_id, created_at, updated_at FROM users ORDER BY created_at DESC"
+    );
+    res.json({ users: rows });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Override User Tier ────────────────────────────────────────────────────────
+router.patch("/users/:userId/tier", requireAdmin, async (req, res) => {
+  const { userId } = req.params;
+  const { tier } = req.body;
+  if (!["free", "pro", "premium"].includes(tier)) {
+    return void res.status(400).json({ error: "tier must be free, pro, or premium" });
+  }
+  try {
+    await storage.updateUserTier(userId, tier as "free" | "pro" | "premium");
+    res.json({ success: true, userId, tier });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

@@ -31,7 +31,8 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
   - Alerts tab: unusual price/volume activity with plain-language explanations + unread badge
   - World Markets (Add) tab: 30+ global stocks from 11 exchanges, grouped by exchange, with search
   - Stock Detail screen: 30-day price chart, company info, event history
-  - **Account tab** (5th tab): profile info, subscription plan badge, AI usage bar, manage subscription, feedback form, sign out
+  - **Account tab** (6th tab): profile info, subscription plan badge, AI usage bar, manage subscription, feedback form, sign out; tap the version number (bottom) 5× to reveal hidden Dev Tools panel
+  - **Dev Tools panel** (Account tab, hidden): tier switcher (Free/Pro/Premium), direct paywall launcher — changes persist in DB via `/api/dev/tier`
   - AI usage limits: Free=5/day, Pro=unlimited, Premium=unlimited (enforced in `EventCard`)
   - **PaywallSheet**: full-screen paywall modal with Pro/Premium plan cards, monthly/yearly toggle, SAVE 20% badge
 - **Contexts**:
@@ -62,10 +63,13 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - `GET /api/analytics/trending` — trending stocks (7-day)
 - `GET /api/analytics/summary` — public stats
 - `POST /api/analytics/track` — track stock views / events
-- `GET /admin` — admin dashboard HTML (protected by ADMIN_SECRET_KEY)
+- `GET /admin` — admin dashboard HTML (protected by ADMIN_SECRET_KEY); includes Users section with inline tier override buttons
 - `GET /admin/stats` — aggregated metrics API
 - `GET /admin/errors` — error logs API
 - `GET /admin/feedback` — feedback list API
+- `GET /api/admin/users` — list all users with tier info (requireAdmin)
+- `PATCH /api/admin/users/:userId/tier` — override a user's tier (requireAdmin); used by admin dashboard
+- `PATCH /api/dev/tier` — self-service tier override for testing (dev/staging only; blocked in production)
 
 **Database Tables (public schema):**
 - `users` — clerk_user_id, email, tier (free/pro/premium), stripe IDs, AI quota
