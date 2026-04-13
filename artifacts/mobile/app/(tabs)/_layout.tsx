@@ -1,7 +1,7 @@
 import { Redirect, Tabs } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import React from "react";
-import { Platform, View } from "react-native";
+import { Platform } from "react-native";
 import { useAuth } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription } from "@/context/SubscriptionContext";
@@ -57,25 +57,7 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "Home",
-          tabBarIcon: ({ color, focused }) => (
-            <View style={{
-              backgroundColor: focused ? colors.primary : colors.primary + "22",
-              width: 44,
-              height: 44,
-              borderRadius: 22,
-              alignItems: "center",
-              justifyContent: "center",
-              marginTop: -10,
-              shadowColor: colors.primary,
-              shadowOpacity: focused ? 0.4 : 0,
-              shadowRadius: 8,
-              shadowOffset: { width: 0, height: 4 },
-              elevation: focused ? 6 : 0,
-            }}>
-              <Feather name="home" size={20} color={focused ? colors.primaryForeground : colors.primary} />
-            </View>
-          ),
-          tabBarLabel: () => null,
+          tabBarIcon: ({ color }) => <Feather name="home" size={ICON_SIZE} color={color} />,
         }}
       />
       <Tabs.Screen

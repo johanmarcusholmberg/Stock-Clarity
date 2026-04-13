@@ -46,6 +46,9 @@ export interface DigestEntry {
   ticker: string;
   stockName: string;
   summary: string;
+  what: string;
+  why: string;
+  unusual: string;
   sentiment: "positive" | "negative" | "neutral";
   timestamp: string;
 }
@@ -130,11 +133,46 @@ const MOCK_ALERTS: Alert[] = [
 ];
 
 const MOCK_DIGEST: DigestEntry[] = [
-  { id: "d1", ticker: "AAPL", stockName: "Apple", summary: "Apple beat Q2 earnings by 7.4%, driven by Services revenue growth to $23.9B — the segment's 6th consecutive quarterly beat.", sentiment: "positive", timestamp: "2026-04-12T07:00:00Z" },
-  { id: "d2", ticker: "TSLA", stockName: "Tesla", summary: "Tesla's Q1 deliveries fell 13.4% YoY to 337K vehicles, the steepest decline in company history, well below analyst expectations.", sentiment: "negative", timestamp: "2026-04-12T07:00:00Z" },
-  { id: "d3", ticker: "NVDA", stockName: "NVIDIA", summary: "Morgan Stanley raised NVIDIA's price target to $1,000, citing accelerating data center AI infrastructure demand.", sentiment: "positive", timestamp: "2026-04-12T07:00:00Z" },
-  { id: "d4", ticker: "META", stockName: "Meta", summary: "Meta expanded its 2026 AI capex guidance by $10B to $38-40B, signaling deep conviction in AI monetization.", sentiment: "neutral", timestamp: "2026-04-12T07:00:00Z" },
-  { id: "d5", ticker: "MSFT", stockName: "Microsoft", summary: "Azure AI cloud growth accelerated to 33% YoY, with AI services contributing 7 percentage points — doubling the rate from 6 months ago.", sentiment: "positive", timestamp: "2026-04-12T07:00:00Z" },
+  {
+    id: "d1", ticker: "AAPL", stockName: "Apple",
+    summary: "Apple beat Q2 earnings by 7.4%, driven by Services revenue growth to $23.9B — the segment's 6th consecutive quarterly beat.",
+    what: "Apple reported Q2 earnings per share of $1.53, beating the $1.43 consensus estimate by 7.4%. Services revenue hit $23.9B, up 14% year-over-year.",
+    why: "Sustained Services growth reduces Apple's reliance on iPhone hardware cycles and delivers higher-margin recurring revenue — a key driver of long-term valuation expansion.",
+    unusual: "This marks the 6th consecutive quarter where Services alone beat analyst estimates by more than 5% — a streak that is exceptionally rare for a segment of this size.",
+    sentiment: "positive", timestamp: "2026-04-12T07:00:00Z",
+  },
+  {
+    id: "d2", ticker: "TSLA", stockName: "Tesla",
+    summary: "Tesla's Q1 deliveries fell 13.4% YoY to 337K vehicles, the steepest decline in company history, well below analyst expectations.",
+    what: "Tesla delivered 336,681 vehicles in Q1 2026, a 13.4% drop year-over-year. The figure missed the 390K analyst consensus by 14% — the largest delivery miss in the company's history.",
+    why: "Delivery misses at this scale signal weakening demand for Tesla's aging model lineup, while intensifying competition from BYD and other EV makers pressures both volume and pricing.",
+    unusual: "This is the steepest quarter-over-quarter delivery decline Tesla has reported as a public company, happening at a moment when the overall EV market is still growing.",
+    sentiment: "negative", timestamp: "2026-04-12T07:00:00Z",
+  },
+  {
+    id: "d3", ticker: "NVDA", stockName: "NVIDIA",
+    summary: "Morgan Stanley raised NVIDIA's price target to $1,000, citing accelerating data center AI infrastructure demand.",
+    what: "Morgan Stanley upgraded its NVIDIA price target from $795 to $1,000, maintaining an Overweight rating. The firm cited demand signals from hyperscalers for Blackwell GPU clusters.",
+    why: "A $1,000 target from a top-tier bank implies roughly 20% upside from current levels and reflects growing conviction that AI infrastructure spending will remain elevated through 2027.",
+    unusual: "Three other major firms issued similar target raises in the same week — a coordinated wave of upgrades not seen for NVIDIA since the post-ChatGPT surge in early 2023.",
+    sentiment: "positive", timestamp: "2026-04-12T07:00:00Z",
+  },
+  {
+    id: "d4", ticker: "META", stockName: "Meta",
+    summary: "Meta expanded its 2026 AI capex guidance by $10B to $38-40B, signaling deep conviction in AI monetization.",
+    what: "Meta raised its 2026 capital expenditure guidance by $10 billion, now projecting $38–40B in AI infrastructure spending. The increase covers data centers and custom AI chips.",
+    why: "Higher capex can weigh on near-term free cash flow but signals that Meta's AI features — Llama models, ad targeting, and Meta AI — are delivering enough return to justify accelerating investment.",
+    unusual: "Increasing full-year capex by $10B mid-year is highly unusual — it suggests Meta's internal AI ROI data is compelling enough to override typical budget discipline.",
+    sentiment: "neutral", timestamp: "2026-04-12T07:00:00Z",
+  },
+  {
+    id: "d5", ticker: "MSFT", stockName: "Microsoft",
+    summary: "Azure AI cloud growth accelerated to 33% YoY, with AI services contributing 7 percentage points — doubling the rate from 6 months ago.",
+    what: "Microsoft reported Azure revenue grew 33% year-over-year in the latest quarter. AI services (Copilot, OpenAI API) now contribute 7 percentage points of that growth, up from 3-4 points six months ago.",
+    why: "Accelerating AI contribution within Azure shows that enterprise customers are moving from pilots to production workloads — a transition that tends to drive durable, sticky revenue.",
+    unusual: "The AI contribution to Azure growth has doubled in just two quarters, a pace of adoption that most analysts had not modeled until 2027.",
+    sentiment: "positive", timestamp: "2026-04-12T07:00:00Z",
+  },
 ];
 
 const WatchlistContext = createContext<WatchlistContextType | undefined>(undefined);
