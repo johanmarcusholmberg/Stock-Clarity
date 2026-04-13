@@ -406,16 +406,26 @@ export default function WatchlistScreen() {
       >
         {displayed.length === 0 && allWatched.length === 0 ? (
           <View style={[styles.empty, { borderColor: colors.border }]}>
-            <Feather name="bar-chart-2" size={32} color={colors.mutedForeground} />
-            <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No stocks yet</Text>
+            <View style={[styles.emptyIconRing, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "40" }]}>
+              <Feather name="trending-up" size={34} color={colors.primary} />
+            </View>
+            <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Your Watchlist is empty</Text>
             <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
-              Search and add stocks from any world market to start tracking them.
+              Search for any stock, ETF, or fund from world markets and add it here to start tracking it.
             </Text>
             <TouchableOpacity
               style={[styles.emptyButton, { backgroundColor: colors.primary }]}
+              onPress={() => router.push("/(tabs)/search")}
+            >
+              <Feather name="search" size={15} color={colors.primaryForeground} style={{ marginRight: 6 }} />
+              <Text style={[styles.emptyButtonText, { color: colors.primaryForeground }]}>Search for a stock</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.emptyButtonOutline, { borderColor: colors.border }]}
               onPress={() => setAddSheetVisible(true)}
             >
-              <Text style={[styles.emptyButtonText, { color: colors.primaryForeground }]}>Browse world markets</Text>
+              <Feather name="plus" size={15} color={colors.mutedForeground} style={{ marginRight: 6 }} />
+              <Text style={[styles.emptyButtonOutlineText, { color: colors.mutedForeground }]}>Browse & add stocks</Text>
             </TouchableOpacity>
           </View>
         ) : displayed.length === 0 && editMode ? (
@@ -494,6 +504,9 @@ const styles = StyleSheet.create({
   emptyFilter: { alignItems: "center", paddingVertical: 32, borderWidth: 1, borderStyle: "dashed", borderRadius: 12 },
   emptyTitle: { fontSize: 18, fontFamily: "Inter_700Bold", marginTop: 4 },
   emptyText: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 20 },
-  emptyButton: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, marginTop: 8 },
+  emptyIconRing: { width: 72, height: 72, borderRadius: 36, borderWidth: 1.5, alignItems: "center", justifyContent: "center", marginBottom: 4 },
+  emptyButton: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, marginTop: 8 },
   emptyButtonText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  emptyButtonOutline: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, borderWidth: 1 },
+  emptyButtonOutlineText: { fontSize: 14, fontFamily: "Inter_400Regular" },
 });

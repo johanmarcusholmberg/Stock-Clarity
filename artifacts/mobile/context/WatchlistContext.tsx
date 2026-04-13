@@ -201,12 +201,10 @@ export function WatchlistProvider({
   children: React.ReactNode;
   tier?: "free" | "pro" | "premium";
 }) {
-  const DEFAULT_TICKERS = ["AAPL", "NVDA", "MSFT", "TSLA", "META"];
-
   const { userId, isSignedIn } = useAuth();
   const { user } = useUser();
 
-  const [folders, setFolders] = useState<WatchlistFolder[]>([makeDefaultFolder(DEFAULT_TICKERS)]);
+  const [folders, setFolders] = useState<WatchlistFolder[]>([makeDefaultFolder([])]);
   const [activeFolderId, setActiveFolderIdState] = useState<string>(DEFAULT_FOLDER_ID);
   const [stockData, setStockData] = useState<Record<string, Stock>>(SEED_STOCKS);
   const [readAlerts, setReadAlerts] = useState<Set<string>>(new Set());
@@ -290,8 +288,8 @@ export function WatchlistProvider({
           setActiveFolderIdState(foldersToUse[0].id);
         }
       } else {
-        // New user: use defaults
-        const defaultFolders = [makeDefaultFolder(DEFAULT_TICKERS)];
+        // New user: start with a completely empty watchlist
+        const defaultFolders = [makeDefaultFolder([])];
         setFolders(defaultFolders);
         saveFolders(defaultFolders);
       }
