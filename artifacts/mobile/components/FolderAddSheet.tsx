@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -11,14 +11,10 @@ import {
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import debounce from "lodash.debounce";
 import { useColors } from "@/hooks/useColors";
 import { useWatchlist } from "@/context/WatchlistContext";
-
-const API_BASE = (() => {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (domain) return `https://${domain}/api`;
-  return "http://localhost:8080/api";
-})();
+import { searchStocks, exchangeToFlag } from "@/services/stockApi";
 
 const DEFAULT_FOLDER_ID = "default";
 
@@ -42,10 +38,10 @@ export function FolderAddSheet({ visible, onClose, folderId, folderName }: Props
 
   const [tab, setTab] = useState<"watchlist" | "search">("watchlist");
   const [pendingTickers, setPendingTickers] = useState<Set<string>>(new Set());
+  const [selectedSearchMeta, setSelectedSearchMeta] = useState<Map<string, SearchResult>>(new Map());
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
-  const [searchDebounce, setSearchDebounce] = useState<ReturnType<typeof setTimeout> | null>(null);
 
   const currentFolderTickers = useMemo(
     () => folders.find((f) => f.id === folderId)?.tickers ?? [],
@@ -62,46 +58,71 @@ export function FolderAddSheet({ visible, onClose, folderId, folderName }: Props
     [defaultFolderTickers, currentFolderTickers]
   );
 
-  const togglePending = useCallback((ticker: string) => {
+  const togglePending = useCallback((ticker: string, searchResult?: SearchResult) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setPendingTickers((prev) => {
       const next = new Set(prev);
-      if (next.has(ticker)) next.delete(ticker);
-      else next.add(ticker);
+      if (next.has(ticker)) {
+        next.delete(ticker);
+        setSelectedSearchMeta((m) => { const nm = new Map(m); nm.delete(ticker); return nm; });
+      } else {
+        next.add(ticker);
+        if (searchResult) {
+          setSelectedSearchMeta((m) => new Map(m).set(ticker, searchResult));
+        }
+      }
       return next;
     });
   }, []);
 
-  const handleSearch = useCallback((q: string) => {
-    setSearchQuery(q);
-    if (searchDebounce) clearTimeout(searchDebounce);
-    if (!q.trim()) { setSearchResults([]); return; }
-    const t = setTimeout(async () => {
+  const doSearch = useCallback(
+    debounce(async (q: string) => {
+      if (!q.trim()) {
+        setSearchResults([]);
+        setSearchLoading(false);
+        return;
+      }
       setSearchLoading(true);
       try {
-        const res = await fetch(`${API_BASE}/stocks/search?q=${encodeURIComponent(q.trim())}`);
-        if (res.ok) {
-          const data = await res.json();
-          const results: SearchResult[] = (data.results ?? []).slice(0, 10).map((r: any) => ({
-            ticker: r.ticker ?? r.symbol ?? "",
-            name: r.name ?? r.longname ?? r.shortname ?? "",
-            exchange: r.exchange ?? "",
-            flag: r.flag ?? r.exchangeFlag ?? "🌐",
-          })).filter((r: SearchResult) => r.ticker);
-          setSearchResults(results);
-        }
-      } catch {}
+        const quotes = await searchStocks(q);
+        const equities = quotes
+          .filter((r) => r.type === "EQUITY" || r.type === "ETF" || !r.type)
+          .slice(0, 20)
+          .map((r) => ({
+            ticker: r.symbol,
+            name: r.longName || r.shortName || r.symbol,
+            exchange: r.exchange,
+            flag: exchangeToFlag(r.exchange),
+          }))
+          .filter((r) => r.ticker);
+        setSearchResults(equities);
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 400),
+    []
+  );
+
+  useEffect(() => {
+    if (searchQuery.trim()) {
+      setSearchLoading(true);
+      doSearch(searchQuery);
+    } else {
+      setSearchResults([]);
       setSearchLoading(false);
-    }, 350);
-    setSearchDebounce(t);
-  }, [searchDebounce]);
+    }
+    return () => doSearch.cancel();
+  }, [searchQuery]);
 
   const handleConfirm = useCallback(() => {
     if (pendingTickers.size === 0) { onClose(); return; }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     pendingTickers.forEach((ticker) => {
       const stockData = stocks[ticker];
-      addToFolder(ticker, folderId, stockData ? {
+      const cachedMeta = selectedSearchMeta.get(ticker);
+      const dataForAdd = stockData ? {
         ticker,
         name: stockData.name,
         exchange: stockData.exchange,
@@ -110,28 +131,28 @@ export function FolderAddSheet({ visible, onClose, folderId, folderName }: Props
         currency: stockData.currency,
         change: stockData.change,
         changePercent: stockData.changePercent,
-      } : undefined);
+      } : cachedMeta ? {
+        ticker,
+        name: cachedMeta.name,
+        exchange: cachedMeta.exchange,
+        exchangeFlag: cachedMeta.flag ?? "🌐",
+      } : undefined;
+
+      addToFolder(ticker, folderId, dataForAdd);
       if (folderId !== DEFAULT_FOLDER_ID) {
-        addToFolder(ticker, DEFAULT_FOLDER_ID, stockData ? {
-          ticker,
-          name: stockData.name,
-          exchange: stockData.exchange,
-          exchangeFlag: stockData.exchangeFlag,
-          price: stockData.price,
-          currency: stockData.currency,
-          change: stockData.change,
-          changePercent: stockData.changePercent,
-        } : undefined);
+        addToFolder(ticker, DEFAULT_FOLDER_ID, dataForAdd);
       }
     });
     setPendingTickers(new Set());
+    setSelectedSearchMeta(new Map());
     setSearchQuery("");
     setSearchResults([]);
     onClose();
-  }, [pendingTickers, folderId, stocks, addToFolder, onClose]);
+  }, [pendingTickers, selectedSearchMeta, folderId, stocks, addToFolder, onClose]);
 
   const handleClose = useCallback(() => {
     setPendingTickers(new Set());
+    setSelectedSearchMeta(new Map());
     setSearchQuery("");
     setSearchResults([]);
     setTab("watchlist");
@@ -242,7 +263,7 @@ export function FolderAddSheet({ visible, onClose, folderId, folderName }: Props
                   placeholder="Search stocks, e.g. AAPL, Tesla..."
                   placeholderTextColor={colors.mutedForeground}
                   value={searchQuery}
-                  onChangeText={handleSearch}
+                  onChangeText={setSearchQuery}
                   autoFocus
                   returnKeyType="search"
                   autoCapitalize="none"
@@ -277,7 +298,7 @@ export function FolderAddSheet({ visible, onClose, folderId, folderName }: Props
                           borderColor: selected ? colors.primary + "44" : colors.border,
                           opacity: alreadyIn ? 0.5 : 1,
                         }]}
-                        onPress={() => !alreadyIn && togglePending(result.ticker)}
+                        onPress={() => !alreadyIn && togglePending(result.ticker, result)}
                         activeOpacity={alreadyIn ? 1 : 0.7}
                       >
                         <View style={s.rowInfo}>

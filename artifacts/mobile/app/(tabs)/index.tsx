@@ -5,6 +5,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { useState, useMemo, useEffect, useCallback } from "react";
 import {
   Alert,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -19,6 +20,8 @@ import { useWatchlist } from "@/context/WatchlistContext";
 import StockCard from "@/components/StockCard";
 import { FolderTabStrip } from "@/components/FolderTabStrip";
 import { FolderAddSheet } from "@/components/FolderAddSheet";
+
+type Colors = ReturnType<typeof useColors>;
 
 const DEFAULT_FOLDER_ID = "default";
 
@@ -44,6 +47,83 @@ function getTimeAwareGreeting(name: string, timezone?: string): string {
 
 type Filter = "all" | "gainers" | "losers";
 
+interface DeleteModalState {
+  visible: boolean;
+  folderName: string;
+  folderId: string;
+}
+
+function DeleteFolderModal({
+  state,
+  onCancel,
+  onDeleteFolderOnly,
+  onDeleteFolderAndStocks,
+  colors,
+}: {
+  state: DeleteModalState;
+  onCancel: () => void;
+  onDeleteFolderOnly: () => void;
+  onDeleteFolderAndStocks: () => void;
+  colors: Colors;
+}) {
+  return (
+    <Modal visible={state.visible} transparent animationType="fade" presentationStyle="overFullScreen" onRequestClose={onCancel}>
+      <View style={dm.overlay}>
+        <View style={[dm.dialog, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[dm.title, { color: colors.foreground }]}>Delete "{state.folderName}"?</Text>
+          <Text style={[dm.message, { color: colors.mutedForeground }]}>
+            Choose what happens to the stocks in this folder:
+          </Text>
+
+          <View style={[dm.divider, { backgroundColor: colors.border }]} />
+
+          <TouchableOpacity style={dm.option} onPress={onDeleteFolderOnly} activeOpacity={0.7}>
+            <Feather name="folder-minus" size={16} color={colors.foreground} />
+            <View style={dm.optionText}>
+              <Text style={[dm.optionTitle, { color: colors.foreground }]}>Delete folder only</Text>
+              <Text style={[dm.optionDesc, { color: colors.mutedForeground }]}>
+                Stocks stay in My Watchlist and any other folders.
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          <View style={[dm.divider, { backgroundColor: colors.border }]} />
+
+          <TouchableOpacity style={dm.option} onPress={onDeleteFolderAndStocks} activeOpacity={0.7}>
+            <Feather name="trash-2" size={16} color={colors.negative} />
+            <View style={dm.optionText}>
+              <Text style={[dm.optionTitle, { color: colors.negative }]}>Delete folder and remove stocks</Text>
+              <Text style={[dm.optionDesc, { color: colors.mutedForeground }]}>
+                Stocks are fully unfollowed from every folder.
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          <View style={[dm.divider, { backgroundColor: colors.border }]} />
+
+          <TouchableOpacity style={[dm.cancelBtn, { backgroundColor: colors.secondary }]} onPress={onCancel} activeOpacity={0.7}>
+            <Text style={[dm.cancelText, { color: colors.foreground }]}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const dm = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center", padding: 24 },
+  dialog: { width: "100%", maxWidth: 380, borderRadius: 18, borderWidth: 1, overflow: "hidden" },
+  title: { fontSize: 17, fontFamily: "Inter_700Bold", paddingHorizontal: 20, paddingTop: 20, paddingBottom: 6 },
+  message: { fontSize: 13, fontFamily: "Inter_400Regular", paddingHorizontal: 20, paddingBottom: 16, lineHeight: 19 },
+  divider: { height: 1 },
+  option: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingHorizontal: 20, paddingVertical: 16 },
+  optionText: { flex: 1, gap: 3 },
+  optionTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  optionDesc: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 },
+  cancelBtn: { margin: 12, paddingVertical: 14, borderRadius: 12, alignItems: "center" },
+  cancelText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+});
+
 export default function WatchlistScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -64,6 +144,7 @@ export default function WatchlistScreen() {
   const [editMode, setEditMode] = useState(false);
   const [pendingRemovals, setPendingRemovals] = useState<Set<string>>(new Set());
   const [addSheetVisible, setAddSheetVisible] = useState(false);
+  const [deleteModal, setDeleteModal] = useState<DeleteModalState>({ visible: false, folderName: "", folderId: "" });
   const params = useLocalSearchParams<{ pendingTimezone?: string }>();
 
   useEffect(() => {
@@ -146,22 +227,18 @@ export default function WatchlistScreen() {
 
   const handleDeleteFolder = useCallback(() => {
     if (!activeFolder || isDefaultFolder) return;
-    const folderName = activeFolder.name;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
     if (Platform.OS === "web") {
-      const removeStocks = window.confirm(
-        `Delete "${folderName}"?\n\nOK = Remove folder and stocks from all folders\nCancel = Remove folder only (keep stocks in My Watchlist)`
-      );
-      deleteFolder(activeFolderId, removeStocks);
-      setEditMode(false);
+      setDeleteModal({ visible: true, folderName: activeFolder.name, folderId: activeFolderId });
     } else {
       Alert.alert(
-        `Delete "${folderName}"?`,
-        "What should happen to the stocks in this folder?",
+        `Delete "${activeFolder.name}"?`,
+        "Choose what happens to the stocks in this folder:",
         [
           { text: "Cancel", style: "cancel" },
           {
-            text: "Remove folder only",
+            text: "Delete folder only",
             style: "default",
             onPress: () => {
               deleteFolder(activeFolderId, false);
@@ -169,7 +246,7 @@ export default function WatchlistScreen() {
             },
           },
           {
-            text: "Remove folder and stocks",
+            text: "Delete folder and remove stocks",
             style: "destructive",
             onPress: () => {
               deleteFolder(activeFolderId, true);
@@ -180,6 +257,22 @@ export default function WatchlistScreen() {
       );
     }
   }, [activeFolder, isDefaultFolder, activeFolderId, deleteFolder]);
+
+  const handleModalCancel = useCallback(() => {
+    setDeleteModal({ visible: false, folderName: "", folderId: "" });
+  }, []);
+
+  const handleModalDeleteFolderOnly = useCallback(() => {
+    deleteFolder(deleteModal.folderId, false);
+    setEditMode(false);
+    setDeleteModal({ visible: false, folderName: "", folderId: "" });
+  }, [deleteModal.folderId, deleteFolder]);
+
+  const handleModalDeleteFolderAndStocks = useCallback(() => {
+    deleteFolder(deleteModal.folderId, true);
+    setEditMode(false);
+    setDeleteModal({ visible: false, folderName: "", folderId: "" });
+  }, [deleteModal.folderId, deleteFolder]);
 
   return (
     <View style={[styles.fill, { backgroundColor: colors.background }]}>
@@ -351,6 +444,14 @@ export default function WatchlistScreen() {
         onClose={() => setAddSheetVisible(false)}
         folderId={activeFolderId}
         folderName={activeFolder?.name ?? "My Watchlist"}
+      />
+
+      <DeleteFolderModal
+        state={deleteModal}
+        onCancel={handleModalCancel}
+        onDeleteFolderOnly={handleModalDeleteFolderOnly}
+        onDeleteFolderAndStocks={handleModalDeleteFolderAndStocks}
+        colors={colors}
       />
     </View>
   );
