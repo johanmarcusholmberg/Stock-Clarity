@@ -3,6 +3,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { useAuth } from "@clerk/expo";
 import { useUser } from "@clerk/expo";
 import { getQuotes, getChart } from "@/services/stockApi";
+import { isMarketOpen } from "@/utils/marketHours";
 
 // Re-export StockEvent so components can import it from here
 export type { StockEvent } from "@/services/stockApi";
@@ -376,6 +377,22 @@ export function WatchlistProvider({
     if (initialized) refreshQuotes();
   }, [allTickers.join(","), initialized]);
 
+  // ── 15-minute auto-refresh during market hours ────────────────
+  useEffect(() => {
+    if (!initialized) return;
+    const FIFTEEN_MIN = 15 * 60 * 1000;
+    const intervalId = setInterval(() => {
+      // Refresh only when at least one watched stock's market is open
+      const anyOpen = allTickers.some((t) => {
+        const stock = stockDataRef.current[t];
+        if (!stock) return false;
+        return isMarketOpen(stock.exchange || "");
+      });
+      if (anyOpen) refreshQuotes();
+    }, FIFTEEN_MIN);
+    return () => clearInterval(intervalId);
+  }, [initialized, allTickers.join(","), refreshQuotes]);
+
   // ── Folder management ────────────────────────────────────────
   const setActiveFolderId = useCallback((id: string) => {
     setActiveFolderIdState(id);
@@ -384,6 +401,9 @@ export function WatchlistProvider({
 
   const foldersRef = useRef<WatchlistFolder[]>(folders);
   useEffect(() => { foldersRef.current = folders; }, [folders]);
+
+  const stockDataRef = useRef<Record<string, Stock>>(stockData);
+  useEffect(() => { stockDataRef.current = stockData; }, [stockData]);
 
   const createFolder = useCallback((name: string): WatchlistFolder | null => {
     const trimmedName = name.trim();

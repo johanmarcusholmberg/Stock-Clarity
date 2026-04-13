@@ -29,6 +29,7 @@ import { useWatchlist } from "@/context/WatchlistContext";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { PaywallSheet } from "@/components/PaywallSheet";
 import { getChart, getQuotes, getEvents, CHART_RANGES, EVENT_PERIODS, formatPrice, formatMarketCap, exchangeToFlag, type StockEvent, type EventPeriod } from "@/services/stockApi";
+import { isMarketOpen } from "@/utils/marketHours";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const CHART_HEIGHT = 185;
@@ -68,87 +69,140 @@ function formatTooltipValue(value: number, mode: ChartMode, currency: string): s
 }
 
 // ── X-axis label helpers ───────────────────────────────────────────
-function formatXLabel(tsMs: number, interval: string): string {
+function fmtTime(tsMs: number): string {
   const d = new Date(tsMs);
-  if (interval === "5m" || interval === "15m") {
-    const h = d.getHours();
-    const min = d.getMinutes();
-    const suffix = h >= 12 ? "pm" : "am";
-    const h12 = h % 12 === 0 ? 12 : h % 12;
-    return min === 0 ? `${h12}${suffix}` : `${h12}:${String(min).padStart(2, "0")}${suffix}`;
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const suffix = h >= 12 ? "pm" : "am";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return m === 0 ? `${h12}${suffix}` : `${h12}:${String(m).padStart(2, "0")}${suffix}`;
+}
+
+function fmtDate(tsMs: number): string {
+  return new Date(tsMs).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function fmtMonthShort(tsMs: number): string {
+  return new Date(tsMs).toLocaleDateString("en-US", { month: "short" });
+}
+
+function fmtMonthYear(tsMs: number): string {
+  return new Date(tsMs).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+}
+
+function fmtYear(tsMs: number): string {
+  return String(new Date(tsMs).getFullYear());
+}
+
+// Sample an array of indices down to at most maxCount, always keeping first and last.
+function sampleIndices(indices: number[], maxCount: number): number[] {
+  if (indices.length <= maxCount) return indices;
+  const result = [indices[0]];
+  const step = (indices.length - 1) / (maxCount - 1);
+  for (let i = 1; i < maxCount - 1; i++) {
+    result.push(indices[Math.round(i * step)]);
   }
-  if (interval === "1d") {
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  }
-  if (interval === "1wk") {
-    return d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
-  }
-  if (interval === "1mo") {
-    return String(d.getFullYear());
-  }
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  result.push(indices[indices.length - 1]);
+  return [...new Set(result)];
 }
 
 function computeXLabels(
   timestamps: number[],
-  interval: string,
+  rangeKey: string,
   plotLeft: number,
-  plotRight: number,
-  numLabels = 5
+  plotRight: number
 ): { label: string; x: number }[] {
   if (!timestamps.length) return [];
   const n = timestamps.length;
   const plotWidth = plotRight - plotLeft;
+  const px = (idx: number) => plotLeft + (idx / Math.max(n - 1, 1)) * plotWidth;
 
-  // For monthly interval (3Y / 5Y): anchor labels at each calendar-year boundary
-  // so the axis always shows distinct years like 2023, 2024, 2025, 2026.
-  if (interval === "1mo") {
-    const boundaryIndices: number[] = [0];
+  // ── 1D: whole-hour ticks + market open; cap at 6 labels ──────────
+  if (rangeKey === "1d") {
+    const candidates: number[] = [0]; // always show the first point
+    for (let i = 1; i < n; i++) {
+      if (new Date(timestamps[i]).getMinutes() === 0) candidates.push(i);
+    }
+    const picked = sampleIndices(candidates, 6);
+    return picked.map((i) => ({ label: fmtTime(timestamps[i]), x: px(i) }));
+  }
+
+  // ── 5D: one label per trading day (first bar of each day) ────────
+  if (rangeKey === "5d") {
+    const seen = new Set<string>();
+    const indices: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const d = new Date(timestamps[i]);
+      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+      if (!seen.has(key)) { seen.add(key); indices.push(i); }
+    }
+    return indices.map((i) => ({ label: fmtDate(timestamps[i]), x: px(i) }));
+  }
+
+  // ── 1M: one label per week (~every 5 trading days) ───────────────
+  if (rangeKey === "1mo") {
+    const indices: number[] = [];
+    for (let i = 0; i < n; i += 5) indices.push(i);
+    if (indices[indices.length - 1] !== n - 1) indices.push(n - 1);
+    return sampleIndices(indices, 6).map((i) => ({ label: fmtDate(timestamps[i]), x: px(i) }));
+  }
+
+  // ── YTD: one label per month ──────────────────────────────────────
+  if (rangeKey === "ytd") {
+    const indices: number[] = [0];
+    let lastMonth = new Date(timestamps[0]).getMonth();
+    for (let i = 1; i < n; i++) {
+      const mo = new Date(timestamps[i]).getMonth();
+      if (mo !== lastMonth) { indices.push(i); lastMonth = mo; }
+    }
+    return sampleIndices(indices, 8).map((i) => ({ label: fmtMonthShort(timestamps[i]), x: px(i) }));
+  }
+
+  // ── 1Y: one label every 2 months ─────────────────────────────────
+  if (rangeKey === "1y") {
+    const monthBounds: number[] = [0];
+    let lastMonth = new Date(timestamps[0]).getMonth();
+    for (let i = 1; i < n; i++) {
+      const mo = new Date(timestamps[i]).getMonth();
+      if (mo !== lastMonth) { monthBounds.push(i); lastMonth = mo; }
+    }
+    const everyOther = monthBounds.filter((_, i) => i % 2 === 0);
+    return sampleIndices(everyOther, 6).map((i) => ({ label: fmtMonthYear(timestamps[i]), x: px(i) }));
+  }
+
+  // ── 3Y: one label per 6 months (every 6th monthly data point) ────
+  if (rangeKey === "3y") {
+    const indices: number[] = [];
+    for (let i = 0; i < n; i += 6) indices.push(i);
+    if (indices[indices.length - 1] !== n - 1) indices.push(n - 1);
+    return sampleIndices(indices, 7).map((i) => ({ label: fmtMonthYear(timestamps[i]), x: px(i) }));
+  }
+
+  // ── 5Y: one label per calendar year ──────────────────────────────
+  if (rangeKey === "5y") {
+    const yearBounds: number[] = [0];
     let lastYear = new Date(timestamps[0]).getFullYear();
     for (let i = 1; i < n; i++) {
       const yr = new Date(timestamps[i]).getFullYear();
-      if (yr !== lastYear) {
-        boundaryIndices.push(i);
-        lastYear = yr;
-      }
+      if (yr !== lastYear) { yearBounds.push(i); lastYear = yr; }
     }
-    if (boundaryIndices[boundaryIndices.length - 1] !== n - 1) {
-      boundaryIndices.push(n - 1);
-    }
-    // Sample down to at most 6 labels if span covers many years
-    const MAX_LABELS = 6;
-    let indices = boundaryIndices;
-    if (indices.length > MAX_LABELS) {
-      const sampled = [indices[0]];
-      const step = (indices.length - 1) / (MAX_LABELS - 1);
-      for (let i = 1; i < MAX_LABELS - 1; i++) {
-        sampled.push(indices[Math.round(i * step)]);
-      }
-      sampled.push(indices[indices.length - 1]);
-      indices = [...new Set(sampled)];
-    }
-    return indices.map((idx) => ({
-      label: String(new Date(timestamps[idx]).getFullYear()),
-      x: plotLeft + (idx / Math.max(n - 1, 1)) * plotWidth,
-    }));
+    if (yearBounds[yearBounds.length - 1] !== n - 1) yearBounds.push(n - 1);
+    return sampleIndices(yearBounds, 6).map((i) => ({ label: fmtYear(timestamps[i]), x: px(i) }));
   }
 
-  // Default: evenly-spaced labels
-  const count = Math.min(numLabels, n);
-  const result: { label: string; x: number }[] = [];
-  for (let i = 0; i < count; i++) {
-    const idx = Math.round((i / (count - 1)) * (n - 1));
-    const x = plotLeft + (idx / Math.max(n - 1, 1)) * plotWidth;
-    result.push({ label: formatXLabel(timestamps[idx], interval), x });
-  }
-  return result;
+  // ── Fallback: 5 evenly-spaced ─────────────────────────────────────
+  const count = Math.min(5, n);
+  return Array.from({ length: count }, (_, j) => {
+    const i = Math.round((j / (count - 1)) * (n - 1));
+    return { label: fmtDate(timestamps[i]), x: px(i) };
+  });
 }
 
 // ── Interactive Chart ─────────────────────────────────────────────
 interface ChartProps {
   prices: number[];
   timestamps: number[];
-  interval: string;
+  rangeKey: string;
   color: string;
   positiveColor: string;
   negativeColor: string;
@@ -161,7 +215,7 @@ interface ChartProps {
   onHoverChange?: (index: number | null) => void;
 }
 
-function InteractiveChart({ prices, timestamps, interval, color, positiveColor, negativeColor, borderColor, mutedColor, width, currency, mode, yPadding, onHoverChange }: ChartProps) {
+function InteractiveChart({ prices, timestamps, rangeKey, color, positiveColor, negativeColor, borderColor, mutedColor, width, currency, mode, yPadding, onHoverChange }: ChartProps) {
   const [touchIndex, setTouchIndex] = useState<number | null>(null);
 
   const plotLeft = Y_AXIS_WIDTH;
@@ -349,7 +403,7 @@ function InteractiveChart({ prices, timestamps, interval, color, positiveColor, 
       {/* X-axis time labels */}
       {timestamps.length > 0 ? (
         <View style={{ position: "relative", height: 18, marginTop: 2 }}>
-          {computeXLabels(timestamps, interval, plotLeft, plotRight, 5).map((lbl, i) => (
+          {computeXLabels(timestamps, rangeKey, plotLeft, plotRight).map((lbl, i) => (
             <Text
               key={i}
               style={[
@@ -554,6 +608,9 @@ export default function StockDetailScreen() {
   const [stockViewable, setStockViewable] = useState(true);
   const [paywallReason, setPaywallReason] = useState<"ai_stock_limit" | "stock_daily_limit">("ai_stock_limit");
   const [showPaywall, setShowPaywall] = useState(false);
+  const [lastManualRefresh, setLastManualRefresh] = useState<number | null>(null);
+  const [cooldownSec, setCooldownSec] = useState(0);
+  const cooldownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const stockViewRecorded = useRef(false);
 
   const cachedStock = stocks[ticker ?? ""];
@@ -602,6 +659,33 @@ export default function StockDetailScreen() {
 
   useEffect(() => { loadChart(selectedRange); }, [selectedRange]);
 
+  // Cooldown countdown for manual refresh button
+  useEffect(() => {
+    if (cooldownIntervalRef.current) clearInterval(cooldownIntervalRef.current);
+    if (lastManualRefresh === null) { setCooldownSec(0); return; }
+    const cooldownTotal = tier === "premium" ? 60 : 300;
+    const update = () => {
+      const elapsed = Math.floor((Date.now() - (lastManualRefresh ?? 0)) / 1000);
+      const remaining = Math.max(0, cooldownTotal - elapsed);
+      setCooldownSec(remaining);
+      if (remaining === 0 && cooldownIntervalRef.current) {
+        clearInterval(cooldownIntervalRef.current);
+      }
+    };
+    update();
+    cooldownIntervalRef.current = setInterval(update, 1000);
+    return () => { if (cooldownIntervalRef.current) clearInterval(cooldownIntervalRef.current); };
+  }, [lastManualRefresh, tier]);
+
+  const handleManualRefresh = useCallback(async () => {
+    if (cooldownSec > 0) return;
+    setLastManualRefresh(Date.now());
+    await Promise.all([
+      loadChart(selectedRange),
+      getQuotes([ticker!]).then((qs) => { if (qs[0]) setLiveQuote(qs[0]); }).catch(() => {}),
+    ]);
+  }, [cooldownSec, selectedRange, ticker, loadChart]);
+
   // Load events
   useEffect(() => {
     if (!ticker) return;
@@ -631,6 +715,12 @@ export default function StockDetailScreen() {
 
   const isPositive = changePercent >= 0;
   const changeColor = isPositive ? colors.positive : colors.negative;
+
+  // Market open/closed status derived from exchange
+  const marketOpen = useMemo(() => {
+    const exch = liveQuote?.exchange ?? liveQuote?.fullExchangeName ?? exchange;
+    return exch ? isMarketOpen(exch) : false;
+  }, [liveQuote?.exchange, liveQuote?.fullExchangeName, exchange]);
 
   // Chart % change from first to last
   const chartChangePct =
@@ -798,7 +888,7 @@ export default function StockDetailScreen() {
             <InteractiveChart
               prices={chartPrices}
               timestamps={chartTimestamps}
-              interval={CHART_RANGES[selectedRange].interval}
+              rangeKey={CHART_RANGES[selectedRange].range}
               color={chartChangePct >= 0 ? colors.positive : colors.negative}
               positiveColor={colors.positive}
               negativeColor={colors.negative}
@@ -810,6 +900,60 @@ export default function StockDetailScreen() {
               yPadding={chartYPadding}
             />
           )}
+
+          {/* ── Market status + manual refresh ── */}
+          <View style={{ paddingHorizontal: 16, paddingBottom: 14, paddingTop: 4 }}>
+            {/* Market closed badge */}
+            {!marketOpen && (
+              <View style={[styles.marketClosedBadge, { backgroundColor: `${colors.mutedForeground}14`, borderColor: `${colors.mutedForeground}30` }]}>
+                <Feather name="moon" size={11} color={colors.mutedForeground} />
+                <Text style={[styles.marketClosedText, { color: colors.mutedForeground }]}>
+                  Market closed · showing end-of-day data
+                </Text>
+              </View>
+            )}
+            {/* Free tier: info text */}
+            {tier === "free" && (
+              <Text style={[styles.autoUpdateNote, { color: colors.mutedForeground }]}>
+                Auto-updates every 15 min · Upgrade to Pro or Premium for manual refresh
+              </Text>
+            )}
+            {/* Pro / Premium: refresh button */}
+            {(tier === "pro" || tier === "premium") && (
+              <TouchableOpacity
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); handleManualRefresh(); }}
+                disabled={cooldownSec > 0}
+                style={[
+                  styles.refreshButton,
+                  {
+                    backgroundColor: cooldownSec > 0 ? colors.secondary : `${colors.primary}18`,
+                    borderColor: cooldownSec > 0 ? colors.border : `${colors.primary}44`,
+                  },
+                ]}
+              >
+                <Feather
+                  name="refresh-cw"
+                  size={13}
+                  color={cooldownSec > 0 ? colors.mutedForeground : colors.primary}
+                />
+                <Text style={[styles.refreshButtonText, { color: cooldownSec > 0 ? colors.mutedForeground : colors.primary }]}>
+                  {cooldownSec > 0
+                    ? `Refresh in ${cooldownSec}s`
+                    : "Refresh Data"}
+                </Text>
+                {tier === "pro" && (
+                  <View style={[styles.tierChip, { backgroundColor: colors.warning + "22" }]}>
+                    <Text style={[styles.tierChipText, { color: colors.warning }]}>PRO</Text>
+                  </View>
+                )}
+                {tier === "premium" && (
+                  <View style={[styles.tierChip, { backgroundColor: colors.positive + "22" }]}>
+                    <Text style={[styles.tierChipText, { color: colors.positive }]}>PREMIUM</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
 
         {/* ── Stats Grid ── */}
@@ -1003,4 +1147,12 @@ const styles = StyleSheet.create({
   notFound: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
   notFoundText: { fontSize: 16, fontFamily: "Inter_400Regular" },
   backLink: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+
+  marketClosedBadge: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, marginBottom: 8, alignSelf: "flex-start" },
+  marketClosedText: { fontSize: 11, fontFamily: "Inter_400Regular" },
+  autoUpdateNote: { fontSize: 11, fontFamily: "Inter_400Regular", lineHeight: 15, textAlign: "center" },
+  refreshButton: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, borderWidth: 1, alignSelf: "stretch", justifyContent: "center" },
+  refreshButtonText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  tierChip: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginLeft: 2 },
+  tierChipText: { fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
 });

@@ -65,7 +65,7 @@ export type EventPeriod = "day" | "week" | "month" | "year";
 
 export const CHART_RANGES: { label: string; range: string; interval: string }[] = [
   { label: "1D", range: "1d", interval: "5m" },
-  { label: "1W", range: "5d", interval: "15m" },
+  { label: "5D", range: "5d", interval: "15m" },
   { label: "1M", range: "1mo", interval: "1d" },
   { label: "YTD", range: "ytd", interval: "1d" },
   { label: "1Y", range: "1y", interval: "1wk" },
