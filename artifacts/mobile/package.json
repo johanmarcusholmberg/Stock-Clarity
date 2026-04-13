@@ -60,6 +60,7 @@
     "@types/lodash.debounce": "^4.0.9",
     "expo-auth-session": "~7.0.10",
     "expo-crypto": "~15.0.8",
+    "expo-notifications": "^0.32.16",
     "expo-secure-store": "~15.0.8",
     "lodash.debounce": "^4.0.8"
   }

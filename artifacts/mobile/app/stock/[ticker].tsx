@@ -67,18 +67,63 @@ function formatTooltipValue(value: number, mode: ChartMode, currency: string): s
   return `${sym}${value.toFixed(2)}`;
 }
 
+// ── X-axis label helpers ───────────────────────────────────────────
+function formatXLabel(tsMs: number, interval: string): string {
+  const d = new Date(tsMs);
+  if (interval === "5m" || interval === "15m") {
+    const h = d.getHours();
+    const min = d.getMinutes();
+    const suffix = h >= 12 ? "pm" : "am";
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    return min === 0 ? `${h12}${suffix}` : `${h12}:${String(min).padStart(2, "0")}${suffix}`;
+  }
+  if (interval === "1d") {
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+  if (interval === "1wk") {
+    return d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+  }
+  if (interval === "1mo") {
+    return String(d.getFullYear());
+  }
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function computeXLabels(
+  timestamps: number[],
+  interval: string,
+  plotLeft: number,
+  plotRight: number,
+  numLabels = 5
+): { label: string; x: number }[] {
+  if (!timestamps.length) return [];
+  const n = timestamps.length;
+  const count = Math.min(numLabels, n);
+  const plotWidth = plotRight - plotLeft;
+  const result: { label: string; x: number }[] = [];
+  for (let i = 0; i < count; i++) {
+    const idx = Math.round((i / (count - 1)) * (n - 1));
+    const x = plotLeft + (idx / Math.max(n - 1, 1)) * plotWidth;
+    result.push({ label: formatXLabel(timestamps[idx], interval), x });
+  }
+  return result;
+}
+
 // ── Interactive Chart ─────────────────────────────────────────────
 interface ChartProps {
   prices: number[];
+  timestamps: number[];
+  interval: string;
   color: string;
   borderColor: string;
   mutedColor: string;
   width: number;
   currency: string;
   mode: ChartMode;
+  onHoverChange?: (index: number | null) => void;
 }
 
-function InteractiveChart({ prices, color, borderColor, mutedColor, width, currency, mode }: ChartProps) {
+function InteractiveChart({ prices, timestamps, interval, color, borderColor, mutedColor, width, currency, mode, onHoverChange }: ChartProps) {
   const [touchIndex, setTouchIndex] = useState<number | null>(null);
 
   const plotLeft = Y_AXIS_WIDTH;
@@ -135,16 +180,18 @@ function InteractiveChart({ prices, color, borderColor, mutedColor, width, curre
         onMoveShouldSetPanResponder: () => true,
         onPanResponderGrant: (e) => {
           const x = e.nativeEvent.locationX;
-          const idx = Math.round(((x - plotLeft) / plotWidth) * (displayValues.length - 1));
-          setTouchIndex(Math.max(0, Math.min(displayValues.length - 1, idx)));
+          const idx = Math.max(0, Math.min(displayValues.length - 1, Math.round(((x - plotLeft) / plotWidth) * (displayValues.length - 1))));
+          setTouchIndex(idx);
+          onHoverChange?.(idx);
         },
         onPanResponderMove: (e) => {
           const x = e.nativeEvent.locationX;
-          const idx = Math.round(((x - plotLeft) / plotWidth) * (displayValues.length - 1));
-          setTouchIndex(Math.max(0, Math.min(displayValues.length - 1, idx)));
+          const idx = Math.max(0, Math.min(displayValues.length - 1, Math.round(((x - plotLeft) / plotWidth) * (displayValues.length - 1))));
+          setTouchIndex(idx);
+          onHoverChange?.(idx);
         },
-        onPanResponderRelease: () => setTouchIndex(null),
-        onPanResponderTerminate: () => setTouchIndex(null),
+        onPanResponderRelease: () => { setTouchIndex(null); onHoverChange?.(null); },
+        onPanResponderTerminate: () => { setTouchIndex(null); onHoverChange?.(null); },
       }),
     [displayValues.length, plotLeft, plotWidth]
   );
@@ -249,12 +296,34 @@ function InteractiveChart({ prices, color, borderColor, mutedColor, width, curre
         </Svg>
       </View>
 
-      {/* X-axis start / end labels */}
-      <View style={chartStyles.xAxisRow}>
-        <View style={{ width: Y_AXIS_WIDTH }} />
-        <Text style={[chartStyles.xLabel, { color: mutedColor }]}>Start</Text>
-        <Text style={[chartStyles.xLabel, { color: mutedColor }]}>Now</Text>
-      </View>
+      {/* X-axis time labels */}
+      {timestamps.length > 0 ? (
+        <View style={{ position: "relative", height: 18, marginTop: 2 }}>
+          {computeXLabels(timestamps, interval, plotLeft, plotRight, 5).map((lbl, i) => (
+            <Text
+              key={i}
+              style={[
+                chartStyles.xLabel,
+                {
+                  color: mutedColor,
+                  position: "absolute",
+                  left: Math.max(0, lbl.x - 26),
+                  width: 52,
+                  textAlign: "center",
+                },
+              ]}
+            >
+              {lbl.label}
+            </Text>
+          ))}
+        </View>
+      ) : (
+        <View style={chartStyles.xAxisRow}>
+          <View style={{ width: Y_AXIS_WIDTH }} />
+          <Text style={[chartStyles.xLabel, { color: mutedColor }]}>Start</Text>
+          <Text style={[chartStyles.xLabel, { color: mutedColor }]}>Now</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -425,6 +494,8 @@ export default function StockDetailScreen() {
 
   const [liveQuote, setLiveQuote] = useState<any>(null);
   const [chartPrices, setChartPrices] = useState<number[]>([]);
+  const [chartTimestamps, setChartTimestamps] = useState<number[]>([]);
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [chartLoading, setChartLoading] = useState(true);
   const [chartMode, setChartMode] = useState<ChartMode>("price");
   const [events, setEvents] = useState<StockEvent[]>([]);
@@ -471,8 +542,10 @@ export default function StockDetailScreen() {
       const { range, interval } = CHART_RANGES[rangeIdx];
       const data = await getChart(ticker, range, interval);
       setChartPrices(data.prices);
+      setChartTimestamps(data.timestamps);
     } catch {
       setChartPrices(cachedStock?.priceHistory ?? []);
+      setChartTimestamps([]);
     } finally {
       setChartLoading(false);
     }
@@ -509,6 +582,14 @@ export default function StockDetailScreen() {
 
   const isPositive = changePercent >= 0;
   const changeColor = isPositive ? colors.positive : colors.negative;
+
+  const hoveredPrice = hoveredIndex !== null ? chartPrices[hoveredIndex] ?? null : null;
+  const hoveredIsPositive = hoveredPrice !== null && chartPrices.length > 0
+    ? hoveredPrice >= chartPrices[0]
+    : isPositive;
+  const dynamicChangeColor = hoveredPrice !== null
+    ? (hoveredIsPositive ? colors.positive : colors.negative)
+    : changeColor;
 
   // Chart % change from first to last
   const chartChangePct =
@@ -594,14 +675,14 @@ export default function StockDetailScreen() {
             <Text style={[styles.priceText, { color: colors.foreground }]}>
               {currSym}{formatPrice(price, currency)}
             </Text>
-            <View style={[styles.changePill, { backgroundColor: `${changeColor}22` }]}>
-              <Feather name={isPositive ? "trending-up" : "trending-down"} size={13} color={changeColor} />
-              <Text style={[styles.changeText, { color: changeColor }]}>
+            <View style={[styles.changePill, { backgroundColor: `${dynamicChangeColor}22` }]}>
+              <Feather name={hoveredIsPositive ? "trending-up" : "trending-down"} size={13} color={dynamicChangeColor} />
+              <Text style={[styles.changeText, { color: dynamicChangeColor }]}>
                 {isPositive ? "+" : ""}{changePercent.toFixed(2)}%
               </Text>
             </View>
           </View>
-          <Text style={[styles.changeAbsolute, { color: changeColor }]}>
+          <Text style={[styles.changeAbsolute, { color: dynamicChangeColor }]}>
             {change >= 0 ? "+" : ""}{currSym}{Math.abs(change).toFixed(2)} today
           </Text>
         </View>
@@ -667,12 +748,15 @@ export default function StockDetailScreen() {
           ) : (
             <InteractiveChart
               prices={chartPrices}
-              color={changeColor}
+              timestamps={chartTimestamps}
+              interval={CHART_RANGES[selectedRange].interval}
+              color={chartChangePct >= 0 ? colors.positive : colors.negative}
               borderColor={colors.border}
               mutedColor={colors.mutedForeground}
               width={chartWidth}
               currency={currency}
               mode={chartMode}
+              onHoverChange={setHoveredIndex}
             />
           )}
         </View>

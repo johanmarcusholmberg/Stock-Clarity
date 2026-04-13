@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  Switch,
   TouchableOpacity,
   TextInput,
   Alert,
@@ -18,7 +19,19 @@ import { Feather } from "@expo/vector-icons";
 import { useAuth, useUser } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription } from "@/context/SubscriptionContext";
+import { useWatchlist } from "@/context/WatchlistContext";
 import { PaywallSheet } from "@/components/PaywallSheet";
+import {
+  loadNotificationPrefs,
+  saveNotificationPrefs,
+  scheduleWatchlistNotification,
+  cancelAllNotifications,
+  requestNotificationPermission,
+  describeSchedule,
+  type NotificationPrefs,
+  type NotificationFrequency,
+  type NotificationMethod,
+} from "@/services/NotificationService";
 
 const API_BASE = (() => {
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
@@ -43,6 +56,7 @@ export default function AccountScreen() {
     subscriptionStatus,
     openPortal,
   } = useSubscription();
+  const { stocks } = useWatchlist();
   const [showPaywall, setShowPaywall] = useState(false);
   const [feedbackCategory, setFeedbackCategory] = useState<FeedbackCategory>("general");
   const [feedbackMessage, setFeedbackMessage] = useState("");
@@ -54,8 +68,15 @@ export default function AccountScreen() {
   const [nameInput, setNameInput] = useState("");
   const [nameSaving, setNameSaving] = useState(false);
 
+  const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs | null>(null);
+  const [notifSaving, setNotifSaving] = useState(false);
+
   const toastOpacity = useRef(new Animated.Value(0)).current;
   const toastAnimRef = useRef<ReturnType<typeof Animated.sequence> | null>(null);
+
+  useEffect(() => {
+    loadNotificationPrefs().then(setNotifPrefs);
+  }, []);
 
   const showToast = () => {
     if (toastAnimRef.current) toastAnimRef.current.stop();
@@ -181,6 +202,38 @@ export default function AccountScreen() {
       Alert.alert("Error", "Could not save your display name. Please try again.");
     } finally {
       setNameSaving(false);
+    }
+  };
+
+  const watchlistTickers = Object.keys(stocks);
+
+  const handleNotifUpdate = async (updater: (p: NotificationPrefs) => NotificationPrefs) => {
+    if (!notifPrefs) return;
+    const updated = updater(notifPrefs);
+    setNotifPrefs(updated);
+    setNotifSaving(true);
+    try {
+      if (updated.enabled && (updated.method === "push" || updated.method === "both")) {
+        const granted = await requestNotificationPermission();
+        if (!granted) {
+          Alert.alert(
+            "Permission needed",
+            "Please enable notifications in your device settings to receive watchlist updates.",
+          );
+          const fixed = { ...updated, method: "email" as NotificationMethod };
+          setNotifPrefs(fixed);
+          await saveNotificationPrefs(fixed);
+          return;
+        }
+      }
+      await saveNotificationPrefs(updated);
+      if (updated.enabled) {
+        await scheduleWatchlistNotification(updated, watchlistTickers);
+      } else {
+        await cancelAllNotifications();
+      }
+    } finally {
+      setNotifSaving(false);
     }
   };
 
@@ -427,6 +480,114 @@ export default function AccountScreen() {
             )}
           </View>
         </View>
+
+        {/* Notifications */}
+        {notifPrefs && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>Watchlist Notifications</Text>
+            <View style={s.card}>
+              {/* Master toggle */}
+              <View style={[s.row]}>
+                <View style={s.rowIcon}><Feather name="bell" size={18} color={colors.primary} /></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.rowLabel, { marginBottom: 0 }]}>Notifications</Text>
+                  {notifPrefs.enabled && (
+                    <Text style={[s.rowValue, { fontSize: 11, marginTop: 2 }]}>{describeSchedule(notifPrefs)}</Text>
+                  )}
+                </View>
+                {notifSaving ? (
+                  <ActivityIndicator size="small" color={colors.primary} />
+                ) : (
+                  <Switch
+                    value={notifPrefs.enabled}
+                    onValueChange={(v) => handleNotifUpdate((p) => ({ ...p, enabled: v }))}
+                    trackColor={{ false: colors.border, true: colors.primary }}
+                    thumbColor="#fff"
+                  />
+                )}
+              </View>
+
+              {notifPrefs.enabled && (
+                <>
+                  {/* Frequency */}
+                  <View style={[s.row]}>
+                    <View style={s.rowIcon}><Feather name="calendar" size={18} color={colors.primary} /></View>
+                    <Text style={[s.rowLabel]}>Frequency</Text>
+                  </View>
+                  <View style={{ flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingBottom: 14 }}>
+                    {(["daily", "weekly", "monthly"] as NotificationFrequency[]).map((f) => (
+                      <TouchableOpacity
+                        key={f}
+                        style={{
+                          flex: 1, paddingVertical: 8, borderRadius: 10, borderWidth: 1.5,
+                          borderColor: notifPrefs.frequency === f ? colors.primary : colors.border,
+                          backgroundColor: notifPrefs.frequency === f ? colors.primary + "18" : "transparent",
+                          alignItems: "center",
+                        }}
+                        onPress={() => handleNotifUpdate((p) => ({ ...p, frequency: f }))}
+                      >
+                        <Text style={{
+                          fontSize: 12, fontFamily: "Inter_600SemiBold",
+                          color: notifPrefs.frequency === f ? colors.primary : colors.mutedForeground,
+                          textTransform: "capitalize",
+                        }}>{f}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  {/* Delivery method */}
+                  <View style={[s.row]}>
+                    <View style={s.rowIcon}><Feather name="send" size={18} color={colors.primary} /></View>
+                    <Text style={[s.rowLabel]}>Delivery</Text>
+                  </View>
+                  <View style={{ flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingBottom: 14 }}>
+                    {([
+                      { value: "push", label: "Push", icon: "smartphone" },
+                      { value: "email", label: "Email", icon: "mail" },
+                      { value: "both", label: "Both", icon: "layers" },
+                    ] as { value: NotificationMethod; label: string; icon: FeatherIconName }[]).map((m) => (
+                      <TouchableOpacity
+                        key={m.value}
+                        style={{
+                          flex: 1, paddingVertical: 8, borderRadius: 10, borderWidth: 1.5,
+                          borderColor: notifPrefs.method === m.value ? colors.primary : colors.border,
+                          backgroundColor: notifPrefs.method === m.value ? colors.primary + "18" : "transparent",
+                          alignItems: "center", gap: 4,
+                        }}
+                        onPress={() => handleNotifUpdate((p) => ({ ...p, method: m.value }))}
+                      >
+                        <Feather name={m.icon} size={14} color={notifPrefs.method === m.value ? colors.primary : colors.mutedForeground} />
+                        <Text style={{
+                          fontSize: 11, fontFamily: "Inter_600SemiBold",
+                          color: notifPrefs.method === m.value ? colors.primary : colors.mutedForeground,
+                        }}>{m.label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  {/* Email for email delivery */}
+                  {(notifPrefs.method === "email" || notifPrefs.method === "both") && (
+                    <View style={[s.row, s.rowLast]}>
+                      <View style={s.rowIcon}><Feather name="at-sign" size={18} color={colors.primary} /></View>
+                      <Text style={[s.rowLabel, { color: colors.mutedForeground, fontSize: 13 }]} numberOfLines={1}>
+                        {user?.primaryEmailAddress?.emailAddress ?? "No email on file"}
+                      </Text>
+                    </View>
+                  )}
+
+                  {notifPrefs.method === "push" && (
+                    <View style={[s.row, s.rowLast]}>
+                      <Feather name="info" size={14} color={colors.mutedForeground} style={{ marginRight: 8 }} />
+                      <Text style={{ color: colors.mutedForeground, fontSize: 12, fontFamily: "Inter_400Regular", flex: 1 }}>
+                        Push notifications require the app to be installed natively on your device.
+                      </Text>
+                    </View>
+                  )}
+                </>
+              )}
+            </View>
+          </View>
+        )}
 
         {/* Feedback */}
         <View style={s.section}>
