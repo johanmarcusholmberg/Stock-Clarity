@@ -146,23 +146,31 @@ export function FolderTabStrip() {
     setContextMenuVisible(false);
     const folderName = contextMenuFolder.name;
     const folderId = contextMenuFolder.id;
-    const message = "Stocks will be moved to My Watchlist";
     if (Platform.OS === "web") {
-      if (window.confirm(`Delete "${folderName}"?\n${message}`)) {
-        deleteFolder(folderId);
+      const keepStocks = window.confirm(`Delete "${folderName}"?\n\nOK = keep stocks in My Watchlist\nCancel = abort`);
+      if (keepStocks) {
+        deleteFolder(folderId, false);
         setContextMenuFolder(null);
       }
     } else {
       Alert.alert(
         `Delete "${folderName}"?`,
-        message,
+        "What should happen to the stocks inside?",
         [
           { text: "Cancel", style: "cancel" },
           {
-            text: "Delete",
+            text: "Keep in My Watchlist",
+            style: "default",
+            onPress: () => {
+              deleteFolder(folderId, false);
+              setContextMenuFolder(null);
+            },
+          },
+          {
+            text: "Remove stocks too",
             style: "destructive",
             onPress: () => {
-              deleteFolder(folderId);
+              deleteFolder(folderId, true);
               setContextMenuFolder(null);
             },
           },

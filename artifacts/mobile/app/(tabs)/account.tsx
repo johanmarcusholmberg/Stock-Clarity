@@ -28,6 +28,7 @@ import {
   cancelAllNotifications,
   requestNotificationPermission,
   describeSchedule,
+  formatNotifTime,
   ALERT_TYPE_OPTIONS,
   type NotificationPrefs,
   type NotificationFrequency,
@@ -535,6 +536,60 @@ export default function AccountScreen() {
                         }}>{f}</Text>
                       </TouchableOpacity>
                     ))}
+                  </View>
+
+                  {/* Delivery time */}
+                  <View style={[s.row]}>
+                    <View style={s.rowIcon}><Feather name="clock" size={18} color={colors.primary} /></View>
+                    <Text style={[s.rowLabel]}>Delivery Time</Text>
+                    <Text style={[s.rowValue]}>{formatNotifTime(notifPrefs.hour, notifPrefs.minute ?? 0)}</Text>
+                  </View>
+                  <View style={{ paddingHorizontal: 16, paddingBottom: 14, gap: 10 }}>
+                    <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
+                      {[6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21].map((h) => {
+                        const active = notifPrefs.hour === h;
+                        const label = h === 12 ? "12pm" : h > 12 ? `${h - 12}pm` : `${h}am`;
+                        return (
+                          <TouchableOpacity
+                            key={h}
+                            style={{
+                              paddingVertical: 7, paddingHorizontal: 11, borderRadius: 8, borderWidth: 1.5,
+                              borderColor: active ? colors.primary : colors.border,
+                              backgroundColor: active ? colors.primary + "18" : "transparent",
+                            }}
+                            onPress={() => handleNotifUpdate((p) => ({ ...p, hour: h }))}
+                          >
+                            <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: active ? colors.primary : colors.mutedForeground }}>
+                              {label}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    <View style={{ flexDirection: "row", gap: 6 }}>
+                      {[0, 15, 30, 45].map((m) => {
+                        const active = (notifPrefs.minute ?? 0) === m;
+                        return (
+                          <TouchableOpacity
+                            key={m}
+                            style={{
+                              flex: 1, paddingVertical: 7, borderRadius: 8, borderWidth: 1.5,
+                              borderColor: active ? colors.primary : colors.border,
+                              backgroundColor: active ? colors.primary + "18" : "transparent",
+                              alignItems: "center",
+                            }}
+                            onPress={() => handleNotifUpdate((p) => ({ ...p, minute: m }))}
+                          >
+                            <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: active ? colors.primary : colors.mutedForeground }}>
+                              :{String(m).padStart(2, "0")}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: colors.mutedForeground }}>
+                      Your watchlist data will be refreshed before delivery when the app is active.
+                    </Text>
                   </View>
 
                   {/* Delivery method */}

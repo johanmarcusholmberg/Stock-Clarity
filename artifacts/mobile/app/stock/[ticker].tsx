@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Dimensions,
   Linking,
+  Modal,
   PanResponder,
   Platform,
   ScrollView,
@@ -612,7 +613,8 @@ export default function StockDetailScreen() {
   const { ticker } = useLocalSearchParams<{ ticker: string }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { stocks, addToWatchlist, removeFromWatchlist, isInWatchlist, isInFolder, activeFolderId, folders } = useWatchlist();
+  const { stocks, addToWatchlist, isInWatchlist, isInFolder, folders, addToFolder, removeFromFolder } = useWatchlist();
+  const [folderSheetVisible, setFolderSheetVisible] = useState(false);
   const {
     tier,
     canViewStock,
@@ -642,9 +644,7 @@ export default function StockDetailScreen() {
   const stockViewRecorded = useRef(false);
 
   const cachedStock = stocks[ticker ?? ""];
-  const inActiveFolder = isInFolder(ticker ?? "", activeFolderId);
   const inAnyFolder = isInWatchlist(ticker ?? "");
-  const activeFolderName = folders.find((f) => f.id === activeFolderId)?.name ?? "Watchlist";
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const chartWidth = SCREEN_WIDTH - 32;
@@ -834,20 +834,20 @@ export default function StockDetailScreen() {
           <TouchableOpacity
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              if (inActiveFolder) {
-                removeFromWatchlist(ticker!);
-              } else {
-                addToWatchlist(ticker!);
-              }
+              setFolderSheetVisible(true);
             }}
             style={[styles.watchlistButton, {
-              backgroundColor: inActiveFolder ? `${colors.primary}22` : colors.primary,
-              borderColor: inActiveFolder ? `${colors.primary}44` : colors.primary,
+              backgroundColor: inAnyFolder ? `${colors.positive}18` : colors.primary,
+              borderColor: inAnyFolder ? `${colors.positive}44` : colors.primary,
             }]}
           >
-            <Feather name={inActiveFolder ? "check" : "plus"} size={14} color={inActiveFolder ? colors.primary : colors.primaryForeground} />
-            <Text style={[styles.watchlistButtonText, { color: inActiveFolder ? colors.primary : colors.primaryForeground }]} numberOfLines={1}>
-              {inActiveFolder ? activeFolderName : inAnyFolder ? `Add to ${activeFolderName}` : "Add to watchlist"}
+            <Feather
+              name={inAnyFolder ? "bookmark" : "bookmark"}
+              size={14}
+              color={inAnyFolder ? colors.positive : colors.primaryForeground}
+            />
+            <Text style={[styles.watchlistButtonText, { color: inAnyFolder ? colors.positive : colors.primaryForeground }]} numberOfLines={1}>
+              {inAnyFolder ? "Saved" : "Save to Watchlist"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -1147,6 +1147,97 @@ export default function StockDetailScreen() {
         </View>
       </ScrollView>
 
+      {/* ── Folder Picker Sheet ── */}
+      <Modal
+        visible={folderSheetVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFolderSheetVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.folderSheetOverlay}
+          activeOpacity={1}
+          onPress={() => setFolderSheetVisible(false)}
+        >
+          <View
+            style={[styles.folderSheetPanel, { backgroundColor: colors.card, borderColor: colors.border }]}
+            onStartShouldSetResponder={() => true}
+          >
+            <View style={styles.folderSheetHeader}>
+              <Text style={[styles.folderSheetTitle, { color: colors.foreground }]}>Save to Folders</Text>
+              <Text style={[styles.folderSheetSub, { color: colors.mutedForeground }]}>{ticker}</Text>
+            </View>
+            <ScrollView style={{ maxHeight: 320 }} showsVerticalScrollIndicator={false}>
+              {folders.map((folder) => {
+                const inThis = isInFolder(ticker ?? "", folder.id);
+                return (
+                  <TouchableOpacity
+                    key={folder.id}
+                    style={[
+                      styles.folderSheetRow,
+                      { borderColor: inThis ? `${colors.positive}44` : colors.border, backgroundColor: inThis ? `${colors.positive}10` : "transparent" },
+                    ]}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      if (inThis) {
+                        removeFromFolder(ticker!, folder.id);
+                      } else {
+                        addToFolder(ticker!, folder.id, {
+                          ticker: ticker!,
+                          name,
+                          exchange,
+                          exchangeFlag: flag,
+                          price,
+                          currency,
+                          change: periodChangePoints,
+                          changePercent: periodChangePct,
+                        });
+                      }
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.folderSheetRowInfo}>
+                      <Text style={[styles.folderSheetRowName, { color: colors.foreground }]}>{folder.name}</Text>
+                      {folder.tickers.length > 0 && (
+                        <Text style={[styles.folderSheetRowCount, { color: colors.mutedForeground }]}>
+                          {folder.tickers.length} stock{folder.tickers.length !== 1 ? "s" : ""}
+                        </Text>
+                      )}
+                    </View>
+                    <View style={[styles.folderSheetCheck, {
+                      backgroundColor: inThis ? colors.positive : "transparent",
+                      borderColor: inThis ? colors.positive : colors.border,
+                    }]}>
+                      {inThis && <Feather name="check" size={12} color="#fff" />}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            {!inAnyFolder && (
+              <TouchableOpacity
+                style={[styles.folderSheetSaveBtn, { backgroundColor: colors.primary }]}
+                onPress={() => {
+                  addToWatchlist(ticker!);
+                  setFolderSheetVisible(false);
+                }}
+              >
+                <Feather name="bookmark" size={16} color={colors.primaryForeground} />
+                <Text style={[styles.folderSheetSaveBtnText, { color: colors.primaryForeground }]}>
+                  Save to My Watchlist
+                </Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={[styles.folderSheetDone, { backgroundColor: colors.secondary, borderColor: colors.border }]}
+              onPress={() => setFolderSheetVisible(false)}
+            >
+              <Text style={[styles.folderSheetDoneText, { color: colors.foreground }]}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       <PaywallSheet
         visible={showPaywall}
         onClose={() => setShowPaywall(false)}
@@ -1245,4 +1336,19 @@ const styles = StyleSheet.create({
   marketStatusChip: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1 },
   marketStatusDot: { width: 6, height: 6, borderRadius: 3 },
   marketStatusText: { fontSize: 11, fontFamily: "Inter_400Regular" },
+
+  folderSheetOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center", padding: 24 },
+  folderSheetPanel: { width: "100%", maxWidth: 360, borderRadius: 22, borderWidth: 1, padding: 20, gap: 14 },
+  folderSheetHeader: { gap: 2 },
+  folderSheetTitle: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  folderSheetSub: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  folderSheetRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 13, borderRadius: 12, borderWidth: 1, marginBottom: 8, gap: 12 },
+  folderSheetRowInfo: { flex: 1, gap: 2 },
+  folderSheetRowName: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  folderSheetRowCount: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  folderSheetCheck: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
+  folderSheetSaveBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 13, borderRadius: 12, gap: 8 },
+  folderSheetSaveBtnText: { fontSize: 15, fontFamily: "Inter_700Bold" },
+  folderSheetDone: { alignItems: "center", paddingVertical: 12, borderRadius: 12, borderWidth: 1 },
+  folderSheetDoneText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
 });

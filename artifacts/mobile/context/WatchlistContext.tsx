@@ -91,7 +91,7 @@ interface WatchlistContextType {
   setActiveFolderId: (id: string) => void;
   createFolder: (name: string) => WatchlistFolder | null;
   renameFolder: (id: string, name: string) => void;
-  deleteFolder: (id: string) => void;
+  deleteFolder: (id: string, removeStocksCompletely?: boolean) => void;
   addToFolder: (ticker: string, folderId: string, data?: AddStockData) => void;
   removeFromFolder: (ticker: string, folderId: string) => void;
   folderLimit: number;
@@ -428,19 +428,28 @@ export function WatchlistProvider({
     });
   }, [saveFolders]);
 
-  const deleteFolder = useCallback((id: string) => {
+  const deleteFolder = useCallback((id: string, removeStocksCompletely = false) => {
     if (id === DEFAULT_FOLDER_ID) return;
     setFolders((prev) => {
       if (prev.length <= 1) return prev;
       const folderToDelete = prev.find((f) => f.id === id);
-      const tickersToMove = folderToDelete?.tickers ?? [];
-      const next = prev
-        .filter((f) => f.id !== id)
-        .map((f) => {
-          if (f.id !== DEFAULT_FOLDER_ID || tickersToMove.length === 0) return f;
-          const merged = Array.from(new Set([...f.tickers, ...tickersToMove]));
-          return { ...f, tickers: merged };
-        });
+      const tickersInFolder = folderToDelete?.tickers ?? [];
+      let next: WatchlistFolder[];
+      if (removeStocksCompletely && tickersInFolder.length > 0) {
+        // Remove stocks from ALL folders, then drop this folder
+        next = prev
+          .filter((f) => f.id !== id)
+          .map((f) => ({ ...f, tickers: f.tickers.filter((t) => !tickersInFolder.includes(t)) }));
+      } else {
+        // Move stocks to My Watchlist, then drop this folder
+        next = prev
+          .filter((f) => f.id !== id)
+          .map((f) => {
+            if (f.id !== DEFAULT_FOLDER_ID || tickersInFolder.length === 0) return f;
+            const merged = Array.from(new Set([...f.tickers, ...tickersInFolder]));
+            return { ...f, tickers: merged };
+          });
+      }
       saveFolders(next);
       setActiveFolderIdState((currentActive) => {
         if (currentActive !== id) return currentActive;

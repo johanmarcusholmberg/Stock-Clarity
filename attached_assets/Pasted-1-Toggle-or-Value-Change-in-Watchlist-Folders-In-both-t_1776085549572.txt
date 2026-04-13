@@ -1,0 +1,40 @@
+1. Toggle % or Value Change in Watchlist & Folders
+In both the main Watchlist and inside any folder, add a toggle that switches between showing % change and value (points) change for each stock in the compressed/list view:
+
+The toggle should be easily accessible — e.g. a small switch or tap on the value itself to flip between the two modes
+The selected mode should persist across the session so the user doesn't have to re-toggle every time they navigate away and back
+The toggle should apply globally to all stocks in the view, not per individual stock
+
+
+2. Scheduled Notifications with Pre-Update
+Users should be able to choose a specific time for each notification to be sent, with the following behavior:
+
+In notification settings, allow the user to set a preferred delivery time (e.g. 8:00am, 5:00pm)
+30 minutes before the scheduled notification time, the app should automatically fetch and update the notification with the latest available market data so the content is fresh when it arrives
+If the market is closed at the scheduled time, the notification should reflect the most recent available end-of-day data
+
+
+3. Easy Add/Remove Stock from Within a Stock View
+When a user opens an individual stock, it should be immediately clear and easy to save or remove it:
+
+If the stock is not yet saved anywhere, show a prominent "Save to Watchlist" button or icon, along with an option to choose which folder(s) to save it to
+If the stock is already saved, show a clear option to remove it — either from a specific folder, from all folders, or from the Watchlist entirely
+The user should be able to save a stock to one or multiple folders at the same time by selecting from a checklist of their existing folders
+The save/remove action should feel native and natural — not buried in a menu
+
+
+4. Folder Deletion — Choice to Keep or Remove Stocks
+When a user deletes a folder, they should be presented with a choice of what happens to the stocks inside:
+
+Option A: "Remove folder only" — the folder is deleted but all stocks inside remain in "My Watchlist"
+Option B: "Remove folder and stocks" — both the folder and all its stocks are fully removed from the Watchlist
+This choice should appear in the confirmation prompt before the deletion is finalised, so it is a single step and not two separate confirmations
+
+
+5. Fix Stock Market Trading Hours
+The trading hours for exchanges are currently incorrect. Fix the following and audit all other supported exchanges for accuracy:
+
+Nasdaq Stockholm (and Swedish exchanges): Trading hours are 9:00am – 5:30pm CET/CEST — the market is currently showing as closed when it should be open
+Ensure all exchange hours correctly adjust for daylight saving time per region
+As a general rule, when in doubt about an exchange's hours, default to the official published hours from that exchange's website
+After fixing, verify that the market open/closed status, Update button availability, and graph data all correctly reflect the live state based on the corrected hours

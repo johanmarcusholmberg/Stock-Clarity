@@ -8,9 +8,10 @@ import MiniChart from "./MiniChart";
 
 interface Props {
   stock: Stock;
+  showPercent?: boolean;
 }
 
-export default function StockCard({ stock }: Props) {
+export default function StockCard({ stock, showPercent = true }: Props) {
   const colors = useColors();
   const isPositive = stock.change >= 0;
   const changeColor = isPositive ? colors.positive : colors.negative;
@@ -21,7 +22,18 @@ export default function StockCard({ stock }: Props) {
     return price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
+  const formatChange = (val: number) => {
+    const abs = Math.abs(val);
+    if (abs >= 1000) return abs.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    if (abs >= 10) return abs.toFixed(2);
+    return abs.toFixed(2);
+  };
+
   const shortTicker = stock.ticker.includes(".") ? stock.ticker.split(".")[0] : stock.ticker;
+
+  const changeLabel = showPercent
+    ? `${isPositive ? "+" : ""}${stock.changePercent.toFixed(2)}%`
+    : `${isPositive ? "+" : "−"}${formatChange(stock.change)}`;
 
   return (
     <TouchableOpacity
@@ -53,7 +65,7 @@ export default function StockCard({ stock }: Props) {
         <View style={[styles.changeBadge, { backgroundColor: isPositive ? `${colors.positive}22` : `${colors.negative}22` }]}>
           <Feather name={isPositive ? "trending-up" : "trending-down"} size={10} color={changeColor} />
           <Text style={[styles.changeText, { color: changeColor }]}>
-            {isPositive ? "+" : ""}{stock.changePercent.toFixed(2)}%
+            {changeLabel}
           </Text>
         </View>
       </View>

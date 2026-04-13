@@ -1,6 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Haptics from "expo-haptics";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { useState, useMemo, useEffect } from "react";
 import {
   Platform,
@@ -45,7 +46,23 @@ export default function WatchlistScreen() {
   const { user } = useUser();
   const { watchlist, stocks, unreadAlertCount, folders, activeFolderId, displayName, markAllAlertsRead } = useWatchlist();
   const [filter, setFilter] = useState<Filter>("all");
+  const [showPercent, setShowPercent] = useState(true);
   const params = useLocalSearchParams<{ pendingTimezone?: string }>();
+
+  useEffect(() => {
+    AsyncStorage.getItem("@stockclarify_show_percent").then((v) => {
+      if (v !== null) setShowPercent(v === "true");
+    });
+  }, []);
+
+  const toggleChangeMode = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setShowPercent((prev) => {
+      const next = !prev;
+      AsyncStorage.setItem("@stockclarify_show_percent", String(next));
+      return next;
+    });
+  };
 
   useEffect(() => {
     const tz = params.pendingTimezone;
@@ -128,13 +145,23 @@ export default function WatchlistScreen() {
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
             {activeFolder?.name ?? "Watchlist"}
           </Text>
-          <TouchableOpacity
-            style={[styles.addButton, { backgroundColor: `${colors.primary}22`, borderColor: `${colors.primary}44` }]}
-            onPress={() => router.push("/(tabs)/search")}
-          >
-            <Feather name="plus" size={14} color={colors.primary} />
-            <Text style={[styles.addButtonText, { color: colors.primary }]}>Add stock</Text>
-          </TouchableOpacity>
+          <View style={styles.sectionActions}>
+            <TouchableOpacity
+              style={[styles.changeToggle, { backgroundColor: colors.secondary, borderColor: colors.border }]}
+              onPress={toggleChangeMode}
+            >
+              <Text style={[styles.changeToggleText, { color: showPercent ? colors.primary : colors.mutedForeground }]}>%</Text>
+              <View style={[styles.changeToggleDivider, { backgroundColor: colors.border }]} />
+              <Text style={[styles.changeToggleText, { color: !showPercent ? colors.primary : colors.mutedForeground }]}>$</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.addButton, { backgroundColor: `${colors.primary}22`, borderColor: `${colors.primary}44` }]}
+              onPress={() => router.push("/(tabs)/search")}
+            >
+              <Feather name="plus" size={14} color={colors.primary} />
+              <Text style={[styles.addButtonText, { color: colors.primary }]}>Add stock</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={[styles.filterRow, { marginBottom: 12, paddingHorizontal: 16 }]}>
@@ -187,7 +214,7 @@ export default function WatchlistScreen() {
             <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No {filter} right now.</Text>
           </View>
         ) : (
-          displayed.map((stock) => <StockCard key={stock.ticker} stock={stock} />)
+          displayed.map((stock) => <StockCard key={stock.ticker} stock={stock} showPercent={showPercent} />)
         )}
       </ScrollView>
 
@@ -210,6 +237,10 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 11, fontFamily: "Inter_400Regular" },
   sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sectionTitle: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  sectionActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  changeToggle: { flexDirection: "row", alignItems: "center", borderRadius: 8, borderWidth: 1, overflow: "hidden" },
+  changeToggleText: { fontSize: 12, fontFamily: "Inter_700Bold", paddingHorizontal: 10, paddingVertical: 6 },
+  changeToggleDivider: { width: 1, height: "100%" },
   addButton: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, gap: 4 },
   addButtonText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
   filterRow: { flexDirection: "row", gap: 8 },

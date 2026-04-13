@@ -19,6 +19,7 @@ export interface NotificationPrefs {
   method: NotificationMethod;
   email: string;
   hour: number;
+  minute: number;
   alertTypes: AlertType[];
 }
 
@@ -30,6 +31,7 @@ export const DEFAULT_PREFS: NotificationPrefs = {
   method: "push",
   email: "",
   hour: 8,
+  minute: 0,
   alertTypes: ["large_movement", "volume_spike"],
 };
 
@@ -78,29 +80,31 @@ export async function scheduleWatchlistNotification(prefs: NotificationPrefs, ti
   await Notifications.cancelAllScheduledNotificationsAsync();
 
   const tickerList = tickers.slice(0, 5).join(", ") + (tickers.length > 5 ? ` +${tickers.length - 5} more` : "");
-  const body = `Check updates for your watchlist: ${tickerList}`;
+  const body = `Today's update for your watchlist: ${tickerList}`;
 
   let trigger: Notifications.NotificationTriggerInput;
+  const hour = prefs.hour;
+  const minute = prefs.minute ?? 0;
 
   if (prefs.frequency === "daily") {
     trigger = {
       type: Notifications.SchedulableTriggerInputTypes.DAILY,
-      hour: prefs.hour,
-      minute: 0,
+      hour,
+      minute,
     };
   } else if (prefs.frequency === "weekly") {
     trigger = {
       type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
       weekday: 2,
-      hour: prefs.hour,
-      minute: 0,
+      hour,
+      minute,
     };
   } else {
     trigger = {
       type: Notifications.SchedulableTriggerInputTypes.MONTHLY,
       day: 1,
-      hour: prefs.hour,
-      minute: 0,
+      hour,
+      minute,
     };
   }
 
@@ -118,14 +122,20 @@ export async function cancelAllNotifications(): Promise<void> {
   await Notifications.cancelAllScheduledNotificationsAsync();
 }
 
+export function formatNotifTime(hour: number, minute: number): string {
+  const m = minute === 0 ? "00" : String(minute).padStart(2, "0");
+  const suffix = hour < 12 ? "AM" : "PM";
+  const h12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+  return `${h12}:${m} ${suffix}`;
+}
+
 const FREQ_LABELS: Record<NotificationFrequency, string> = {
   daily: "Daily at",
-  weekly: "Weekly on Monday at",
-  monthly: "Monthly on the 1st at",
+  weekly: "Weekly (Mon) at",
+  monthly: "Monthly (1st) at",
 };
 
 export function describeSchedule(prefs: NotificationPrefs): string {
   if (!prefs.enabled) return "Off";
-  const time = `${prefs.hour}:00 ${prefs.hour < 12 ? "AM" : "PM"}`;
-  return `${FREQ_LABELS[prefs.frequency]} ${time}`;
+  return `${FREQ_LABELS[prefs.frequency]} ${formatNotifTime(prefs.hour, prefs.minute ?? 0)}`;
 }
