@@ -23,8 +23,7 @@ import { useColors } from "@/hooks/useColors";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { useWatchlist } from "@/context/WatchlistContext";
 import { PaywallSheet } from "@/components/PaywallSheet";
-import { resetTourForUser } from "@/components/OnboardingTour";
-import { OnboardingTour } from "@/components/OnboardingTour";
+import { TabHintPopup } from "@/components/TabHintPopup";
 import {
   loadNotificationPrefs,
   saveNotificationPrefs,
@@ -65,7 +64,6 @@ export default function AccountScreen() {
   } = useSubscription();
   const { stocks } = useWatchlist();
   const [showPaywall, setShowPaywall] = useState(false);
-  const [showTour, setShowTour] = useState(false);
   const [feedbackCategory, setFeedbackCategory] = useState<FeedbackCategory>("general");
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [feedbackRating, setFeedbackRating] = useState(0);
@@ -124,13 +122,6 @@ export default function AccountScreen() {
     free: "Free",
     pro: "Pro",
     premium: "Premium",
-  };
-
-  const handleReplayTour = async () => {
-    if (userId) {
-      await resetTourForUser(userId);
-    }
-    setShowTour(true);
   };
 
   const handleSignOut = async () => {
@@ -715,17 +706,6 @@ export default function AccountScreen() {
           </View>
         )}
 
-        {/* Help */}
-        <View style={s.section}>
-          <Text style={s.sectionTitle}>Help</Text>
-          <View style={s.card}>
-            <TouchableOpacity style={[s.row, s.rowLast]} onPress={handleReplayTour}>
-              <View style={s.rowIcon}><Feather name="map" size={18} color={colors.primary} /></View>
-              <Text style={s.rowLabel}>Take the tour</Text>
-              <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
-            </TouchableOpacity>
-          </View>
-        </View>
 
         {/* Feedback */}
         <View style={s.section}>
@@ -801,10 +781,6 @@ export default function AccountScreen() {
 
       <PaywallSheet visible={showPaywall} onClose={() => setShowPaywall(false)} triggerReason="general" currentTier={tier} />
 
-      {showTour && (
-        <OnboardingTour forceShow onComplete={() => setShowTour(false)} />
-      )}
-
       {/* ── Time Picker Modal ── */}
       <Modal
         visible={timePickerVisible}
@@ -873,6 +849,10 @@ export default function AccountScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+      <TabHintPopup
+        tabKey="account"
+        hint="The Account tab is where you manage your profile, subscription plan, notification preferences, and send us feedback."
+      />
     </SafeAreaView>
   );
 }

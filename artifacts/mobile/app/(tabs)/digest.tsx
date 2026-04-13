@@ -17,6 +17,7 @@ import { useColors } from "@/hooks/useColors";
 import { useWatchlist, DigestEntry } from "@/context/WatchlistContext";
 import { getEvents, type EventPeriod } from "@/services/stockApi";
 import DigestCard from "@/components/DigestCard";
+import { TabHintPopup } from "@/components/TabHintPopup";
 
 type Colors = ReturnType<typeof useColors>;
 
@@ -571,6 +572,10 @@ export default function DigestScreen() {
         filterState={filterState}
         onChange={setFilterState}
         colors={colors}
+      />
+      <TabHintPopup
+        tabKey="digest"
+        hint="The Digest tab gives you daily and weekly AI-powered summaries of the biggest news across your watchlist stocks. Stay informed without the noise."
       />
     </>
   );

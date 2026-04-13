@@ -19,7 +19,6 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { WatchlistProvider, useWatchlist } from "@/context/WatchlistContext";
 import { SubscriptionProvider, useSubscription } from "@/context/SubscriptionContext";
 import { FirstTimeNameModal } from "@/components/FirstTimeNameModal";
-import { OnboardingTour } from "@/components/OnboardingTour";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -44,7 +43,6 @@ function AppWithNamePrompt({ children }: { children: React.ReactNode }) {
     <>
       {children}
       <FirstTimeNameModal onComplete={(name) => { if (name) setDisplayName(name); }} />
-      <OnboardingTour onComplete={() => {}} />
     </>
   );
 }

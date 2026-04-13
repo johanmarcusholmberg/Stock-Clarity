@@ -14,6 +14,7 @@ import { useColors } from "@/hooks/useColors";
 import { useWatchlist, Stock } from "@/context/WatchlistContext";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { PaywallSheet } from "@/components/PaywallSheet";
+import { TabHintPopup } from "@/components/TabHintPopup";
 
 type FeatherIconName = React.ComponentProps<typeof Feather>["name"];
 type PerfPeriod = "today" | "1w" | "1m";
@@ -447,6 +448,10 @@ export default function InsightsScreen() {
       </ScrollView>
 
       <PaywallSheet visible={paywallVisible} onClose={() => setPaywallVisible(false)} triggerReason="general" />
+      <TabHintPopup
+        tabKey="insights"
+        hint="Insights shows portfolio-level analytics for your watchlist: performance rankings, sector breakdown, 52-week range proximity, and more — with deeper data available on Pro and Premium."
+      />
     </View>
   );
 }

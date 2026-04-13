@@ -17,6 +17,7 @@ import debounce from "lodash.debounce";
 import { useColors } from "@/hooks/useColors";
 import { useWatchlist, WatchlistFolder } from "@/context/WatchlistContext";
 import SearchBar from "@/components/SearchBar";
+import { TabHintPopup } from "@/components/TabHintPopup";
 import {
   SearchResult,
   QuoteResult,
@@ -260,6 +261,10 @@ export default function SearchScreen() {
         />
       )}
 
+      <TabHintPopup
+        tabKey="search"
+        hint="Use Search to find any publicly listed stock or ETF from markets worldwide. Tap a result to view its chart, or tap the + button to add it to your watchlist."
+      />
       <Modal
         visible={folderPickerVisible}
         transparent

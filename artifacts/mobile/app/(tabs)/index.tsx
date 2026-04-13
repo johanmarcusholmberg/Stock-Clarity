@@ -20,6 +20,7 @@ import { useWatchlist } from "@/context/WatchlistContext";
 import StockCard from "@/components/StockCard";
 import { FolderTabStrip } from "@/components/FolderTabStrip";
 import { FolderAddSheet } from "@/components/FolderAddSheet";
+import { TabHintPopup } from "@/components/TabHintPopup";
 
 type Colors = ReturnType<typeof useColors>;
 
@@ -462,6 +463,10 @@ export default function WatchlistScreen() {
         onDeleteFolderOnly={handleModalDeleteFolderOnly}
         onDeleteFolderAndStocks={handleModalDeleteFolderAndStocks}
         colors={colors}
+      />
+      <TabHintPopup
+        tabKey="home"
+        hint="This is your Home tab — your personal watchlist. Add stocks you care about to track their live prices and daily changes at a glance."
       />
     </View>
   );
