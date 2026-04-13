@@ -1,0 +1,36 @@
+Please make the following changes:
+1. Market-Aware Stock Graphs & Status
+Each stock must behave entirely based on the exchange it is listed on, not a single global market clock. Every stock independently tracks whether its own exchange is open or closed, and the UI reflects that state per stock.
+Market status logic:
+
+Determine the exchange for each stock (e.g. NASDAQ, NYSE, Nasdaq Stockholm, LSE, etc.) and apply that exchange's official trading hours and timezone
+If the stock's exchange is currently open, the graph reflects live/updating data and the Update button (Pro/Premium users) is active
+If the stock's exchange is currently closed, the graph displays the final state of that trading day, the Update button is visually idle/disabled, and a subtle status indicator shows the market is closed
+All exchange hours must account for daylight saving time changes per region to stay accurate year-round
+
+Opening & Closing values:
+
+Display the opening value and closing/current value in a clean, natural way as part of the stock card or graph view
+When the market is open: show "Open: [value]" and "Current: [value]"
+When the market is closed: show "Open: [value]" and "Close: [value]" with a subtle "Market closed" label
+Always show the difference as both a points value and a percentage, color coded green or red
+
+Example of expected behavior:
+
+NASDAQ stock, US market closed → graph shows completed day, Update button idle, card shows "Open: $142.30 | Close: $145.80 (+$3.50 / +2.46%)"
+Nasdaq Stockholm stock, market open at 10:00am CET → graph is live, Update button active, card shows "Open: 234.50 kr | Current: 237.80 kr (+3.30 kr / +1.41%)"
+
+
+2. X-Axis Intervals for 1D and 5D
+The current intervals feel unnatural. Apply the following logic:
+
+1D: Space X-axis markers dynamically based on how much of the trading day has elapsed — early in the day use 30-minute intervals, and as more data fills in naturally consolidate to 1-hour intervals once past midday. Labels should show clean times like 9:30, 10:30, 12:00, 2:00, 4:00 — never crowded or overlapping
+5D: Show one marker per trading day, labeled with the weekday name and date (e.g. Mon 7 Apr). The spacing between markers should be perfectly even regardless of whether the current day is incomplete
+
+
+3. Push Notifications in Notification Settings
+The notification settings screen currently does not offer push notifications as an option. Add push notification as a selectable delivery method alongside any existing options (e.g. email, in-app). Users should be able to:
+
+Toggle push notifications on or off
+Select which types of alerts trigger a push notification (e.g. price targets hit, market open/close, large price movements)
+On mobile, this should request the necessary device permissions if not already granted

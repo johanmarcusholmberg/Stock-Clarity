@@ -28,9 +28,11 @@ import {
   cancelAllNotifications,
   requestNotificationPermission,
   describeSchedule,
+  ALERT_TYPE_OPTIONS,
   type NotificationPrefs,
   type NotificationFrequency,
   type NotificationMethod,
+  type AlertType,
 } from "@/services/NotificationService";
 
 const API_BASE = (() => {
@@ -575,11 +577,70 @@ export default function AccountScreen() {
                     </View>
                   )}
 
-                  {notifPrefs.method === "push" && (
-                    <View style={[s.row, s.rowLast]}>
+                  {/* Alert types — shown when push delivery is selected */}
+                  {(notifPrefs.method === "push" || notifPrefs.method === "both") && (
+                    <>
+                      <View style={[s.row]}>
+                        <View style={s.rowIcon}><Feather name="sliders" size={18} color={colors.primary} /></View>
+                        <Text style={[s.rowLabel]}>Alert Types</Text>
+                      </View>
+                      <View style={{ paddingHorizontal: 16, paddingBottom: 14, gap: 8 }}>
+                        {ALERT_TYPE_OPTIONS.map((opt) => {
+                          const active = notifPrefs.alertTypes?.includes(opt.key) ?? false;
+                          return (
+                            <TouchableOpacity
+                              key={opt.key}
+                              style={{
+                                flexDirection: "row", alignItems: "center", gap: 12,
+                                paddingVertical: 10, paddingHorizontal: 12,
+                                borderRadius: 12, borderWidth: 1.5,
+                                borderColor: active ? colors.primary : colors.border,
+                                backgroundColor: active ? colors.primary + "12" : "transparent",
+                              }}
+                              onPress={() => handleNotifUpdate((p) => {
+                                const current = p.alertTypes ?? [];
+                                const next = active
+                                  ? current.filter((t) => t !== opt.key)
+                                  : [...current, opt.key];
+                                return { ...p, alertTypes: next };
+                              })}
+                            >
+                              <Feather
+                                name={opt.icon as any}
+                                size={16}
+                                color={active ? colors.primary : colors.mutedForeground}
+                              />
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ fontSize: 13, fontFamily: "Inter_600SemiBold", color: active ? colors.foreground : colors.mutedForeground }}>
+                                  {opt.label}
+                                </Text>
+                                <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: colors.mutedForeground, marginTop: 1 }}>
+                                  {opt.description}
+                                </Text>
+                              </View>
+                              <View style={{
+                                width: 20, height: 20, borderRadius: 10, borderWidth: 1.5,
+                                borderColor: active ? colors.primary : colors.border,
+                                backgroundColor: active ? colors.primary : "transparent",
+                                alignItems: "center", justifyContent: "center",
+                              }}>
+                                {active && <Feather name="check" size={11} color={colors.primaryForeground} />}
+                              </View>
+                            </TouchableOpacity>
+                          );
+                        })}
+                        <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: colors.mutedForeground, marginTop: 2 }}>
+                          Push notifications require the app installed natively on your device.
+                        </Text>
+                      </View>
+                    </>
+                  )}
+
+                  {notifPrefs.method === "email" && (
+                    <View style={[s.row]}>
                       <Feather name="info" size={14} color={colors.mutedForeground} style={{ marginRight: 8 }} />
                       <Text style={{ color: colors.mutedForeground, fontSize: 12, fontFamily: "Inter_400Regular", flex: 1 }}>
-                        Push notifications require the app to be installed natively on your device.
+                        Email digests include all significant movements across your watchlist.
                       </Text>
                     </View>
                   )}

@@ -82,6 +82,14 @@ function fmtDate(tsMs: number): string {
   return new Date(tsMs).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+function fmtWeekdayDate(tsMs: number): string {
+  const d = new Date(tsMs);
+  const weekday = d.toLocaleDateString("en-US", { weekday: "short" });
+  const day = d.getDate();
+  const month = d.toLocaleDateString("en-US", { month: "short" });
+  return `${weekday} ${day} ${month}`;
+}
+
 function fmtMonthShort(tsMs: number): string {
   return new Date(tsMs).toLocaleDateString("en-US", { month: "short" });
 }
@@ -117,26 +125,46 @@ function computeXLabels(
   const plotWidth = plotRight - plotLeft;
   const px = (idx: number) => plotLeft + (idx / Math.max(n - 1, 1)) * plotWidth;
 
-  // ── 1D: whole-hour ticks + market open; cap at 6 labels ──────────
+  // ── 1D: adaptive interval — 30-min early in day, 1-hour once past midday ─
   if (rangeKey === "1d") {
-    const candidates: number[] = [0]; // always show the first point
+    const spanMs = timestamps[n - 1] - timestamps[0];
+    const spanHours = spanMs / 3_600_000;
+    // Use 30-min markers when < 3.5h of data has loaded (early session), else 1-hour
+    const useHalfHour = spanHours < 3.5;
+    const candidates: number[] = [0]; // always include market open
     for (let i = 1; i < n; i++) {
-      if (new Date(timestamps[i]).getMinutes() === 0) candidates.push(i);
+      const d = new Date(timestamps[i]);
+      const m = d.getMinutes();
+      if (useHalfHour) {
+        // 30-min marks: :00 and :30
+        if (m === 0 || m === 30) candidates.push(i);
+      } else {
+        // 1-hour marks: :00 only
+        if (m === 0) candidates.push(i);
+      }
     }
-    const picked = sampleIndices(candidates, 6);
+    const maxLabels = useHalfHour ? 7 : 6;
+    const picked = sampleIndices(candidates, maxLabels);
     return picked.map((i) => ({ label: fmtTime(timestamps[i]), x: px(i) }));
   }
 
-  // ── 5D: one label per trading day (first bar of each day) ────────
+  // ── 5D: one label per trading day with weekday + date ────────────
   if (rangeKey === "5d") {
+    // Collect first bar index of each unique calendar date
     const seen = new Set<string>();
-    const indices: number[] = [];
+    const dayIndices: number[] = [];
     for (let i = 0; i < n; i++) {
       const d = new Date(timestamps[i]);
       const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-      if (!seen.has(key)) { seen.add(key); indices.push(i); }
+      if (!seen.has(key)) { seen.add(key); dayIndices.push(i); }
     }
-    return indices.map((i) => ({ label: fmtDate(timestamps[i]), x: px(i) }));
+    // Place each label at the midpoint of that day's bars for even visual spacing
+    const dayCount = dayIndices.length;
+    return dayIndices.map((startIdx, di) => {
+      const endIdx = di < dayCount - 1 ? dayIndices[di + 1] - 1 : n - 1;
+      const midIdx = Math.round((startIdx + endIdx) / 2);
+      return { label: fmtWeekdayDate(timestamps[startIdx]), x: px(midIdx) };
+    });
   }
 
   // ── 1M: one label per week (~every 5 trading days) ───────────────
@@ -701,6 +729,7 @@ export default function StockDetailScreen() {
   const price = liveQuote?.regularMarketPrice ?? cachedStock?.price ?? 0;
   const change = liveQuote?.regularMarketChange ?? cachedStock?.change ?? 0;
   const changePercent = liveQuote?.regularMarketChangePercent ?? cachedStock?.changePercent ?? 0;
+  const openPrice = liveQuote?.regularMarketOpen ?? null;
   const currency = liveQuote?.currency ?? cachedStock?.currency ?? "USD";
   const currSym = getCurrencySymbol(currency);
   const marketCap = formatMarketCap(liveQuote?.marketCap ?? undefined);
@@ -824,6 +853,56 @@ export default function StockDetailScreen() {
           <Text style={[styles.changeAbsolute, { color: changeColor }]}>
             {change >= 0 ? "+" : ""}{currSym}{Math.abs(change).toFixed(2)} today
           </Text>
+
+          {/* ── Open / Current|Close row ── */}
+          {openPrice != null && (
+            <View style={styles.openCloseRow}>
+              <View style={styles.openCloseItem}>
+                <Text style={[styles.openCloseLabel, { color: colors.mutedForeground }]}>Open</Text>
+                <Text style={[styles.openCloseValue, { color: colors.foreground }]}>
+                  {currSym}{formatPrice(openPrice, currency)}
+                </Text>
+              </View>
+              <View style={[styles.openCloseDivider, { backgroundColor: colors.border }]} />
+              <View style={styles.openCloseItem}>
+                <Text style={[styles.openCloseLabel, { color: colors.mutedForeground }]}>
+                  {marketOpen ? "Current" : "Close"}
+                </Text>
+                <Text style={[styles.openCloseValue, { color: colors.foreground }]}>
+                  {currSym}{formatPrice(price, currency)}
+                </Text>
+              </View>
+              <View style={[styles.openCloseDivider, { backgroundColor: colors.border }]} />
+              <View style={styles.openCloseItem}>
+                <Text style={[styles.openCloseLabel, { color: colors.mutedForeground }]}>Change</Text>
+                {(() => {
+                  const diff = price - openPrice;
+                  const diffPct = openPrice !== 0 ? (diff / openPrice) * 100 : 0;
+                  const diffColor = diff >= 0 ? colors.positive : colors.negative;
+                  return (
+                    <Text style={[styles.openCloseValue, { color: diffColor }]}>
+                      {diff >= 0 ? "+" : ""}{currSym}{Math.abs(diff).toFixed(2)} / {diffPct >= 0 ? "+" : ""}{diffPct.toFixed(2)}%
+                    </Text>
+                  );
+                })()}
+              </View>
+            </View>
+          )}
+
+          {/* Market status chip */}
+          <View style={styles.marketStatusRow}>
+            <View style={[
+              styles.marketStatusChip,
+              { backgroundColor: marketOpen ? `${colors.positive}18` : `${colors.mutedForeground}14`,
+                borderColor: marketOpen ? `${colors.positive}44` : `${colors.mutedForeground}30` }
+            ]}>
+              <View style={[styles.marketStatusDot, { backgroundColor: marketOpen ? colors.positive : colors.mutedForeground }]} />
+              <Text style={[styles.marketStatusText, { color: marketOpen ? colors.positive : colors.mutedForeground }]}>
+                {marketOpen ? "Market open" : "Market closed"}
+                {exchange ? ` · ${exchange}` : ""}
+              </Text>
+            </View>
+          </View>
         </View>
 
         {/* ── Chart ── */}
@@ -901,17 +980,8 @@ export default function StockDetailScreen() {
             />
           )}
 
-          {/* ── Market status + manual refresh ── */}
+          {/* ── Manual refresh ── */}
           <View style={{ paddingHorizontal: 16, paddingBottom: 14, paddingTop: 4 }}>
-            {/* Market closed badge */}
-            {!marketOpen && (
-              <View style={[styles.marketClosedBadge, { backgroundColor: `${colors.mutedForeground}14`, borderColor: `${colors.mutedForeground}30` }]}>
-                <Feather name="moon" size={11} color={colors.mutedForeground} />
-                <Text style={[styles.marketClosedText, { color: colors.mutedForeground }]}>
-                  Market closed · showing end-of-day data
-                </Text>
-              </View>
-            )}
             {/* Free tier: info text */}
             {tier === "free" && (
               <Text style={[styles.autoUpdateNote, { color: colors.mutedForeground }]}>
@@ -1155,4 +1225,14 @@ const styles = StyleSheet.create({
   refreshButtonText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   tierChip: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginLeft: 2 },
   tierChipText: { fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
+
+  openCloseRow: { flexDirection: "row", alignItems: "center", marginTop: 14, backgroundColor: "transparent" },
+  openCloseItem: { flex: 1, alignItems: "center", gap: 3 },
+  openCloseLabel: { fontSize: 10, fontFamily: "Inter_400Regular", textTransform: "uppercase", letterSpacing: 0.5 },
+  openCloseValue: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  openCloseDivider: { width: 1, height: 30 },
+  marketStatusRow: { marginTop: 10, flexDirection: "row" },
+  marketStatusChip: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1 },
+  marketStatusDot: { width: 6, height: 6, borderRadius: 3 },
+  marketStatusText: { fontSize: 11, fontFamily: "Inter_400Regular" },
 });

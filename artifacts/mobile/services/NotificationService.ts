@@ -4,6 +4,14 @@ import { Platform } from "react-native";
 
 export type NotificationFrequency = "daily" | "weekly" | "monthly";
 export type NotificationMethod = "push" | "email" | "both";
+export type AlertType = "price_target" | "market_open_close" | "large_movement" | "volume_spike";
+
+export const ALERT_TYPE_OPTIONS: { key: AlertType; label: string; description: string; icon: string }[] = [
+  { key: "large_movement",    label: "Large Price Moves",  description: "Significant % swings in your watchlist", icon: "trending-up" },
+  { key: "volume_spike",      label: "Volume Spikes",      description: "Unusual trading volume detected",         icon: "activity" },
+  { key: "price_target",      label: "Price Targets",      description: "Stocks nearing 52-week highs or lows",    icon: "target" },
+  { key: "market_open_close", label: "Market Open/Close",  description: "Daily open and close summary",            icon: "clock" },
+];
 
 export interface NotificationPrefs {
   enabled: boolean;
@@ -11,6 +19,7 @@ export interface NotificationPrefs {
   method: NotificationMethod;
   email: string;
   hour: number;
+  alertTypes: AlertType[];
 }
 
 const PREFS_KEY = "@stockclarify_notification_prefs";
@@ -21,6 +30,7 @@ export const DEFAULT_PREFS: NotificationPrefs = {
   method: "push",
   email: "",
   hour: 8,
+  alertTypes: ["large_movement", "volume_spike"],
 };
 
 Notifications.setNotificationHandler({
