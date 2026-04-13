@@ -16,8 +16,9 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { WatchlistProvider } from "@/context/WatchlistContext";
+import { WatchlistProvider, useWatchlist } from "@/context/WatchlistContext";
 import { SubscriptionProvider, useSubscription } from "@/context/SubscriptionContext";
+import { FirstTimeNameModal } from "@/components/FirstTimeNameModal";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -36,9 +37,25 @@ function RootLayoutNav() {
   );
 }
 
+function AppWithNamePrompt({ children }: { children: React.ReactNode }) {
+  const { setDisplayName } = useWatchlist();
+  return (
+    <>
+      {children}
+      <FirstTimeNameModal onComplete={(name) => { if (name) setDisplayName(name); }} />
+    </>
+  );
+}
+
 function WatchlistProviderWithTier({ children }: { children: React.ReactNode }) {
   const { tier } = useSubscription();
-  return <WatchlistProvider tier={tier}>{children}</WatchlistProvider>;
+  return (
+    <WatchlistProvider tier={tier}>
+      <AppWithNamePrompt>
+        {children}
+      </AppWithNamePrompt>
+    </WatchlistProvider>
+  );
 }
 
 export default function RootLayout() {

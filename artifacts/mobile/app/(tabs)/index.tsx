@@ -23,7 +23,7 @@ type Filter = "all" | "gainers" | "losers";
 export default function WatchlistScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { watchlist, stocks, unreadAlertCount, folders, activeFolderId } = useWatchlist();
+  const { watchlist, stocks, unreadAlertCount, folders, activeFolderId, displayName } = useWatchlist();
   const { signOut } = useAuth();
   const { user } = useUser();
   const [profileOpen, setProfileOpen] = useState(false);
@@ -62,7 +62,7 @@ export default function WatchlistScreen() {
         <View style={[styles.titleRow, { paddingHorizontal: 16 }]}>
           <View>
             <Text style={[styles.greeting, { color: colors.mutedForeground }]}>
-              {user?.firstName ? `Good morning, ${user.firstName}` : "Good morning"}
+              {(displayName || user?.firstName) ? `Good morning, ${displayName || user?.firstName}` : "Good morning"}
             </Text>
             <Text style={[styles.appTitle, { color: colors.foreground }]}>StockClarify</Text>
           </View>
@@ -178,7 +178,7 @@ export default function WatchlistScreen() {
               <Text style={[styles.profileAvatarText, { color: colors.primary }]}>{userInitials}</Text>
             </View>
             <Text style={[styles.profileName, { color: colors.foreground }]}>
-              {user?.firstName ? `${user.firstName} ${user.lastName ?? ""}`.trim() : "Your account"}
+              {displayName || (user?.firstName ? `${user.firstName} ${user.lastName ?? ""}`.trim() : "Your account")}
             </Text>
             <Text style={[styles.profileEmail, { color: colors.mutedForeground }]}>
               {user?.emailAddresses?.[0]?.emailAddress ?? ""}

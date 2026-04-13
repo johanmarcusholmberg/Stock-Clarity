@@ -411,7 +411,7 @@ export default function StockDetailScreen() {
   const { ticker } = useLocalSearchParams<{ ticker: string }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { stocks, addToWatchlist, removeFromWatchlist, isInWatchlist } = useWatchlist();
+  const { stocks, addToWatchlist, removeFromWatchlist, isInWatchlist, isInFolder, activeFolderId, folders } = useWatchlist();
   const {
     tier,
     canViewStock,
@@ -436,7 +436,9 @@ export default function StockDetailScreen() {
   const stockViewRecorded = useRef(false);
 
   const cachedStock = stocks[ticker ?? ""];
-  const inWatchlist = isInWatchlist(ticker ?? "");
+  const inActiveFolder = isInFolder(ticker ?? "", activeFolderId);
+  const inAnyFolder = isInWatchlist(ticker ?? "");
+  const activeFolderName = folders.find((f) => f.id === activeFolderId)?.name ?? "Watchlist";
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const chartWidth = SCREEN_WIDTH - 32;
@@ -552,17 +554,20 @@ export default function StockDetailScreen() {
           <TouchableOpacity
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              if (inWatchlist) { removeFromWatchlist(ticker!); }
-              else { addToWatchlist(ticker!); }
+              if (inActiveFolder) {
+                removeFromWatchlist(ticker!);
+              } else {
+                addToWatchlist(ticker!);
+              }
             }}
             style={[styles.watchlistButton, {
-              backgroundColor: inWatchlist ? `${colors.primary}22` : colors.primary,
-              borderColor: inWatchlist ? `${colors.primary}44` : colors.primary,
+              backgroundColor: inActiveFolder ? `${colors.primary}22` : colors.primary,
+              borderColor: inActiveFolder ? `${colors.primary}44` : colors.primary,
             }]}
           >
-            <Feather name={inWatchlist ? "check" : "plus"} size={14} color={inWatchlist ? colors.primary : colors.primaryForeground} />
-            <Text style={[styles.watchlistButtonText, { color: inWatchlist ? colors.primary : colors.primaryForeground }]}>
-              {inWatchlist ? "Watching" : "Add to watchlist"}
+            <Feather name={inActiveFolder ? "check" : "plus"} size={14} color={inActiveFolder ? colors.primary : colors.primaryForeground} />
+            <Text style={[styles.watchlistButtonText, { color: inActiveFolder ? colors.primary : colors.primaryForeground }]} numberOfLines={1}>
+              {inActiveFolder ? activeFolderName : inAnyFolder ? `Add to ${activeFolderName}` : "Add to watchlist"}
             </Text>
           </TouchableOpacity>
         </View>

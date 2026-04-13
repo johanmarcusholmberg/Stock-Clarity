@@ -1,6 +1,14 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useAuth } from "@clerk/expo";
+import { useUser } from "@clerk/expo";
 import { getQuotes } from "@/services/stockApi";
+
+const API_BASE = (() => {
+  const domain = process.env.EXPO_PUBLIC_DOMAIN;
+  if (domain) return `https://${domain}/api`;
+  return "http://localhost:8080/api";
+})();
 
 export interface Stock {
   ticker: string;
@@ -60,7 +68,9 @@ interface WatchlistContextType {
   watchlist: string[];
   addToWatchlist: (ticker: string, data?: AddStockData, folderId?: string) => void;
   removeFromWatchlist: (ticker: string, folderId?: string) => void;
+  removeFromAllFolders: (ticker: string) => void;
   isInWatchlist: (ticker: string) => boolean;
+  isInFolder: (ticker: string, folderId: string) => boolean;
   stocks: Record<string, Stock>;
   alerts: Alert[];
   digest: DigestEntry[];
@@ -77,20 +87,35 @@ interface WatchlistContextType {
   removeFromFolder: (ticker: string, folderId: string) => void;
   folderLimit: number;
   canCreateFolder: boolean;
+  displayName: string;
+  setDisplayName: (name: string) => void;
 }
 
-const ph = (seed: number, len = 30): number[] =>
-  Array.from({ length: len }, (_, i) => seed + Math.sin(i * 0.8 + seed) * seed * 0.04 + i * seed * 0.002);
+// Realistic directional sparkline: trends in direction of changePercent with noise
+function makePriceHistory(price: number, changePercent: number, len = 30): number[] {
+  const startPrice = price / (1 + changePercent / 100);
+  const result: number[] = [];
+  let current = startPrice;
+  const trend = (price - startPrice) / len;
+  for (let i = 0; i < len; i++) {
+    const noise = current * 0.005 * (Math.random() - 0.5) * 2;
+    current = current + trend + noise;
+    result.push(Math.max(0.01, current));
+  }
+  // Ensure last value matches actual price
+  result[len - 1] = price;
+  return result;
+}
 
 const SEED_STOCKS: Record<string, Stock> = {
-  AAPL: { ticker: "AAPL", name: "Apple Inc.", price: 189.43, currency: "USD", change: 2.17, changePercent: 1.16, marketCap: "$2.94T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "Consumer electronics, software, and online services.", priceHistory: ph(189, 30), pe: 29.4 },
-  NVDA: { ticker: "NVDA", name: "NVIDIA Corporation", price: 842.5, currency: "USD", change: -12.3, changePercent: -1.44, marketCap: "$2.07T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "GPUs for gaming, data centers, and AI.", priceHistory: ph(842, 30), pe: 68.2 },
-  MSFT: { ticker: "MSFT", name: "Microsoft Corporation", price: 415.2, currency: "USD", change: 5.6, changePercent: 1.37, marketCap: "$3.09T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "Software, cloud computing, and hardware.", priceHistory: ph(415, 30), pe: 34.1 },
-  AMZN: { ticker: "AMZN", name: "Amazon.com Inc.", price: 178.35, currency: "USD", change: -1.45, changePercent: -0.81, marketCap: "$1.86T", sector: "Consumer Discretionary", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "E-commerce, cloud computing, and AI.", priceHistory: ph(178, 30), pe: 43.7 },
-  GOOGL: { ticker: "GOOGL", name: "Alphabet Inc.", price: 168.72, currency: "USD", change: 3.21, changePercent: 1.94, marketCap: "$2.1T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "Search, advertising, cloud, and AI.", priceHistory: ph(168, 30), pe: 22.8 },
-  TSLA: { ticker: "TSLA", name: "Tesla Inc.", price: 168.29, currency: "USD", change: -8.42, changePercent: -4.77, marketCap: "$537B", sector: "Consumer Discretionary", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "Electric vehicles and energy storage.", priceHistory: ph(168, 30), pe: 56.3 },
-  META: { ticker: "META", name: "Meta Platforms Inc.", price: 497.81, currency: "USD", change: 9.3, changePercent: 1.9, marketCap: "$1.27T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "Social media: Facebook, Instagram, WhatsApp.", priceHistory: ph(497, 30), pe: 25.6 },
-  JPM: { ticker: "JPM", name: "JPMorgan Chase & Co.", price: 194.62, currency: "USD", change: 1.18, changePercent: 0.61, marketCap: "$562B", sector: "Financials", exchange: "NYSE", exchangeFlag: "🇺🇸", description: "Global financial services and investment banking.", priceHistory: ph(194, 30), pe: 12.1 },
+  AAPL: { ticker: "AAPL", name: "Apple Inc.", price: 189.43, currency: "USD", change: 2.17, changePercent: 1.16, marketCap: "$2.94T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "Consumer electronics, software, and online services.", priceHistory: makePriceHistory(189.43, 1.16), pe: 29.4 },
+  NVDA: { ticker: "NVDA", name: "NVIDIA Corporation", price: 842.5, currency: "USD", change: -12.3, changePercent: -1.44, marketCap: "$2.07T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "GPUs for gaming, data centers, and AI.", priceHistory: makePriceHistory(842.5, -1.44), pe: 68.2 },
+  MSFT: { ticker: "MSFT", name: "Microsoft Corporation", price: 415.2, currency: "USD", change: 5.6, changePercent: 1.37, marketCap: "$3.09T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "Software, cloud computing, and hardware.", priceHistory: makePriceHistory(415.2, 1.37), pe: 34.1 },
+  AMZN: { ticker: "AMZN", name: "Amazon.com Inc.", price: 178.35, currency: "USD", change: -1.45, changePercent: -0.81, marketCap: "$1.86T", sector: "Consumer Discretionary", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "E-commerce, cloud computing, and AI.", priceHistory: makePriceHistory(178.35, -0.81), pe: 43.7 },
+  GOOGL: { ticker: "GOOGL", name: "Alphabet Inc.", price: 168.72, currency: "USD", change: 3.21, changePercent: 1.94, marketCap: "$2.1T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "Search, advertising, cloud, and AI.", priceHistory: makePriceHistory(168.72, 1.94), pe: 22.8 },
+  TSLA: { ticker: "TSLA", name: "Tesla Inc.", price: 168.29, currency: "USD", change: -8.42, changePercent: -4.77, marketCap: "$537B", sector: "Consumer Discretionary", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "Electric vehicles and energy storage.", priceHistory: makePriceHistory(168.29, -4.77), pe: 56.3 },
+  META: { ticker: "META", name: "Meta Platforms Inc.", price: 497.81, currency: "USD", change: 9.3, changePercent: 1.9, marketCap: "$1.27T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "Social media: Facebook, Instagram, WhatsApp.", priceHistory: makePriceHistory(497.81, 1.9), pe: 25.6 },
+  JPM: { ticker: "JPM", name: "JPMorgan Chase & Co.", price: 194.62, currency: "USD", change: 1.18, changePercent: 0.61, marketCap: "$562B", sector: "Financials", exchange: "NYSE", exchangeFlag: "🇺🇸", description: "Global financial services and investment banking.", priceHistory: makePriceHistory(194.62, 0.61), pe: 12.1 },
 };
 
 const MOCK_ALERTS: Alert[] = [
@@ -109,11 +134,11 @@ const MOCK_DIGEST: DigestEntry[] = [
 
 const WatchlistContext = createContext<WatchlistContextType | undefined>(undefined);
 
-const WATCHLIST_KEY = "@stockclarify_watchlist_v2";
 const STOCKS_KEY = "@stockclarify_stocks_v2";
 const ALERTS_READ_KEY = "@stockclarify_alerts_read";
 const FOLDERS_KEY = "@stockclarify_folders_v1";
 const ACTIVE_FOLDER_KEY = "@stockclarify_active_folder_v1";
+const DISPLAY_NAME_KEY = "@stockclarify_display_name";
 
 const DEFAULT_FOLDER_ID = "default";
 
@@ -134,11 +159,15 @@ export function WatchlistProvider({
 }) {
   const DEFAULT_TICKERS = ["AAPL", "NVDA", "MSFT", "TSLA", "META"];
 
+  const { userId, isSignedIn } = useAuth();
+  const { user } = useUser();
+
   const [folders, setFolders] = useState<WatchlistFolder[]>([makeDefaultFolder(DEFAULT_TICKERS)]);
   const [activeFolderId, setActiveFolderIdState] = useState<string>(DEFAULT_FOLDER_ID);
   const [stockData, setStockData] = useState<Record<string, Stock>>(SEED_STOCKS);
   const [readAlerts, setReadAlerts] = useState<Set<string>>(new Set());
   const [initialized, setInitialized] = useState(false);
+  const [displayName, setDisplayNameState] = useState<string>("");
 
   const folderLimit = tier === "free" ? 2 : 10;
   const canCreateFolder = folders.length < folderLimit;
@@ -150,46 +179,77 @@ export function WatchlistProvider({
     return active ? active.tickers : [];
   })();
 
+  // ── Sync helpers ──────────────────────────────────────────────
+  const syncDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const saveToBackend = useCallback((flds: WatchlistFolder[]) => {
+    if (!userId || !isSignedIn) return;
+    if (syncDebounceRef.current) clearTimeout(syncDebounceRef.current);
+    syncDebounceRef.current = setTimeout(() => {
+      fetch(`${API_BASE}/watchlist/${userId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folders: flds }),
+      }).catch(() => {});
+    }, 1500);
+  }, [userId, isSignedIn]);
+
   const saveFolders = useCallback((flds: WatchlistFolder[]) => {
     AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(flds));
-  }, []);
+    saveToBackend(flds);
+  }, [saveToBackend]);
 
+  // ── Initial load ──────────────────────────────────────────────
   useEffect(() => {
+    if (!userId) return;
+
     Promise.all([
-      AsyncStorage.getItem(WATCHLIST_KEY),
       AsyncStorage.getItem(STOCKS_KEY),
       AsyncStorage.getItem(ALERTS_READ_KEY),
       AsyncStorage.getItem(FOLDERS_KEY),
       AsyncStorage.getItem(ACTIVE_FOLDER_KEY),
-    ]).then(([wl, sd, ra, fl, af]) => {
-      if (fl) {
+      AsyncStorage.getItem(DISPLAY_NAME_KEY),
+    ]).then(async ([sd, ra, fl, af, dn]) => {
+      // Restore display name from local
+      if (dn) setDisplayNameState(dn);
+
+      // Try loading folders from backend first
+      let backendFolders: WatchlistFolder[] | null = null;
+      try {
+        const res = await fetch(`${API_BASE}/watchlist/${userId}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.folders) && data.folders.length > 0) {
+            backendFolders = data.folders;
+          }
+          if (data.displayName && !dn) {
+            setDisplayNameState(data.displayName);
+            AsyncStorage.setItem(DISPLAY_NAME_KEY, data.displayName);
+          }
+        }
+      } catch {}
+
+      const foldersToUse = backendFolders ?? (fl ? (() => {
         try {
           const parsed: WatchlistFolder[] = JSON.parse(fl);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setFolders(parsed);
-            if (af) {
-              try {
-                const savedActiveId = JSON.parse(af);
-                if (parsed.find((f) => f.id === savedActiveId)) {
-                  setActiveFolderIdState(savedActiveId);
-                } else {
-                  setActiveFolderIdState(parsed[0].id);
-                }
-              } catch {
-                setActiveFolderIdState(parsed[0].id);
-              }
-            } else {
-              setActiveFolderIdState(parsed[0].id);
-            }
-          }
-        } catch {}
-      } else if (wl) {
-        try {
-          const tickers: string[] = JSON.parse(wl);
-          const migrated = makeDefaultFolder(tickers);
-          setFolders([migrated]);
-          saveFolders([migrated]);
-        } catch {}
+          return Array.isArray(parsed) && parsed.length > 0 ? parsed : null;
+        } catch { return null; }
+      })() : null);
+
+      if (foldersToUse) {
+        setFolders(foldersToUse);
+        // Determine active folder
+        const savedActiveId = af ? (() => { try { return JSON.parse(af); } catch { return null; } })() : null;
+        if (savedActiveId && foldersToUse.find((f: WatchlistFolder) => f.id === savedActiveId)) {
+          setActiveFolderIdState(savedActiveId);
+        } else {
+          setActiveFolderIdState(foldersToUse[0].id);
+        }
+      } else {
+        // New user: use defaults
+        const defaultFolders = [makeDefaultFolder(DEFAULT_TICKERS)];
+        setFolders(defaultFolders);
+        saveFolders(defaultFolders);
       }
 
       if (sd) {
@@ -199,14 +259,25 @@ export function WatchlistProvider({
         } catch {}
       }
       if (ra) {
-        try {
-          setReadAlerts(new Set(JSON.parse(ra)));
-        } catch {}
+        try { setReadAlerts(new Set(JSON.parse(ra))); } catch {}
       }
       setInitialized(true);
     });
-  }, []);
+  }, [userId]);
 
+  const setDisplayName = useCallback((name: string) => {
+    setDisplayNameState(name);
+    AsyncStorage.setItem(DISPLAY_NAME_KEY, name);
+    if (userId && isSignedIn) {
+      fetch(`${API_BASE}/watchlist/${userId}/name`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName: name }),
+      }).catch(() => {});
+    }
+  }, [userId, isSignedIn]);
+
+  // ── Quote refresh ─────────────────────────────────────────────
   const refreshQuotes = useCallback(async () => {
     if (!allTickers.length) return;
     try {
@@ -216,21 +287,24 @@ export function WatchlistProvider({
         const next = { ...prev };
         for (const q of quotes) {
           const existing = prev[q.symbol] ?? {};
+          const newPrice = q.regularMarketPrice ?? existing.price ?? 0;
+          const newChangePct = q.regularMarketChangePercent ?? existing.changePercent ?? 0;
           next[q.symbol] = {
             ...SEED_STOCKS[q.symbol],
             ...existing,
             ticker: q.symbol,
             name: q.longName || q.shortName || existing.name || q.symbol,
-            price: q.regularMarketPrice ?? existing.price ?? 0,
+            price: newPrice,
             currency: q.currency ?? existing.currency ?? "USD",
             change: q.regularMarketChange ?? existing.change ?? 0,
-            changePercent: q.regularMarketChangePercent ?? existing.changePercent ?? 0,
+            changePercent: newChangePct,
             marketCap: existing.marketCap ?? "N/A",
             sector: q.sector || existing.sector || "",
             exchange: q.fullExchangeName || existing.exchange || "",
             exchangeFlag: existing.exchangeFlag || "🌐",
             description: existing.description || "",
-            priceHistory: existing.priceHistory || ph(q.regularMarketPrice ?? 100, 30),
+            // Generate directional price history matching actual change
+            priceHistory: makePriceHistory(newPrice, newChangePct),
             pe: q.trailingPE ?? existing.pe,
           };
         }
@@ -244,6 +318,7 @@ export function WatchlistProvider({
     if (initialized) refreshQuotes();
   }, [allTickers.join(","), initialized]);
 
+  // ── Folder management ────────────────────────────────────────
   const setActiveFolderId = useCallback((id: string) => {
     setActiveFolderIdState(id);
     AsyncStorage.setItem(ACTIVE_FOLDER_KEY, JSON.stringify(id));
@@ -304,20 +379,22 @@ export function WatchlistProvider({
     if (data) {
       setStockData((prev) => {
         const existing = prev[ticker] ?? SEED_STOCKS[ticker] ?? {};
+        const newPrice = data.price ?? existing.price ?? 0;
+        const newChangePct = data.changePercent ?? existing.changePercent ?? 0;
         const updated = {
           ...existing,
           ticker: data.ticker,
           name: data.name || existing.name || data.ticker,
           exchange: data.exchange || existing.exchange || "",
           exchangeFlag: data.exchangeFlag || existing.exchangeFlag || "🌐",
-          price: data.price ?? existing.price ?? 0,
+          price: newPrice,
           currency: data.currency ?? existing.currency ?? "USD",
           change: data.change ?? existing.change ?? 0,
-          changePercent: data.changePercent ?? existing.changePercent ?? 0,
+          changePercent: newChangePct,
           marketCap: existing.marketCap || "N/A",
           sector: existing.sector || "",
           description: existing.description || "",
-          priceHistory: existing.priceHistory || ph(data.price ?? 100, 30),
+          priceHistory: makePriceHistory(newPrice, newChangePct),
         };
         const next = { ...prev, [ticker]: updated };
         AsyncStorage.setItem(STOCKS_KEY, JSON.stringify(next));
@@ -337,11 +414,21 @@ export function WatchlistProvider({
     });
   }, [saveFolders]);
 
+  // Remove from ALL folders (nuclear remove)
+  const removeFromAllFolders = useCallback((ticker: string) => {
+    setFolders((prev) => {
+      const next = prev.map((f) => ({ ...f, tickers: f.tickers.filter((t) => t !== ticker) }));
+      saveFolders(next);
+      return next;
+    });
+  }, [saveFolders]);
+
   const addToWatchlist = useCallback((ticker: string, data?: AddStockData, folderId?: string) => {
     const targetId = folderId ?? activeFolderId;
     addToFolder(ticker, targetId, data);
   }, [addToFolder, activeFolderId]);
 
+  // removeFromWatchlist removes from active folder only (stock stays in other folders)
   const removeFromWatchlist = useCallback((ticker: string, folderId?: string) => {
     const targetId = folderId ?? activeFolderId;
     removeFromFolder(ticker, targetId);
@@ -349,6 +436,10 @@ export function WatchlistProvider({
 
   const isInWatchlist = useCallback((ticker: string) => {
     return folders.some((f) => f.tickers.includes(ticker));
+  }, [folders]);
+
+  const isInFolder = useCallback((ticker: string, folderId: string) => {
+    return folders.find((f) => f.id === folderId)?.tickers.includes(ticker) ?? false;
   }, [folders]);
 
   const markAlertRead = useCallback((id: string) => {
@@ -370,7 +461,9 @@ export function WatchlistProvider({
       watchlist,
       addToWatchlist,
       removeFromWatchlist,
+      removeFromAllFolders,
       isInWatchlist,
+      isInFolder,
       stocks: stockData,
       alerts,
       digest,
@@ -387,6 +480,8 @@ export function WatchlistProvider({
       removeFromFolder,
       folderLimit,
       canCreateFolder,
+      displayName,
+      setDisplayName,
     }}>
       {children}
     </WatchlistContext.Provider>
