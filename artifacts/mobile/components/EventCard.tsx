@@ -3,6 +3,8 @@ import React, { useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useColors } from "@/hooks/useColors";
 import { StockEvent } from "@/context/WatchlistContext";
+import { useSubscription } from "@/context/SubscriptionContext";
+import { PaywallSheet } from "@/components/PaywallSheet";
 
 interface Props {
   event: StockEvent;
@@ -27,6 +29,10 @@ const EVENT_TYPE_ICONS: Record<StockEvent["type"], string> = {
 export default function EventCard({ event }: Props) {
   const colors = useColors();
   const [expanded, setExpanded] = useState(false);
+  const [showPaywall, setShowPaywall] = useState(false);
+  const { canUseAI, tier, aiSummariesRemaining, recordAIUsage } = useSubscription();
+
+  const hasAISummary = !!(event.what || event.why || event.unusual);
 
   const sentimentColor =
     event.sentiment === "positive"
@@ -35,39 +41,72 @@ export default function EventCard({ event }: Props) {
       ? colors.negative
       : colors.warning;
 
+  const handlePress = () => {
+    if (!expanded && hasAISummary && !canUseAI && tier === "free") {
+      setShowPaywall(true);
+      return;
+    }
+    if (!expanded && hasAISummary) {
+      recordAIUsage();
+    }
+    setExpanded((v) => !v);
+  };
+
   return (
-    <TouchableOpacity
-      activeOpacity={0.85}
-      style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
-      onPress={() => setExpanded((v) => !v)}
-    >
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <View style={[styles.typeBadge, { backgroundColor: `${sentimentColor}22` }]}>
-            <Feather name={EVENT_TYPE_ICONS[event.type] as any} size={11} color={sentimentColor} />
-            <Text style={[styles.typeText, { color: sentimentColor }]}>{EVENT_TYPE_LABELS[event.type]}</Text>
+    <>
+      <TouchableOpacity
+        activeOpacity={0.85}
+        style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
+        onPress={handlePress}
+      >
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <View style={[styles.typeBadge, { backgroundColor: `${sentimentColor}22` }]}>
+              <Feather name={EVENT_TYPE_ICONS[event.type] as any} size={11} color={sentimentColor} />
+              <Text style={[styles.typeText, { color: sentimentColor }]}>{EVENT_TYPE_LABELS[event.type]}</Text>
+            </View>
+            <View style={[styles.tickerBadge, { backgroundColor: colors.secondary }]}>
+              <Text style={[styles.tickerText, { color: colors.primary }]}>{event.ticker}</Text>
+            </View>
           </View>
-          <View style={[styles.tickerBadge, { backgroundColor: colors.secondary }]}>
-            <Text style={[styles.tickerText, { color: colors.primary }]}>{event.ticker}</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            {hasAISummary && !canUseAI && tier === "free" && !expanded && (
+              <View style={[styles.lockBadge, { backgroundColor: colors.warning + "22" }]}>
+                <Feather name="lock" size={10} color={colors.warning} />
+                <Text style={[styles.lockText, { color: colors.warning }]}>PRO</Text>
+              </View>
+            )}
+            <Feather
+              name={expanded ? "chevron-up" : "chevron-down"}
+              size={16}
+              color={colors.mutedForeground}
+            />
           </View>
         </View>
-        <Feather
-          name={expanded ? "chevron-up" : "chevron-down"}
-          size={16}
-          color={colors.mutedForeground}
-        />
-      </View>
 
-      <Text style={[styles.title, { color: colors.foreground }]}>{event.title}</Text>
+        <Text style={[styles.title, { color: colors.foreground }]}>{event.title}</Text>
 
-      {expanded && (
-        <View style={styles.details}>
-          <SectionBlock label="What happened" text={event.what} colors={colors} />
-          <SectionBlock label="Why it may matter" text={event.why} colors={colors} />
-          <SectionBlock label="How unusual is this" text={event.unusual} colors={colors} />
-        </View>
-      )}
-    </TouchableOpacity>
+        {expanded && (
+          <View style={styles.details}>
+            <SectionBlock label="What happened" text={event.what} colors={colors} />
+            <SectionBlock label="Why it may matter" text={event.why} colors={colors} />
+            <SectionBlock label="How unusual is this" text={event.unusual} colors={colors} />
+          </View>
+        )}
+
+        {!expanded && hasAISummary && canUseAI && (
+          <Text style={[styles.tapHint, { color: colors.mutedForeground }]}>
+            Tap for AI analysis · {tier === "free" ? `${aiSummariesRemaining} left today` : "Unlimited"}
+          </Text>
+        )}
+      </TouchableOpacity>
+
+      <PaywallSheet
+        visible={showPaywall}
+        onClose={() => setShowPaywall(false)}
+        triggerReason="ai_limit"
+      />
+    </>
   );
 }
 
@@ -80,6 +119,7 @@ function SectionBlock({
   text: string;
   colors: ReturnType<typeof useColors>;
 }) {
+  if (!text) return null;
   return (
     <View style={styles.section}>
       <Text style={[styles.sectionLabel, { color: colors.primary }]}>{label}</Text>
@@ -129,10 +169,28 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     letterSpacing: 0.5,
   },
+  lockBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 5,
+  },
+  lockText: {
+    fontSize: 9,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.5,
+  },
   title: {
     fontSize: 14,
     fontFamily: "Inter_600SemiBold",
     lineHeight: 20,
+  },
+  tapHint: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    marginTop: 6,
   },
   details: {
     marginTop: 12,

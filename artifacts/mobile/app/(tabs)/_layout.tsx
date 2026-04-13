@@ -6,8 +6,10 @@ import { Platform, StyleSheet, View, useColorScheme } from "react-native";
 import { useAuth } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 import { useWatchlist } from "@/context/WatchlistContext";
+import { useSubscription } from "@/context/SubscriptionContext";
 
 export default function TabLayout() {
+  const { tier } = useSubscription();
   const { isSignedIn, isLoaded } = useAuth();
   const colors = useColors();
   const colorScheme = useColorScheme();
@@ -77,6 +79,13 @@ export default function TabLayout() {
         options={{
           title: "Add",
           tabBarIcon: ({ color, size }) => <Feather name="plus-circle" size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="account"
+        options={{
+          title: "Account",
+          tabBarIcon: ({ color, size }) => <Feather name="user" size={size} color={color} />,
         }}
       />
     </Tabs>

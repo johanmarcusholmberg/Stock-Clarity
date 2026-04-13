@@ -12,10 +12,8 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - **TypeScript version**: 5.9
 - **API framework**: Express 5
 - **Auth**: Clerk (email/password + verification code flow)
-- **Database**: PostgreSQL + Drizzle ORM
-- **Validation**: Zod (`zod/v4`), `drizzle-zod`
-- **API codegen**: Orval (from OpenAPI spec)
-- **Build**: esbuild (CJS bundle)
+- **Database**: PostgreSQL (public + stripe schemas)
+- **Build**: esbuild (ESM bundle)
 
 ## Artifacts
 
@@ -23,45 +21,90 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - **Type**: Expo (React Native)
 - **Preview Path**: `/`
 - **Description**: AI-powered investment companion for non-professional investors
-- **Auth**: Clerk email/password with email verification code (`@clerk/expo` v3.1.9, Core v3 API)
+- **Auth**: Clerk email/password with email verification code (`@clerk/expo`)
   - Custom sign-in/sign-up screens at `app/(auth)/sign-in.tsx` and `app/(auth)/sign-up.tsx`
   - Auth guard in `app/(tabs)/_layout.tsx` — redirects unauthenticated users to sign-in
-  - Profile modal with sign-out on watchlist home screen
   - `ClerkProvider` + `ClerkLoaded` wrapping root layout
-  - Publishable key injected as `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` in dev script
 - **Features**:
   - Personalized Watchlist with stock cards, mini sparkline charts, price/% change, exchange flag
-  - Watchlist home: personalized greeting (user first name), stats row (watching/gainers/losers), profile/sign-out modal
-  - Daily Digest tab: brief daily summaries + expandable event cards (What/Why/Unusual)
+  - Daily Digest tab: expandable event cards (WHAT/WHY/UNUSUAL) with AI-powered summaries
   - Alerts tab: unusual price/volume activity with plain-language explanations + unread badge
   - World Markets (Add) tab: 30+ global stocks from 11 exchanges, grouped by exchange, with search
   - Stock Detail screen: 30-day price chart, company info, event history
-  - AsyncStorage persistence for watchlist and read alert state
-  - Dark navy color scheme (#0A1628) with teal accent (#00D4B8)
-- **Global Stock Universe** (11 exchanges):
-  - NASDAQ/NYSE: AAPL, NVDA, MSFT, AMZN, GOOGL, TSLA, META, JPM, V
-  - LSE (UK): HSBA.L, AZN.L, SHEL.L, BP.L, ULVR.L
-  - XETRA (Germany): SAP.DE, SIE.DE, ALV.DE
-  - TSE (Japan): 7203.T, 6758.T, 9432.T
-  - HKEX (HK): 0700.HK, 9988.HK
-  - TSX (Canada): SHOP.TO, RY.TO
-  - ASX (Australia): BHP.AX, CBA.AX
-  - SIX (Switzerland): NESN.SW, ROG.SW
-  - Euronext (France): MC.PA, AIR.PA
-  - NSE (India): RELIANCE.NS, INFY.NS
-- **Dependencies**: react-native-svg, @react-native-async-storage/async-storage, @clerk/expo, expo-auth-session, expo-secure-store, expo-crypto
+  - **Account tab** (5th tab): profile info, subscription plan badge, AI usage bar, manage subscription, feedback form, sign out
+  - AI usage limits: Free=5/day, Pro=unlimited, Premium=unlimited (enforced in `EventCard`)
+  - **PaywallSheet**: full-screen paywall modal with Pro/Premium plan cards, monthly/yearly toggle, SAVE 20% badge
+- **Contexts**:
+  - `WatchlistContext`: watchlist state, alert counts, stock data
+  - `SubscriptionContext`: tier (free/pro/premium), AI usage counters, checkout/portal helpers
+- **Global Stock Universe** (11 exchanges): NASDAQ/NYSE, LSE, XETRA, TSE, HKEX, TSX, ASX, SIX, Euronext, NSE
 
 ### API Server (`artifacts/api-server`)
-- Express 5 backend at `/api`
-- Clerk proxy middleware at `/__clerk` (via `http-proxy-middleware` + `@clerk/express`)
-- `clerkMiddleware()` mounted for session validation on protected routes
+- **Type**: Express 5 backend
+- **Base path**: `/api`
+- Express 5 backend at `/api`, admin dashboard at `/admin`
+- Clerk proxy middleware at `/__clerk`
+- Yahoo Finance crumb auth for all market data (query2.finance.yahoo.com)
+
+**Routes:**
+- `GET /api/healthz` — health check
+- `GET /api/stocks/search` — search global stocks
+- `GET /api/stocks/quotes` — live quotes (5-min cache)
+- `GET /api/stocks/chart/:symbol` — OHLC chart data (1d/5d/1mo/3mo/6mo/1y)
+- `GET /api/stocks/events/:symbol` — AI-powered news summaries (gpt-5-mini, 15-min cache)
+- `GET /api/payment/plans` — Stripe subscription plans from DB
+- `GET /api/payment/config` — Stripe publishable key
+- `POST /api/payment/checkout` — create Stripe Checkout session
+- `POST /api/payment/portal` — create Stripe Customer Portal session
+- `GET /api/payment/subscription/:userId` — user subscription status
+- `POST /api/stripe/webhook` — Stripe webhook (registered BEFORE express.json())
+- `POST /api/feedback` — submit user feedback
+- `GET /api/analytics/trending` — trending stocks (7-day)
+- `GET /api/analytics/summary` — public stats
+- `POST /api/analytics/track` — track stock views / events
+- `GET /admin` — admin dashboard HTML (protected by ADMIN_SECRET_KEY)
+- `GET /admin/stats` — aggregated metrics API
+- `GET /admin/errors` — error logs API
+- `GET /admin/feedback` — feedback list API
+
+**Database Tables (public schema):**
+- `users` — clerk_user_id, email, tier (free/pro/premium), stripe IDs, AI quota
+- `user_events` — event tracking (stock views, AI usage, etc.)
+- `stock_views` — per-ticker view counts for trending
+- `error_logs` — server error logging
+- `feedback` — user feedback with categories and star ratings
+
+**Database Tables (stripe schema):** 29 tables managed by stripe-replit-sync (products, prices, subscriptions, customers, etc.)
+
+**Stripe Plans:**
+- Free: no Stripe product (metadata only)
+- Pro: $9.99/mo or $95/yr (`StockClarify Pro`)
+- Premium: $19.99/mo or $189.99/yr (`StockClarify Premium`)
+
+**Key files:**
+- `src/stripeClient.ts` — Stripe SDK + StripeSync initialization via Replit Connectors
+- `src/storage.ts` — DB query helpers (users, subscription lookups)
+- `src/db.ts` — raw pg pool
+- `src/webhookHandlers.ts` — Stripe webhook processing
+
+**AI Summaries:**
+- Model: `gpt-5-mini` via Replit AI proxy
+- Prompt: stock-specific (includes ticker + company name in user message)
+- Format: WHAT / WHY / UNUSUAL sections parsed from plain-text response
+- Cache: 15 minutes per ticker
+
+**Environment Variables Required:**
+- `DATABASE_URL` — PostgreSQL connection string
+- `SESSION_SECRET` — session secret
+- `ADMIN_SECRET_KEY` — protects /admin dashboard (auto-generated)
+- `CLERK_*` — managed by Clerk Replit integration
+- Stripe credentials — managed by Stripe Replit integration
+
+## Scripts (`scripts/`)
+- `pnpm --filter @workspace/scripts run seed-products` — create Stripe Pro/Premium plans
 
 ## Key Commands
 
 - `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - `pnpm --filter @workspace/api-server run dev` — run API server locally
-
-See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
+- `pnpm --filter @workspace/mobile run dev` — run Expo mobile app

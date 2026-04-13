@@ -285,23 +285,30 @@ router.get("/events/:symbol", async (req, res) => {
           : new Date().toISOString();
 
         const completion = await openai.chat.completions.create({
-          model: "gpt-5-nano",
-          max_completion_tokens: 280,
+          model: "gpt-5-mini",
           messages: [
             {
-              role: "system",
-              content: `You are a concise financial analyst. Given a news headline about ${symbol}, produce 3 short sections:
-WHAT: 1-2 sentences on what happened (factual, plain language).
-WHY: 1-2 sentences on why this matters for regular investors.
-UNUSUAL: 1 sentence on what's noteworthy about this.
-Format exactly as: WHAT: ... WHY: ... UNUSUAL: ...`,
+              role: "user",
+              content: `You are a financial analyst explaining news to everyday investors.
+
+Stock: ${symbol}
+News headline: "${title}"
+Source: ${publisher}
+
+Write 3 short plain-English sections about how this news affects ${symbol} specifically:
+WHAT: (1-2 sentences) What exactly happened with ${symbol}? Be factual and specific to this company.
+WHY: (1-2 sentences) Why does this matter for someone who owns or is considering ${symbol}?
+UNUSUAL: (1 sentence) What is noteworthy or surprising about this for ${symbol}?
+
+Respond only in this exact format:
+WHAT: [your answer]
+WHY: [your answer]
+UNUSUAL: [your answer]`,
             },
-            { role: "user", content: `Headline: ${title}\nPublisher: ${publisher}` },
           ],
         });
 
         const text = completion.choices[0]?.message?.content ?? "";
-        if (idx === 0) console.log("[events] AI response:", JSON.stringify({ finish_reason: completion.choices[0]?.finish_reason, content: text, model: completion.model }).slice(0, 500));
         const parse = (label: string): string => {
           const m = text.match(new RegExp(`${label}:([\\s\\S]+?)(?=WHAT:|WHY:|UNUSUAL:|$)`, "i"));
           return m?.[1]?.trim() ?? "";

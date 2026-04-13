@@ -19,8 +19,11 @@
     "express": "^5",
     "http-proxy-middleware": "^3.0.5",
     "openai": "^6.34.0",
+    "pg": "^8.20.0",
     "pino": "^9",
-    "pino-http": "^10"
+    "pino-http": "^10",
+    "stripe": "^22.0.1",
+    "stripe-replit-sync": "^1.0.0"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",
