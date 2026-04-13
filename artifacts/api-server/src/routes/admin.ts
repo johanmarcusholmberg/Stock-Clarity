@@ -4,7 +4,86 @@ import { storage } from "../storage";
 
 const router = Router();
 
-// Middleware: require admin key. Fails CLOSED — returns 503 if secret is unset.
+// ── Admin email list ──────────────────────────────────────────────────────────
+// Default admin emails (hardcoded). Override via ADMIN_EMAILS env var.
+const DEFAULT_ADMIN_EMAILS = ["johanmarcusholmberg@gmail.com"];
+
+function getAdminEmails(): string[] {
+  if (process.env.ADMIN_EMAILS) {
+    return process.env.ADMIN_EMAILS.split(",").map((e) => e.trim().toLowerCase());
+  }
+  return DEFAULT_ADMIN_EMAILS.map((e) => e.toLowerCase());
+}
+
+function isAdminEmail(email: string): boolean {
+  return getAdminEmails().includes(email.toLowerCase().trim());
+}
+
+// ── Check if a userId is an admin (by email) ─────────────────────────────────
+// GET /api/admin/check?userId=...&email=...
+// The email from Clerk (verified by auth) is used to check admin status.
+// We also upsert the user into our DB if not yet present.
+router.get("/check", async (req, res) => {
+  const { userId, email } = req.query as { userId?: string; email?: string };
+  if (!userId || !email) {
+    return void res.json({ isAdmin: false });
+  }
+  try {
+    // Upsert user so they're always in our DB
+    await storage.upsertUser(userId, email);
+    const admin = isAdminEmail(email);
+    res.json({ isAdmin: admin, email, adminEmails: admin ? getAdminEmails() : [] });
+  } catch {
+    res.json({ isAdmin: false });
+  }
+});
+
+// ── Override a user's tier (admin only by email) ──────────────────────────────
+// POST /api/admin/override-tier  body: { requesterId, requesterEmail, targetUserId?, tier }
+// If targetUserId is omitted, sets the requester's own tier.
+router.post("/override-tier", async (req, res) => {
+  const { requesterId, requesterEmail, targetUserId, tier } = req.body;
+  if (!requesterId || !requesterEmail) {
+    return void res.status(400).json({ error: "requesterId and requesterEmail required" });
+  }
+  if (!isAdminEmail(requesterEmail)) {
+    return void res.status(403).json({ error: "Access denied — not an admin email" });
+  }
+  if (!["free", "pro", "premium"].includes(tier)) {
+    return void res.status(400).json({ error: "tier must be free, pro, or premium" });
+  }
+  const target = targetUserId || requesterId;
+  try {
+    // Upsert requester so they're in our DB
+    await storage.upsertUser(requesterId, requesterEmail);
+    // If setting own tier, upsert is enough; otherwise ensure target exists
+    if (target !== requesterId) {
+      const targetUser = await storage.getUserByClerkId(target);
+      if (!targetUser) return void res.status(404).json({ error: "Target user not found" });
+    }
+    await storage.updateUserTier(target, tier as "free" | "pro" | "premium");
+    res.json({ success: true, targetUserId: target, tier });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── List all users (admin only by email) ─────────────────────────────────────
+router.post("/users", async (req, res) => {
+  const { requesterEmail } = req.body;
+  if (!isAdminEmail(requesterEmail ?? "")) {
+    return void res.status(403).json({ error: "Access denied" });
+  }
+  try {
+    const users = await query("SELECT clerk_user_id, email, tier, created_at, updated_at FROM users ORDER BY created_at DESC LIMIT 100");
+    res.json({ users });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Middleware: require admin key for web dashboard routes.
+// Fails CLOSED — returns 503 if secret is unset.
 function requireAdmin(req: any, res: any, next: any) {
   const secret = process.env.ADMIN_SECRET_KEY;
   if (!secret) {

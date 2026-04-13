@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { useAuth } from "@clerk/expo";
+import { useUser } from "@clerk/expo";
 
 const API_BASE = (() => {
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
@@ -25,8 +26,9 @@ export interface Plan {
 interface SubscriptionState {
   tier: Tier;
   isLoading: boolean;
+  isAdmin: boolean;
   aiSummariesUsedToday: number;
-  aiSummariesLimit: number; // 5 for free, 999 for pro/premium
+  aiSummariesLimit: number;
   aiSummariesRemaining: number;
   canUseAI: boolean;
   plans: Plan[];
@@ -38,11 +40,13 @@ interface SubscriptionState {
   startCheckout: (priceId: string) => Promise<string | null>;
   openPortal: () => Promise<string | null>;
   recordAIUsage: () => void;
+  adminOverrideTier: (tier: Tier, targetUserId?: string) => Promise<boolean>;
 }
 
 const SubscriptionContext = createContext<SubscriptionState>({
   tier: "free",
   isLoading: true,
+  isAdmin: false,
   aiSummariesUsedToday: 0,
   aiSummariesLimit: 5,
   aiSummariesRemaining: 5,
@@ -56,12 +60,15 @@ const SubscriptionContext = createContext<SubscriptionState>({
   startCheckout: async () => null,
   openPortal: async () => null,
   recordAIUsage: () => {},
+  adminOverrideTier: async () => false,
 });
 
 export function SubscriptionProvider({ children }: { children: React.ReactNode }) {
   const { userId, isSignedIn } = useAuth();
+  const { user } = useUser();
   const [tier, setTier] = useState<Tier>("free");
   const [isLoading, setIsLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [aiUsed, setAiUsed] = useState(0);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [plansLoading, setPlansLoading] = useState(false);
@@ -69,12 +76,11 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const lastResetDate = useRef<string>("");
 
   const limits: Record<Tier, number> = { free: 5, pro: 999, premium: 9999 };
-
-  const getTodayKey = () => new Date().toISOString().split("T")[0];
-
   const aiLimit = limits[tier];
   const aiRemaining = Math.max(0, aiLimit - aiUsed);
   const canUseAI = aiRemaining > 0;
+
+  const email = user?.primaryEmailAddress?.emailAddress;
 
   const fetchSubscription = useCallback(async () => {
     if (!userId || !isSignedIn) {
@@ -95,6 +101,21 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       setIsLoading(false);
     }
   }, [userId, isSignedIn]);
+
+  const checkAdminStatus = useCallback(async () => {
+    if (!userId || !email) return;
+    try {
+      const res = await fetch(
+        `${API_BASE}/admin/check?userId=${encodeURIComponent(userId)}&email=${encodeURIComponent(email)}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setIsAdmin(data.isAdmin === true);
+      }
+    } catch {
+      setIsAdmin(false);
+    }
+  }, [userId, email]);
 
   const fetchPlans = useCallback(async () => {
     if (plansLoading || plans.length > 0) return;
@@ -144,7 +165,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
   const recordAIUsage = useCallback(() => {
     setAiUsed((prev) => prev + 1);
-    // Fire-and-forget analytics
     if (userId) {
       fetch(`${API_BASE}/analytics/track`, {
         method: "POST",
@@ -154,9 +174,32 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
   }, [userId]);
 
+  const adminOverrideTier = useCallback(async (newTier: Tier, targetUserId?: string): Promise<boolean> => {
+    if (!userId || !email) return false;
+    try {
+      const res = await fetch(`${API_BASE}/admin/override-tier`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          requesterId: userId,
+          requesterEmail: email,
+          targetUserId: targetUserId ?? userId,
+          tier: newTier,
+        }),
+      });
+      if (res.ok) {
+        // If overriding own tier, update local state immediately
+        if (!targetUserId || targetUserId === userId) {
+          setTier(newTier);
+        }
+        return true;
+      }
+    } catch {}
+    return false;
+  }, [userId, email]);
+
   useEffect(() => {
-    // Reset AI usage counter at the start of a new day
-    const today = getTodayKey();
+    const today = new Date().toISOString().split("T")[0];
     if (lastResetDate.current !== today) {
       lastResetDate.current = today;
       setAiUsed(0);
@@ -167,11 +210,19 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     fetchSubscription();
   }, [fetchSubscription]);
 
+  useEffect(() => {
+    // Check admin status once the user email is loaded
+    if (email && userId) {
+      checkAdminStatus();
+    }
+  }, [checkAdminStatus, email, userId]);
+
   return (
     <SubscriptionContext.Provider
       value={{
         tier,
         isLoading,
+        isAdmin,
         aiSummariesUsedToday: aiUsed,
         aiSummariesLimit: aiLimit,
         aiSummariesRemaining: aiRemaining,
@@ -185,6 +236,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         startCheckout,
         openPortal,
         recordAIUsage,
+        adminOverrideTier,
       }}
     >
       {children}

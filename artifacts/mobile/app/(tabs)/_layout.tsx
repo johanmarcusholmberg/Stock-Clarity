@@ -8,7 +8,7 @@ import { useWatchlist } from "@/context/WatchlistContext";
 import { useSubscription } from "@/context/SubscriptionContext";
 
 export default function TabLayout() {
-  const { tier } = useSubscription();
+  const { tier, isAdmin } = useSubscription();
   const { isSignedIn, isLoaded } = useAuth();
   const colors = useColors();
   const isWeb = Platform.OS === "web";
@@ -78,6 +78,14 @@ export default function TabLayout() {
         options={{
           title: "Account",
           tabBarIcon: ({ color, size }) => <Feather name="user" size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="admin-panel"
+        options={{
+          title: "Admin",
+          tabBarButton: isAdmin ? undefined : () => null,
+          tabBarIcon: ({ color, size }) => <Feather name="shield" size={size} color={color} />,
         }}
       />
     </Tabs>
