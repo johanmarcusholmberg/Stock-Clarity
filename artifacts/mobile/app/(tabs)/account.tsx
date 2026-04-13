@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -10,7 +10,9 @@ import {
   ActivityIndicator,
   Linking,
   Platform,
+  Animated,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useAuth, useUser } from "@clerk/expo";
@@ -29,6 +31,7 @@ type FeatherIconName = React.ComponentProps<typeof Feather>["name"];
 
 export default function AccountScreen() {
   const colors = useColors();
+  const insets = useSafeAreaInsets();
   const { signOut, userId } = useAuth();
   const { user } = useUser();
   const {
@@ -50,6 +53,26 @@ export default function AccountScreen() {
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const [nameSaving, setNameSaving] = useState(false);
+
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+  const toastAnimRef = useRef<ReturnType<typeof Animated.sequence> | null>(null);
+
+  const showToast = () => {
+    if (toastAnimRef.current) toastAnimRef.current.stop();
+    toastOpacity.setValue(0);
+    toastAnimRef.current = Animated.sequence([
+      Animated.timing(toastOpacity, { toValue: 1, duration: 250, useNativeDriver: true }),
+      Animated.delay(2500),
+      Animated.timing(toastOpacity, { toValue: 0, duration: 400, useNativeDriver: true }),
+    ]);
+    toastAnimRef.current.start();
+  };
+
+  useEffect(() => {
+    return () => {
+      if (toastAnimRef.current) toastAnimRef.current.stop();
+    };
+  }, []);
 
   const tierColors: Record<string, string> = {
     free: colors.mutedForeground,
@@ -106,7 +129,7 @@ export default function AccountScreen() {
         setFeedbackMessage("");
         setFeedbackRating(0);
         setFeedbackCategory("general");
-        Alert.alert("Thank you!", "Your feedback has been submitted.");
+        showToast();
       } else {
         Alert.alert("Error", "Failed to submit feedback. Please try again.");
       }
@@ -237,6 +260,34 @@ export default function AccountScreen() {
 
   return (
     <SafeAreaView style={s.container} edges={["top"]}>
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: insets.top + 12,
+          left: 16,
+          right: 16,
+          zIndex: 999,
+          opacity: toastOpacity,
+          backgroundColor: "#22c55e",
+          borderRadius: 14,
+          paddingVertical: 14,
+          paddingHorizontal: 18,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 10,
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.15,
+          shadowRadius: 8,
+          elevation: 6,
+        }}
+      >
+        <Feather name="check-circle" size={18} color="#fff" />
+        <Text style={{ color: "#fff", fontSize: 14, fontFamily: "Inter_600SemiBold", flex: 1 }}>
+          Feedback sent — thank you!
+        </Text>
+      </Animated.View>
       <ScrollView style={s.scroll} showsVerticalScrollIndicator={false}>
         <View style={s.header}>
           <Text style={s.headerTitle}>Account</Text>

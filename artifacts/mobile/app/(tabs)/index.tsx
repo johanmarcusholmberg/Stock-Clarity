@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import * as Haptics from "expo-haptics";
-import React, { useState } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Platform,
   ScrollView,
@@ -11,18 +11,59 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useUser } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 import { useWatchlist } from "@/context/WatchlistContext";
 import StockCard from "@/components/StockCard";
 import { FolderTabStrip } from "@/components/FolderTabStrip";
+
+function getTimeAwareGreeting(name: string, timezone?: string): string {
+  const greetName = name ? `, ${name}` : "";
+  try {
+    const tz = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const now = new Date();
+    const hourStr = new Intl.DateTimeFormat("en", {
+      timeZone: tz,
+      hour: "numeric",
+      hour12: false,
+    }).format(now);
+    const hour = parseInt(hourStr, 10);
+    if (hour >= 5 && hour < 12) return `Good morning${greetName}`;
+    if (hour >= 12 && hour < 17) return `Good day${greetName}`;
+    if (hour >= 17 && hour < 24) return `Good evening${greetName}`;
+    return `Still working late${greetName}?`;
+  } catch {
+    return `Good morning${greetName}`;
+  }
+}
 
 type Filter = "all" | "gainers" | "losers";
 
 export default function WatchlistScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { user } = useUser();
   const { watchlist, stocks, unreadAlertCount, folders, activeFolderId, displayName } = useWatchlist();
   const [filter, setFilter] = useState<Filter>("all");
+  const params = useLocalSearchParams<{ pendingTimezone?: string }>();
+
+  useEffect(() => {
+    const tz = params.pendingTimezone;
+    if (!tz || !user) return;
+    const existingTz = (user.unsafeMetadata as Record<string, unknown>)?.timezone;
+    if (existingTz === tz) return;
+    user.update({
+      unsafeMetadata: { ...user.unsafeMetadata, timezone: tz },
+    }).then(() => {
+      router.setParams({ pendingTimezone: undefined });
+    }).catch(() => {});
+  }, [params.pendingTimezone, user?.id]);
+
+  const timezone = (user?.unsafeMetadata as Record<string, unknown> | undefined)?.timezone as string | undefined;
+  const greeting = useMemo(
+    () => getTimeAwareGreeting(displayName, timezone),
+    [displayName, timezone]
+  );
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
@@ -47,7 +88,7 @@ export default function WatchlistScreen() {
         <View style={[styles.titleRow, { paddingHorizontal: 16 }]}>
           <View>
             <Text style={[styles.greeting, { color: colors.mutedForeground }]}>
-              {displayName ? `Good morning, ${displayName}` : "Good morning"}
+              {greeting}
             </Text>
             <Text style={[styles.appTitle, { color: colors.foreground }]}>StockClarify</Text>
           </View>

@@ -118,6 +118,13 @@ export default function SearchScreen() {
       return;
     }
 
+    if (folders.length > 1) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      setPendingAdd({ result });
+      setFolderPickerVisible(true);
+      return;
+    }
+
     addToFolder(result.symbol, activeFolderId, getStockDataFromResult(result));
   };
 

@@ -30,6 +30,20 @@ function getClerkErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
+function getTimezoneLabel(tz: string): string {
+  try {
+    const now = new Date();
+    const offset = new Intl.DateTimeFormat("en", {
+      timeZone: tz,
+      timeZoneName: "short",
+    }).formatToParts(now).find((p) => p.type === "timeZoneName")?.value ?? "";
+    const city = tz.split("/").pop()?.replace(/_/g, " ") ?? tz;
+    return offset ? `${city} (${offset})` : city;
+  } catch {
+    return tz;
+  }
+}
+
 export default function SignUpScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -43,6 +57,15 @@ export default function SignUpScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingVerification, setPendingVerification] = useState(false);
+  const [pendingTimezone, setPendingTimezone] = useState(false);
+  const [detectedTimezone] = useState<string>(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    } catch {
+      return "UTC";
+    }
+  });
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   const handleSignUp = async () => {
     if (!isLoaded || !signUp) return;
@@ -79,13 +102,27 @@ export default function SignUpScreen() {
         code: verificationCode,
       });
       if (result.status === "complete" && result.createdSessionId) {
-        await setActive({ session: result.createdSessionId });
-        router.replace("/(tabs)");
+        setSessionId(result.createdSessionId);
+        setPendingVerification(false);
+        setPendingTimezone(true);
       } else {
         setError("Email verification failed. Please try again.");
       }
     } catch (err: unknown) {
       setError(getClerkErrorMessage(err, "Verification failed. Please check the code and try again."));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleConfirmTimezone = async () => {
+    if (!isLoaded || !setActive || !sessionId) return;
+    setIsLoading(true);
+    try {
+      await setActive({ session: sessionId });
+      router.replace({ pathname: "/(tabs)", params: { pendingTimezone: detectedTimezone } });
+    } catch {
+      router.replace("/(tabs)");
     } finally {
       setIsLoading(false);
     }
@@ -127,6 +164,54 @@ export default function SignUpScreen() {
           </TouchableOpacity>
           <TouchableOpacity onPress={handleResendCode}>
             <Text style={[styles.linkText, { color: colors.primary, textAlign: "center", marginTop: 8 }]}>Resend code</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  if (pendingTimezone) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={[styles.inner, { paddingTop: topPad + 24 }]}>
+          <View style={styles.logoRow}>
+            <View style={[styles.logoIcon, { backgroundColor: `${colors.primary}22`, borderColor: `${colors.primary}44` }]}>
+              <Feather name="globe" size={28} color={colors.primary} />
+            </View>
+          </View>
+          <Text style={[styles.title, { color: colors.foreground }]}>Your timezone</Text>
+          <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
+            We detected your timezone so we can show you a personalised greeting. You can change this in your account settings.
+          </Text>
+          <View style={{
+            backgroundColor: colors.secondary,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: colors.border,
+            padding: 16,
+            marginBottom: 24,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 12,
+          }}>
+            <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: `${colors.primary}22`, alignItems: "center", justifyContent: "center" }}>
+              <Feather name="clock" size={18} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.mutedForeground, fontSize: 11, fontFamily: "Inter_600SemiBold", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>
+                Detected timezone
+              </Text>
+              <Text style={{ color: colors.foreground, fontSize: 15, fontFamily: "Inter_600SemiBold" }}>
+                {getTimezoneLabel(detectedTimezone)}
+              </Text>
+            </View>
+          </View>
+          <TouchableOpacity
+            style={[styles.primaryButton, { backgroundColor: colors.primary, opacity: isLoading ? 0.6 : 1 }]}
+            onPress={handleConfirmTimezone}
+            disabled={isLoading}
+          >
+            {isLoading ? <ActivityIndicator color={colors.primaryForeground} /> : <Text style={[styles.primaryButtonText, { color: colors.primaryForeground }]}>Confirm & continue</Text>}
           </TouchableOpacity>
         </View>
       </View>

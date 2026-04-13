@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   RefreshControl,
+  Linking,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -418,10 +419,20 @@ export default function AdminPanelScreen() {
             <View style={s.card}>
               <Text style={{ color: colors.mutedForeground, fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 20 }}>
                 Full dashboard with error logs, feedback list, and trending stocks is available at:{"\n"}
-                <Text style={{ color: colors.primary, fontFamily: "Inter_600SemiBold" }}>
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  const url = process.env.EXPO_PUBLIC_DOMAIN
+                    ? `https://${process.env.EXPO_PUBLIC_DOMAIN}/admin`
+                    : null;
+                  if (url) Linking.openURL(url);
+                }}
+                disabled={!process.env.EXPO_PUBLIC_DOMAIN}
+              >
+                <Text style={{ color: colors.primary, fontFamily: "Inter_600SemiBold", fontSize: 13, textDecorationLine: "underline" }}>
                   {process.env.EXPO_PUBLIC_DOMAIN ? `https://${process.env.EXPO_PUBLIC_DOMAIN}/admin` : "your-domain/admin"}
                 </Text>
-              </Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}
