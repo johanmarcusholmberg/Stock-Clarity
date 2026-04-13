@@ -160,6 +160,8 @@ export function FolderAddSheet({ visible, onClose, folderId, folderName }: Props
   }, [onClose]);
 
   const isDefaultFolder = folderId === DEFAULT_FOLDER_ID;
+  // When inside My Watchlist, the "From My Watchlist" tab is meaningless — always use Search
+  const activeTab = isDefaultFolder ? "search" : tab;
 
   return (
     <Modal visible={visible} transparent animationType="slide" presentationStyle="overFullScreen" onRequestClose={handleClose}>
@@ -190,23 +192,23 @@ export function FolderAddSheet({ visible, onClose, folderId, folderName }: Props
           {!isDefaultFolder && (
             <View style={[s.tabs, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
               <TouchableOpacity
-                style={[s.tabBtn, tab === "watchlist" && { backgroundColor: colors.card }]}
+                style={[s.tabBtn, activeTab === "watchlist" && { backgroundColor: colors.card }]}
                 onPress={() => setTab("watchlist")}
               >
-                <Feather name="bookmark" size={13} color={tab === "watchlist" ? colors.primary : colors.mutedForeground} />
-                <Text style={[s.tabBtnText, { color: tab === "watchlist" ? colors.primary : colors.mutedForeground }]}>My Watchlist</Text>
+                <Feather name="bookmark" size={13} color={activeTab === "watchlist" ? colors.primary : colors.mutedForeground} />
+                <Text style={[s.tabBtnText, { color: activeTab === "watchlist" ? colors.primary : colors.mutedForeground }]}>My Watchlist</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[s.tabBtn, tab === "search" && { backgroundColor: colors.card }]}
+                style={[s.tabBtn, activeTab === "search" && { backgroundColor: colors.card }]}
                 onPress={() => setTab("search")}
               >
-                <Feather name="search" size={13} color={tab === "search" ? colors.primary : colors.mutedForeground} />
-                <Text style={[s.tabBtnText, { color: tab === "search" ? colors.primary : colors.mutedForeground }]}>Search</Text>
+                <Feather name="search" size={13} color={activeTab === "search" ? colors.primary : colors.mutedForeground} />
+                <Text style={[s.tabBtnText, { color: activeTab === "search" ? colors.primary : colors.mutedForeground }]}>Search</Text>
               </TouchableOpacity>
             </View>
           )}
 
-          {(tab === "watchlist" || isDefaultFolder) ? (
+          {activeTab === "watchlist" ? (
             <ScrollView style={s.list} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               {watchlistCandidates.length === 0 ? (
                 <View style={s.empty}>
