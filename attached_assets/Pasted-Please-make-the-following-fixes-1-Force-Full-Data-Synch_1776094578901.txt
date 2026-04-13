@@ -1,0 +1,28 @@
+Please make the following fixes:
+1. Force Full Data Synchronisation Across Stock Price, Graph and Information Fields
+The stock price, graph and information fields are still showing inconsistent data after updates. This needs to be fixed at the architecture level:
+
+Identify and remove all instances where the stock price, graph data and information fields are fetching data independently from separate calls or at different times — this is the root cause of the inconsistency
+Implement a single centralised data fetch for each stock that retrieves all data in one call and distributes it to all UI components simultaneously — the stock price, all graph time frames and all three information fields must all read from this single shared data state
+When a refresh is triggered (manually via the Refresh button or automatically on a timer), this single fetch must complete fully before any of the fields update — all fields must flip to the new data at exactly the same time, never one before another
+When switching between graph time frames, the stock price and information fields must remain consistent with the data shown in the selected time frame at all times
+If the data fetch fails for any reason, all fields must retain their previous values together and display a single unified error or retry state — it should never be possible for some fields to show new data while others show old data
+Add a clear log or debug note in the code explaining that all stock data components are intentionally tied to this single source of truth, so future changes don't accidentally break the synchronisation
+
+
+2. Hide Pro Subscription Option for Existing Pro Users
+When a user who already has an active Pro subscription encounters an upgrade prompt anywhere in the app, the Pro tier should not be shown as an option:
+
+Detect the user's current subscription tier and filter the upgrade options accordingly
+A Pro user should only see the Premium upgrade option — not Pro, since they already have it
+A free user should continue to see both Pro and Premium as upgrade options as normal
+This logic must apply consistently everywhere in the app that an upgrade prompt or subscription screen can appear — whether triggered by the Update button cooldown, locked features, notification settings, or any other entry point
+The Pro tier should never appear as a selectable or purchasable option for a user who already holds it
+
+
+3. Set 1D as the Default Time Frame When Opening a Stock
+When a user opens any stock, the graph should always default to the 1D (daily) view:
+
+The 1D time frame button should be selected and active every time a stock is opened, regardless of which time frame was last viewed
+This should apply consistently whether the user is opening a stock from the Watchlist, a folder, search results, or any other entry point in the app
+The default should reset each time the stock view is opened — if a user switches to a different time frame and then goes back and reopens the stock, it should return to 1D again

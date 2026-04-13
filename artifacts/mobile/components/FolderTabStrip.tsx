@@ -12,6 +12,7 @@ import * as Haptics from "expo-haptics";
 import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { useWatchlist, WatchlistFolder } from "@/context/WatchlistContext";
+import { useSubscription } from "@/context/SubscriptionContext";
 import { PaywallSheet } from "@/components/PaywallSheet";
 
 const DEFAULT_FOLDER_ID = "default";
@@ -28,6 +29,7 @@ export function FolderTabStrip() {
     addToFolder,
     stocks,
   } = useWatchlist();
+  const { tier } = useSubscription();
 
   const [showPaywall, setShowPaywall] = useState(false);
 
@@ -389,6 +391,7 @@ export function FolderTabStrip() {
         visible={showPaywall}
         onClose={() => setShowPaywall(false)}
         triggerReason="folder_limit"
+        currentTier={tier}
       />
     </>
   );

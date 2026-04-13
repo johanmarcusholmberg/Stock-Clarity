@@ -447,7 +447,7 @@ export default function InsightsScreen() {
         </View>
       </ScrollView>
 
-      <PaywallSheet visible={paywallVisible} onClose={() => setPaywallVisible(false)} triggerReason="general" />
+      <PaywallSheet visible={paywallVisible} onClose={() => setPaywallVisible(false)} triggerReason="general" currentTier={tier} />
       <TabHintPopup
         tabKey="insights"
         hint="Insights shows portfolio-level analytics for your watchlist: performance rankings, sector breakdown, 52-week range proximity, and more — with deeper data available on Pro and Premium."

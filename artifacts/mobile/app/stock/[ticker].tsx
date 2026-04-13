@@ -636,7 +636,7 @@ export default function StockDetailScreen() {
   const [events, setEvents] = useState<StockEvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(true);
   const [selectedPeriod, setSelectedPeriod] = useState<EventPeriod>("week");
-  const [selectedRange, setSelectedRange] = useState(2); // 1M default
+  const [selectedRange, setSelectedRange] = useState(0); // 1D default — always reset on open
   const [stockViewable, setStockViewable] = useState(true);
   const [paywallReason, setPaywallReason] = useState<"ai_stock_limit" | "stock_daily_limit">("ai_stock_limit");
   const [showPaywall, setShowPaywall] = useState(false);
@@ -645,6 +645,9 @@ export default function StockDetailScreen() {
   const [tickMs, setTickMs] = useState(Date.now());
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const stockViewRecorded = useRef(false);
+  // Tracks the previous ticker so we can tell "ticker changed" from "range changed"
+  // inside the combined data-fetch effect below.
+  const prevTickerRef = useRef<string | null>(null);
 
   // Derived chart data from cache for the selected range
   const chartPrices = chartCache[selectedRange]?.prices ?? [];
@@ -682,32 +685,59 @@ export default function StockDetailScreen() {
   const isOnCooldown = cooldownRemainSec > 0;
   const cooldownMin = Math.ceil(cooldownRemainSec / 60);
 
-  // Load live quote on mount
+  // ─────────────────────────────────────────────────────────────────────────
+  // SINGLE SOURCE OF TRUTH — all visible values (hero price, period-change
+  // strip, open/close row, chart) derive exclusively from `liveQuote` and
+  // `chartCache`. Quote and chart data are ALWAYS fetched and committed in
+  // one atomic operation so every field flips to new data simultaneously.
+  // • Ticker change → quote + chart loaded together via Promise.all
+  // • Range change  → quote already current; only the chart range is loaded
+  // Never add a standalone getQuotes() or getChart() call outside of this
+  // effect or handleManualRefresh — doing so breaks the synchronisation.
+  // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!ticker) return;
-    getQuotes([ticker]).then((qs) => {
-      if (qs[0]) setLiveQuote(qs[0]);
-    }).catch(() => {});
-  }, [ticker]);
 
-  // Load only the initially-selected range quickly on mount / range change.
-  // If the cache already has fresh data (from a manual refresh) skip the fetch.
-  useEffect(() => {
-    if (!ticker) return;
-    if (chartCache[selectedRange]) { setChartLoading(false); return; }
+    const tickerChanged = prevTickerRef.current !== ticker;
+    prevTickerRef.current = ticker;
+
+    if (tickerChanged) {
+      // New stock opened — clear stale data from the previous ticker immediately
+      setChartCache({});
+      setLiveQuote(null);
+    }
+
+    // Cache hit on range switch: nothing to fetch, just remove the loading state
+    if (!tickerChanged && chartCache[selectedRange]) {
+      setChartLoading(false);
+      return;
+    }
+
     setChartLoading(true);
     const { range, interval } = CHART_RANGES[selectedRange];
-    getChart(ticker, range, interval)
-      .then((data) => {
-        setChartCache((prev) => ({ ...prev, [selectedRange]: data }));
-      })
-      .catch(() => {
-        setChartCache((prev) => ({
-          ...prev,
-          [selectedRange]: { prices: cachedStock?.priceHistory ?? [], timestamps: [] },
-        }));
-      })
-      .finally(() => setChartLoading(false));
+
+    if (tickerChanged) {
+      // Ticker change: load quote + chart together, apply both atomically on resolve
+      Promise.all([getQuotes([ticker]), getChart(ticker, range, interval)])
+        .then(([quotes, chart]) => {
+          setLiveQuote(quotes[0] ?? null);
+          setChartCache({ [selectedRange]: chart });
+        })
+        .catch(() => {
+          setChartCache({ [selectedRange]: { prices: cachedStock?.priceHistory ?? [], timestamps: [] } });
+        })
+        .finally(() => setChartLoading(false));
+    } else {
+      // Range switch: quote is already up-to-date, just load the new chart range
+      getChart(ticker, range, interval)
+        .then((data) => setChartCache((prev) => ({ ...prev, [selectedRange]: data })))
+        .catch(() =>
+          setChartCache((prev) => ({ ...prev, [selectedRange]: { prices: [], timestamps: [] } }))
+        )
+        .finally(() => setChartLoading(false));
+    }
+  // chartCache intentionally omitted from deps — we only read it as a snapshot
+  // to check for cache hits; putting it in deps would cause an infinite loop.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRange, ticker]);
 
@@ -1275,6 +1305,7 @@ export default function StockDetailScreen() {
         visible={showPaywall}
         onClose={() => setShowPaywall(false)}
         triggerReason={paywallReason}
+        currentTier={tier}
       />
     </>
   );

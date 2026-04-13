@@ -106,6 +106,7 @@ export default function EventCard({ event }: Props) {
         visible={showPaywall}
         onClose={() => setShowPaywall(false)}
         triggerReason="ai_limit"
+        currentTier={tier}
       />
     </>
   );
