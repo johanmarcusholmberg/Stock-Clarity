@@ -275,21 +275,21 @@ router.get("/events/:symbol", async (req, res) => {
 
     if (items.length === 0) return void res.json({ events: [] });
 
-    const events: any[] = [];
-    for (const [idx, item] of items.entries()) {
-      try {
-        const title = item.title ?? "Untitled";
-        const publisher = item.publisher ?? "Unknown";
-        const timestamp = item.providerPublishTime
-          ? new Date(item.providerPublishTime * 1000).toISOString()
-          : new Date().toISOString();
+    const results = await Promise.allSettled(
+      items.map((item, idx) => {
+        try {
+          const title = item.title ?? "Untitled";
+          const publisher = item.publisher ?? "Unknown";
+          const timestamp = item.providerPublishTime
+            ? new Date(item.providerPublishTime * 1000).toISOString()
+            : new Date().toISOString();
 
-        const completion = await openai.chat.completions.create({
-          model: "gpt-5-mini",
-          messages: [
-            {
-              role: "user",
-              content: `You are a financial analyst explaining news to everyday investors.
+          return openai.chat.completions.create({
+            model: "gpt-5-mini",
+            messages: [
+              {
+                role: "user",
+                content: `You are a financial analyst explaining news to everyday investors.
 
 Stock: ${symbol}
 News headline: "${title}"
@@ -304,52 +304,59 @@ Respond only in this exact format:
 WHAT: [your answer]
 WHY: [your answer]
 UNUSUAL: [your answer]`,
-            },
-          ],
-        });
+              },
+            ],
+          }).then((completion) => {
+            const text = completion.choices[0]?.message?.content ?? "";
+            const parse = (label: string): string => {
+              const m = text.match(new RegExp(`${label}:([\\s\\S]+?)(?=WHAT:|WHY:|UNUSUAL:|$)`, "i"));
+              return m?.[1]?.trim() ?? "";
+            };
 
-        const text = completion.choices[0]?.message?.content ?? "";
-        const parse = (label: string): string => {
-          const m = text.match(new RegExp(`${label}:([\\s\\S]+?)(?=WHAT:|WHY:|UNUSUAL:|$)`, "i"));
-          return m?.[1]?.trim() ?? "";
-        };
+            const titleLower = title.toLowerCase();
+            const pos = ["beat", "surge", "gain", "rise", "growth", "record", "high", "upgrade", "profit", "strong", "exceed", "soar"];
+            const neg = ["miss", "drop", "fall", "decline", "loss", "cut", "downgrade", "warn", "weak", "below", "slump"];
 
-        const titleLower = title.toLowerCase();
-        const pos = ["beat", "surge", "gain", "rise", "growth", "record", "high", "upgrade", "profit", "strong", "exceed", "soar"];
-        const neg = ["miss", "drop", "fall", "decline", "loss", "cut", "downgrade", "warn", "weak", "below", "slump"];
+            return {
+              id: item.uuid ?? `event-${idx}`,
+              ticker: symbol,
+              type: detectEventType(titleLower),
+              title,
+              publisher,
+              url: item.link ?? "",
+              what: parse("WHAT") || title,
+              why: parse("WHY") || "This development may affect the stock's near-term performance.",
+              unusual: parse("UNUSUAL") || "Monitor for follow-up reactions in the days ahead.",
+              timestamp,
+              sentiment: pos.some(w => titleLower.includes(w)) ? "positive" : neg.some(w => titleLower.includes(w)) ? "negative" : "neutral",
+            };
+          });
+        } catch (syncErr: any) {
+          return Promise.reject(syncErr);
+        }
+      })
+    );
 
-        events.push({
-          id: item.uuid ?? `event-${idx}`,
-          ticker: symbol,
-          type: detectEventType(titleLower),
-          title,
-          publisher,
-          url: item.link ?? "",
-          what: parse("WHAT") || title,
-          why: parse("WHY") || "This development may affect the stock's near-term performance.",
-          unusual: parse("UNUSUAL") || "Monitor for follow-up reactions in the days ahead.",
-          timestamp,
-          sentiment: pos.some(w => titleLower.includes(w)) ? "positive" : neg.some(w => titleLower.includes(w)) ? "negative" : "neutral",
-        });
-      } catch (aiErr: any) {
-        console.error(`[events] AI/parse error for item ${idx}:`, aiErr?.message?.slice(0, 200));
-        events.push({
-          id: item.uuid ?? `event-${idx}`,
-          ticker: symbol,
-          type: "news",
-          title: item.title ?? "News",
-          publisher: item.publisher ?? "",
-          url: item.link ?? "",
-          what: item.title ?? "News headline",
-          why: "This news may be relevant to your investment.",
-          unusual: "Check the full article for more context.",
-          timestamp: item.providerPublishTime
-            ? new Date(item.providerPublishTime * 1000).toISOString()
-            : new Date().toISOString(),
-          sentiment: "neutral",
-        });
-      }
-    }
+    const events: any[] = results.map((result, idx) => {
+      if (result.status === "fulfilled") return result.value;
+      const item = items[idx];
+      console.error(`[events] AI/parse error for item ${idx}:`, (result.reason as any)?.message?.slice(0, 200));
+      return {
+        id: item.uuid ?? `event-${idx}`,
+        ticker: symbol,
+        type: "news",
+        title: item.title ?? "News",
+        publisher: item.publisher ?? "",
+        url: item.link ?? "",
+        what: item.title ?? "News headline",
+        why: "This news may be relevant to your investment.",
+        unusual: "Check the full article for more context.",
+        timestamp: item.providerPublishTime
+          ? new Date(item.providerPublishTime * 1000).toISOString()
+          : new Date().toISOString(),
+        sentiment: "neutral",
+      };
+    });
 
     setInCache(cacheKey, events, 15 * 60 * 1000);
     res.json({ events });
