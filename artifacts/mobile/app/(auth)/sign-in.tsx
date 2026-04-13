@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { useSignIn } from "@clerk/expo";
+import { useSignIn } from "@clerk/expo/legacy";
 import { Link, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import React, { useState } from "react";
@@ -17,54 +17,96 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 
+function getClerkErrorMessage(err: unknown, fallback: string): string {
+  if (
+    err !== null &&
+    typeof err === "object" &&
+    "errors" in err &&
+    Array.isArray((err as { errors: unknown[] }).errors)
+  ) {
+    const firstError = (err as { errors: Array<{ longMessage?: string; message?: string }> }).errors[0];
+    return firstError?.longMessage || firstError?.message || fallback;
+  }
+  return fallback;
+}
+
 export default function SignInScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { signIn, errors, fetchStatus } = useSignIn();
+  const { isLoaded, signIn, setActive } = useSignIn();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [verificationCode, setVerificationCode] = useState("");
-
-  const isLoading = fetchStatus === "fetching";
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [needsMfa, setNeedsMfa] = useState(false);
 
   const handleSignIn = async () => {
+    if (!isLoaded || !signIn) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const { error } = await signIn.password({ emailAddress: email, password });
-    if (error) return;
-
-    if (signIn.status === "complete") {
-      await signIn.finalize({
-        navigate: ({ decorateUrl }) => {
-          const url = decorateUrl("/");
-          if (url.startsWith("http")) {
-            router.replace("/(tabs)");
-          } else {
-            router.replace("/(tabs)");
-          }
-        },
+    setIsLoading(true);
+    setError(null);
+    try {
+      const result = await signIn.create({
+        strategy: "password",
+        identifier: email,
+        password,
       });
-    } else if (signIn.status === "needs_client_trust") {
-      await signIn.mfa.sendEmailCode();
+
+      if (result.status === "complete" && result.createdSessionId) {
+        await setActive({ session: result.createdSessionId });
+        router.replace("/(tabs)");
+      } else if (result.status === "needs_second_factor") {
+        await signIn.prepareSecondFactor({ strategy: "email_code" });
+        setNeedsMfa(true);
+      } else {
+        setError("Sign-in could not be completed. Please try again.");
+      }
+    } catch (err: unknown) {
+      setError(getClerkErrorMessage(err, "An error occurred. Please check your credentials and try again."));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleResendCode = async () => {
+    if (!isLoaded || !signIn) return;
+    setError(null);
+    try {
+      await signIn.prepareSecondFactor({ strategy: "email_code" });
+    } catch (err: unknown) {
+      setError(getClerkErrorMessage(err, "Failed to resend code. Please try again."));
     }
   };
 
   const handleVerify = async () => {
-    await signIn.mfa.verifyEmailCode({ code: verificationCode });
-    if (signIn.status === "complete") {
-      await signIn.finalize({
-        navigate: () => {
-          router.replace("/(tabs)");
-        },
+    if (!isLoaded || !signIn) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const result = await signIn.attemptSecondFactor({
+        strategy: "email_code",
+        code: verificationCode,
       });
+      if (result.status === "complete" && result.createdSessionId) {
+        await setActive({ session: result.createdSessionId });
+        router.replace("/(tabs)");
+      } else {
+        setError("Verification failed. Please try again.");
+      }
+    } catch (err: unknown) {
+      setError(getClerkErrorMessage(err, "Verification failed. Please check the code and try again."));
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
-  if (signIn.status === "needs_client_trust") {
+  if (needsMfa) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={[styles.inner, { paddingTop: topPad + 24 }]}>
@@ -80,8 +122,8 @@ export default function SignInScreen() {
             onChangeText={setVerificationCode}
             keyboardType="numeric"
           />
-          {errors?.fields?.code && (
-            <Text style={[styles.errorText, { color: colors.negative }]}>{errors.fields.code.message}</Text>
+          {error && (
+            <Text style={[styles.errorText, { color: colors.negative }]}>{error}</Text>
           )}
           <TouchableOpacity
             style={[styles.primaryButton, { backgroundColor: colors.primary, opacity: isLoading ? 0.6 : 1 }]}
@@ -90,8 +132,11 @@ export default function SignInScreen() {
           >
             {isLoading ? <ActivityIndicator color={colors.primaryForeground} /> : <Text style={[styles.primaryButtonText, { color: colors.primaryForeground }]}>Verify</Text>}
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => signIn.mfa.sendEmailCode()}>
-            <Text style={[styles.linkText, { color: colors.primary }]}>Resend code</Text>
+          <TouchableOpacity onPress={handleResendCode}>
+            <Text style={[styles.linkText, { color: colors.primary, textAlign: "center", marginTop: 8 }]}>Resend code</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => { setNeedsMfa(false); setError(null); setVerificationCode(""); }}>
+            <Text style={[styles.linkText, { color: colors.mutedForeground, textAlign: "center", marginTop: 8 }]}>Back to sign in</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -115,9 +160,9 @@ export default function SignInScreen() {
         </View>
 
         <Text style={[styles.appName, { color: colors.foreground }]}>StockClarify</Text>
-        <Text style={[styles.title, { color: colors.foreground }]}>Welcome back</Text>
+        <Text style={[styles.title, { color: colors.foreground }]}>Markets, simplified</Text>
         <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
-          Sign in to access your watchlist and market insights.
+          Real-time insights and AI-powered clarity for every stock you follow.
         </Text>
 
         <View style={styles.formSection}>
@@ -132,9 +177,6 @@ export default function SignInScreen() {
             autoCapitalize="none"
             autoCorrect={false}
           />
-          {errors?.fields?.identifier && (
-            <Text style={[styles.errorText, { color: colors.negative }]}>{errors.fields.identifier.message}</Text>
-          )}
 
           <Text style={[styles.label, { color: colors.mutedForeground, marginTop: 14 }]}>Password</Text>
           <View style={styles.passwordRow}>
@@ -153,10 +195,11 @@ export default function SignInScreen() {
               <Feather name={showPassword ? "eye-off" : "eye"} size={16} color={colors.mutedForeground} />
             </TouchableOpacity>
           </View>
-          {errors?.fields?.password && (
-            <Text style={[styles.errorText, { color: colors.negative }]}>{errors.fields.password.message}</Text>
-          )}
         </View>
+
+        {error && (
+          <Text style={[styles.errorText, { color: colors.negative, marginTop: 8 }]}>{error}</Text>
+        )}
 
         <TouchableOpacity
           style={[styles.primaryButton, { backgroundColor: colors.primary, opacity: (!email || !password || isLoading) ? 0.5 : 1 }]}

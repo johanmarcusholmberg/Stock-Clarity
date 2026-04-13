@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { useSignUp } from "@clerk/expo";
+import { useSignUp } from "@clerk/expo/legacy";
 import { Link, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import React, { useState } from "react";
@@ -17,44 +17,83 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 
+function getClerkErrorMessage(err: unknown, fallback: string): string {
+  if (
+    err !== null &&
+    typeof err === "object" &&
+    "errors" in err &&
+    Array.isArray((err as { errors: unknown[] }).errors)
+  ) {
+    const firstError = (err as { errors: Array<{ longMessage?: string; message?: string }> }).errors[0];
+    return firstError?.longMessage || firstError?.message || fallback;
+  }
+  return fallback;
+}
+
 export default function SignUpScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { signUp, errors, fetchStatus } = useSignUp();
+  const { isLoaded, signUp, setActive } = useSignUp();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [verificationCode, setVerificationCode] = useState("");
-
-  const isLoading = fetchStatus === "fetching";
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pendingVerification, setPendingVerification] = useState(false);
 
   const handleSignUp = async () => {
+    if (!isLoaded || !signUp) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const { error } = await signUp.password({ emailAddress: email, password });
-    if (error) return;
-    await signUp.verifications.sendEmailCode();
+    setIsLoading(true);
+    setError(null);
+    try {
+      await signUp.create({ emailAddress: email, password });
+      await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
+      setPendingVerification(true);
+    } catch (err: unknown) {
+      setError(getClerkErrorMessage(err, "Sign-up failed. Please check your details and try again."));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleResendCode = async () => {
+    if (!isLoaded || !signUp) return;
+    setError(null);
+    try {
+      await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
+    } catch (err: unknown) {
+      setError(getClerkErrorMessage(err, "Failed to resend code. Please try again."));
+    }
   };
 
   const handleVerify = async () => {
-    await signUp.verifications.verifyEmailCode({ code: verificationCode });
-    if (signUp.status === "complete") {
-      await signUp.finalize({
-        navigate: () => {
-          router.replace("/(tabs)");
-        },
+    if (!isLoaded || !signUp) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const result = await signUp.attemptEmailAddressVerification({
+        code: verificationCode,
       });
+      if (result.status === "complete" && result.createdSessionId) {
+        await setActive({ session: result.createdSessionId });
+        router.replace("/(tabs)");
+      } else {
+        setError("Email verification failed. Please try again.");
+      }
+    } catch (err: unknown) {
+      setError(getClerkErrorMessage(err, "Verification failed. Please check the code and try again."));
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
-  if (
-    signUp.status === "missing_requirements" &&
-    signUp.unverifiedFields.includes("email_address") &&
-    signUp.missingFields.length === 0
-  ) {
+  if (pendingVerification) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={[styles.inner, { paddingTop: topPad + 24 }]}>
@@ -76,8 +115,8 @@ export default function SignUpScreen() {
             onChangeText={setVerificationCode}
             keyboardType="numeric"
           />
-          {errors?.fields?.code && (
-            <Text style={[styles.errorText, { color: colors.negative }]}>{errors.fields.code.message}</Text>
+          {error && (
+            <Text style={[styles.errorText, { color: colors.negative }]}>{error}</Text>
           )}
           <TouchableOpacity
             style={[styles.primaryButton, { backgroundColor: colors.primary, opacity: isLoading ? 0.6 : 1 }]}
@@ -86,7 +125,7 @@ export default function SignUpScreen() {
           >
             {isLoading ? <ActivityIndicator color={colors.primaryForeground} /> : <Text style={[styles.primaryButtonText, { color: colors.primaryForeground }]}>Verify email</Text>}
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => signUp.verifications.sendEmailCode()}>
+          <TouchableOpacity onPress={handleResendCode}>
             <Text style={[styles.linkText, { color: colors.primary, textAlign: "center", marginTop: 8 }]}>Resend code</Text>
           </TouchableOpacity>
         </View>
@@ -111,9 +150,9 @@ export default function SignUpScreen() {
         </View>
 
         <Text style={[styles.appName, { color: colors.foreground }]}>StockClarify</Text>
-        <Text style={[styles.title, { color: colors.foreground }]}>Create account</Text>
+        <Text style={[styles.title, { color: colors.foreground }]}>Markets, simplified</Text>
         <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
-          Start monitoring the stocks you care about with AI-powered clarity.
+          Track the stocks you care about with real-time data and AI-powered insights.
         </Text>
 
         <View style={styles.formSection}>
@@ -128,9 +167,6 @@ export default function SignUpScreen() {
             autoCapitalize="none"
             autoCorrect={false}
           />
-          {errors?.fields?.emailAddress && (
-            <Text style={[styles.errorText, { color: colors.negative }]}>{errors.fields.emailAddress.message}</Text>
-          )}
 
           <Text style={[styles.label, { color: colors.mutedForeground, marginTop: 14 }]}>Password</Text>
           <View style={styles.passwordRow}>
@@ -149,10 +185,11 @@ export default function SignUpScreen() {
               <Feather name={showPassword ? "eye-off" : "eye"} size={16} color={colors.mutedForeground} />
             </TouchableOpacity>
           </View>
-          {errors?.fields?.password && (
-            <Text style={[styles.errorText, { color: colors.negative }]}>{errors.fields.password.message}</Text>
-          )}
         </View>
+
+        {error && (
+          <Text style={[styles.errorText, { color: colors.negative, marginTop: 8 }]}>{error}</Text>
+        )}
 
         <TouchableOpacity
           style={[styles.primaryButton, { backgroundColor: colors.primary, opacity: (!email || !password || isLoading) ? 0.5 : 1 }]}
