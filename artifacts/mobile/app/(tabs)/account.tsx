@@ -25,6 +25,7 @@ const API_BASE = (() => {
 })();
 
 type FeedbackCategory = "general" | "bug" | "feature" | "billing";
+type FeatherIconName = React.ComponentProps<typeof Feather>["name"];
 
 export default function AccountScreen() {
   const colors = useColors();
@@ -50,6 +51,10 @@ export default function AccountScreen() {
   const [devToolsVisible, setDevToolsVisible] = useState(false);
   const [devTierLoading, setDevTierLoading] = useState(false);
   const devTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState("");
+  const [nameSaving, setNameSaving] = useState(false);
 
   const tierColors: Record<string, string> = {
     free: colors.mutedForeground,
@@ -151,7 +156,39 @@ export default function AccountScreen() {
     }
   };
 
-  const categories: { value: FeedbackCategory; label: string; icon: string }[] = [
+  const handleEditName = () => {
+    setNameInput(user?.firstName ?? "");
+    setEditingName(true);
+  };
+
+  const handleCancelEditName = () => {
+    setEditingName(false);
+    setNameInput("");
+  };
+
+  const handleSaveName = async () => {
+    const trimmed = nameInput.trim();
+    if (!trimmed) {
+      Alert.alert("Name required", "Please enter a display name.");
+      return;
+    }
+    if (!user) {
+      Alert.alert("Error", "User session not available. Please try again.");
+      return;
+    }
+    setNameSaving(true);
+    try {
+      await user.update({ firstName: trimmed });
+      setEditingName(false);
+      setNameInput("");
+    } catch {
+      Alert.alert("Error", "Could not save your display name. Please try again.");
+    } finally {
+      setNameSaving(false);
+    }
+  };
+
+  const categories: { value: FeedbackCategory; label: string; icon: FeatherIconName }[] = [
     { value: "general", label: "General", icon: "message-circle" },
     { value: "bug", label: "Bug Report", icon: "alert-triangle" },
     { value: "feature", label: "Feature", icon: "star" },
@@ -187,9 +224,18 @@ export default function AccountScreen() {
     manageBtn: { margin: 16, backgroundColor: colors.secondary, borderRadius: 12, paddingVertical: 14, alignItems: "center" },
     manageBtnText: { color: colors.foreground, fontSize: 15, fontFamily: "Inter_600SemiBold" },
     catRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
-    catBtn: { flex: 1, paddingVertical: 8, borderRadius: 10, borderWidth: 1.5, borderColor: colors.border, alignItems: "center" },
+    catBtn: {
+      flex: 1,
+      paddingVertical: 10,
+      paddingHorizontal: 4,
+      borderRadius: 10,
+      borderWidth: 1.5,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
     catBtnActive: { borderColor: colors.primary, backgroundColor: colors.primary + "18" },
-    catText: { color: colors.mutedForeground, fontSize: 12, fontFamily: "Inter_600SemiBold" },
+    catText: { color: colors.mutedForeground, fontSize: 11, fontFamily: "Inter_600SemiBold", marginTop: 4 },
     catTextActive: { color: colors.primary },
     stars: { flexDirection: "row", gap: 8, marginBottom: 12 },
     starBtn: { padding: 4 },
@@ -210,9 +256,23 @@ export default function AccountScreen() {
     submitBtnText: { color: colors.primaryForeground, fontSize: 15, fontFamily: "Inter_700Bold" },
     signOutBtn: { margin: 20, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderColor: colors.destructive, alignItems: "center" },
     signOutText: { color: colors.destructive, fontSize: 15, fontFamily: "Inter_600SemiBold" },
+    nameInput: {
+      flex: 1,
+      color: colors.foreground,
+      fontSize: 15,
+      fontFamily: "Inter_400Regular",
+      borderBottomWidth: 1,
+      borderBottomColor: colors.primary,
+      paddingVertical: 2,
+      marginRight: 8,
+    },
+    nameEditActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+    nameActionBtn: { padding: 4 },
   });
 
   const aiPercent = aiSummariesLimit > 999 ? 0 : Math.min(100, (aiSummariesUsedToday / aiSummariesLimit) * 100);
+
+  const displayName = user?.firstName || user?.fullName || user?.username || user?.primaryEmailAddress?.emailAddress || "—";
 
   return (
     <SafeAreaView style={s.container} edges={["top"]}>
@@ -225,11 +285,44 @@ export default function AccountScreen() {
         <View style={s.section}>
           <Text style={s.sectionTitle}>Profile</Text>
           <View style={s.card}>
+            {/* Editable Display Name */}
             <View style={[s.row]}>
               <View style={s.rowIcon}><Feather name="user" size={18} color={colors.primary} /></View>
-              <Text style={s.rowLabel} numberOfLines={1}>
-                {user?.fullName || user?.username || user?.primaryEmailAddress?.emailAddress || "—"}
-              </Text>
+              {editingName ? (
+                <>
+                  <TextInput
+                    style={s.nameInput}
+                    value={nameInput}
+                    onChangeText={setNameInput}
+                    placeholder="Display name"
+                    placeholderTextColor={colors.mutedForeground}
+                    autoFocus
+                    returnKeyType="done"
+                    onSubmitEditing={handleSaveName}
+                  />
+                  <View style={s.nameEditActions}>
+                    {nameSaving ? (
+                      <ActivityIndicator color={colors.primary} size="small" />
+                    ) : (
+                      <>
+                        <TouchableOpacity style={s.nameActionBtn} onPress={handleSaveName}>
+                          <Feather name="check" size={18} color={colors.primary} />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={s.nameActionBtn} onPress={handleCancelEditName}>
+                          <Feather name="x" size={18} color={colors.mutedForeground} />
+                        </TouchableOpacity>
+                      </>
+                    )}
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text style={s.rowLabel} numberOfLines={1}>{displayName}</Text>
+                  <TouchableOpacity onPress={handleEditName} style={{ padding: 4 }}>
+                    <Feather name="edit-2" size={15} color={colors.mutedForeground} />
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
             <View style={[s.row, s.rowLast]}>
               <View style={s.rowIcon}><Feather name="mail" size={18} color={colors.primary} /></View>
@@ -311,7 +404,12 @@ export default function AccountScreen() {
                     style={[s.catBtn, feedbackCategory === cat.value && s.catBtnActive]}
                     onPress={() => setFeedbackCategory(cat.value)}
                   >
-                    <Text style={[s.catText, feedbackCategory === cat.value && s.catTextActive]}>{cat.label}</Text>
+                    <Feather
+                      name={cat.icon}
+                      size={16}
+                      color={feedbackCategory === cat.value ? colors.primary : colors.mutedForeground}
+                    />
+                    <Text numberOfLines={1} style={[s.catText, feedbackCategory === cat.value && s.catTextActive]}>{cat.label}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
