@@ -20,27 +20,40 @@ interface Props {
   visible: boolean;
   onClose: () => void;
   triggerReason?: "ai_limit" | "watchlist_limit" | "folder_limit" | "ai_stock_limit" | "stock_daily_limit" | "general";
+  currentTier?: "free" | "pro" | "premium";
 }
 
-const FEATURE_MAP: Record<string, string[]> = {
+interface PlanFeature {
+  text: string;
+  included: boolean;
+}
+
+const PLAN_FEATURES: Record<string, PlanFeature[]> = {
   pro: [
-    "10 stocks with AI analysis per day",
-    "3 AI summaries per stock",
-    "Up to 50 stocks in watchlist",
-    "Interactive price charts",
-    "Priority data refresh",
+    { text: "10 stock pages with AI analysis per day", included: true },
+    { text: "3 AI event summaries per stock", included: true },
+    { text: "Up to 50 stocks in watchlist", included: true },
+    { text: "Up to 5 watchlist folders", included: true },
+    { text: "Interactive 1-year price charts", included: true },
+    { text: "Digest: daily AI stock briefings", included: true },
+    { text: "Multi-source news with AI filtering", included: true },
+    { text: "Unlimited AI summaries", included: false },
+    { text: "Priority support", included: false },
   ],
   premium: [
-    "Unlimited stocks with AI per day",
-    "5 AI summaries per stock",
-    "Unlimited watchlist stocks",
-    "Exclusive market insights",
-    "Early access to new features",
-    "Priority support",
+    { text: "Unlimited stock pages with AI per day", included: true },
+    { text: "5 AI event summaries per stock", included: true },
+    { text: "Unlimited stocks in watchlist", included: true },
+    { text: "Unlimited watchlist folders", included: true },
+    { text: "Interactive 1-year price charts", included: true },
+    { text: "Digest: daily AI stock briefings", included: true },
+    { text: "Multi-source news with AI filtering", included: true },
+    { text: "Unlimited AI summaries", included: true },
+    { text: "Priority support", included: true },
   ],
 };
 
-export function PaywallSheet({ visible, onClose, triggerReason = "general" }: Props) {
+export function PaywallSheet({ visible, onClose, triggerReason = "general", currentTier = "free" }: Props) {
   const colors = useColors();
   const { plans, plansLoading, fetchPlans, startCheckout } = useSubscription();
   const [selectedInterval, setSelectedInterval] = useState<"month" | "year">("month");
@@ -52,13 +65,20 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general" }: Pr
   }, [visible]);
 
   const reasonText: Record<string, string> = {
-    ai_limit: "You've used all free AI summaries for today.",
-    ai_stock_limit: "You've used your free AI summary for this stock today.",
-    stock_daily_limit: "You've reached your daily limit of 3 stocks with AI analysis. Upgrade for more.",
-    watchlist_limit: "Upgrade to track more stocks.",
-    folder_limit: "Free users can have up to 2 folders. Upgrade for up to 10.",
-    general: "Unlock the full StockClarify experience.",
+    ai_limit: "You've used all your free AI summaries for today.",
+    ai_stock_limit: "You've reached your AI summary limit for this stock.",
+    stock_daily_limit: "You've reached your 3-stock daily limit. Upgrade for more.",
+    watchlist_limit: "Upgrade to track more stocks in your watchlist.",
+    folder_limit: "You've reached the folder limit on your current plan.",
+    general: currentTier === "pro" ? "Unlock everything with Premium." : "Unlock the full StockClarify experience.",
   };
+
+  // Filter plans based on current tier (pro users only see premium)
+  const visiblePlans = plans.filter((plan) => {
+    const tier = plan.metadata?.tier;
+    if (currentTier === "pro") return tier === "premium";
+    return tier === "pro" || tier === "premium";
+  });
 
   const handleSubscribe = async (plan: Plan) => {
     const price = plan.prices?.find((p) => p.interval === selectedInterval);
@@ -85,15 +105,15 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general" }: Pr
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
       paddingBottom: Platform.OS === "ios" ? 40 : 24,
-      maxHeight: Dimensions.get("window").height * 0.92,
+      maxHeight: Dimensions.get("window").height * 0.94,
     },
     handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: "center", marginTop: 12, marginBottom: 8 },
     header: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
     closeBtn: { position: "absolute", right: 20, top: 8, padding: 8 },
     badge: { backgroundColor: colors.primary + "22", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, alignSelf: "flex-start" },
     badgeText: { color: colors.primary, fontSize: 11, fontFamily: "Inter_600SemiBold" },
-    launchBadge: { backgroundColor: "#FF6B0022", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, alignSelf: "flex-start", borderWidth: 1, borderColor: "#FF6B0044" },
-    launchBadgeText: { color: "#FF6B00", fontSize: 11, fontFamily: "Inter_600SemiBold" },
+    launchBadge: { backgroundColor: colors.accent + "22", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, alignSelf: "flex-start", borderWidth: 1, borderColor: colors.accent + "44" },
+    launchBadgeText: { color: colors.accent, fontSize: 11, fontFamily: "Inter_600SemiBold" },
     title: { color: colors.foreground, fontSize: 22, fontFamily: "Inter_700Bold", marginBottom: 4 },
     subtitle: { color: colors.mutedForeground, fontSize: 14, fontFamily: "Inter_400Regular" },
     toggle: { flexDirection: "row", backgroundColor: colors.secondary, borderRadius: 12, padding: 4, marginHorizontal: 24, marginVertical: 16 },
@@ -103,23 +123,31 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general" }: Pr
     toggleTextActive: { color: colors.primaryForeground },
     saveBadge: { backgroundColor: colors.positive, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, marginLeft: 6 },
     saveBadgeText: { color: "#fff", fontSize: 10, fontFamily: "Inter_700Bold" },
-    plansContainer: { paddingHorizontal: 24, gap: 12 },
+    plansContainer: { paddingHorizontal: 16, gap: 12 },
     planCard: { borderRadius: 16, borderWidth: 1.5, borderColor: colors.border, overflow: "hidden" },
     planCardHighlight: { borderColor: colors.primary },
     planHeader: { padding: 16, gap: 4 },
     planHeaderHighlight: { backgroundColor: colors.primary + "18" },
-    planName: { color: colors.foreground, fontSize: 17, fontFamily: "Inter_700Bold" },
-    planPrice: { color: colors.primary, fontSize: 28, fontFamily: "Inter_700Bold" },
+    planName: { color: colors.foreground, fontSize: 18, fontFamily: "Inter_700Bold" },
+    priceRow: { flexDirection: "row", alignItems: "baseline", gap: 2, marginTop: 4 },
+    planPrice: { color: colors.primary, fontSize: 30, fontFamily: "Inter_700Bold" },
     planInterval: { color: colors.mutedForeground, fontSize: 13, fontFamily: "Inter_400Regular" },
-    planDesc: { color: colors.mutedForeground, fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 2 },
-    features: { padding: 16, paddingTop: 8, gap: 8 },
+    originalPrice: { color: colors.mutedForeground, fontSize: 13, fontFamily: "Inter_400Regular", textDecorationLine: "line-through", marginLeft: 6 },
+    planDesc: { color: colors.mutedForeground, fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 4 },
+    features: { paddingHorizontal: 16, paddingBottom: 8, paddingTop: 4, gap: 7 },
     featureRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-    featureText: { color: colors.foreground, fontSize: 13, fontFamily: "Inter_400Regular", flex: 1 },
-    subscribeBtn: { marginHorizontal: 16, marginBottom: 16, backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center" },
+    featureText: { fontSize: 13, fontFamily: "Inter_400Regular", flex: 1 },
+    featureIncluded: { color: colors.foreground },
+    featureExcluded: { color: colors.mutedForeground },
+    subscribeBtn: { marginHorizontal: 16, marginBottom: 16, marginTop: 8, backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center" },
+    subscribeBtnSecondary: { backgroundColor: colors.secondary, borderWidth: 1.5, borderColor: colors.border },
     subscribeBtnText: { color: colors.primaryForeground, fontSize: 15, fontFamily: "Inter_700Bold" },
+    subscribeBtnTextSecondary: { color: colors.foreground },
     footer: { paddingHorizontal: 24, paddingTop: 8 },
     footerText: { color: colors.mutedForeground, fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "center" },
   });
+
+  const title = currentTier === "pro" ? "Upgrade to Premium" : "Unlock StockClarify";
 
   return (
     <Modal visible={visible} animationType="slide" transparent presentationStyle="overFullScreen" onRequestClose={onClose}>
@@ -135,10 +163,10 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general" }: Pr
                 <Text style={s.badgeText}>⚡ UPGRADE</Text>
               </View>
               <View style={s.launchBadge}>
-                <Text style={s.launchBadgeText}>🎉 LAUNCH OFFER</Text>
+                <Text style={s.launchBadgeText}>🎉 LAUNCH PRICING</Text>
               </View>
             </View>
-            <Text style={s.title}>StockClarify Pro</Text>
+            <Text style={s.title}>{title}</Text>
             <Text style={s.subtitle}>{reasonText[triggerReason]}</Text>
           </View>
 
@@ -155,55 +183,80 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general" }: Pr
             </TouchableOpacity>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: Dimensions.get("window").height * 0.55 }}>
+          <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: Dimensions.get("window").height * 0.56 }}>
             {plansLoading ? (
               <ActivityIndicator color={colors.primary} style={{ padding: 32 }} />
-            ) : plans.length === 0 ? (
+            ) : visiblePlans.length === 0 ? (
               <Text style={[s.footerText, { padding: 24 }]}>Plans unavailable. Please try again later.</Text>
             ) : (
               <View style={s.plansContainer}>
-                {plans.map((plan, i) => {
+                {visiblePlans.map((plan, i) => {
                   const tierKey = plan.metadata?.tier ?? (i === 0 ? "pro" : "premium");
-                  const isHighlight = tierKey === "pro";
+                  const isPro = tierKey === "pro";
+                  const isPremium = tierKey === "premium";
+                  const isHighlight = currentTier === "pro" ? isPremium : isPro;
                   const price = plan.prices?.find((p) => p.interval === selectedInterval);
-                  const features = FEATURE_MAP[tierKey] ?? [];
+                  const features = PLAN_FEATURES[tierKey] ?? [];
                   const isLoading = price ? loadingPriceId === price.id : false;
 
                   return (
                     <View key={plan.id} style={[s.planCard, isHighlight && s.planCardHighlight]}>
                       <View style={[s.planHeader, isHighlight && s.planHeaderHighlight]}>
                         {isHighlight && (
-                          <View style={{ flexDirection: "row", marginBottom: 4 }}>
+                          <View style={{ flexDirection: "row", marginBottom: 6 }}>
                             <View style={[s.badge, { backgroundColor: colors.primary + "33", marginBottom: 0 }]}>
-                              <Text style={s.badgeText}>MOST POPULAR</Text>
+                              <Text style={s.badgeText}>{currentTier === "pro" ? "YOUR UPGRADE" : "MOST POPULAR"}</Text>
                             </View>
                           </View>
                         )}
                         <Text style={s.planName}>{plan.name}</Text>
                         {price ? (
-                          <View style={{ flexDirection: "row", alignItems: "baseline", gap: 4 }}>
+                          <View style={s.priceRow}>
                             <Text style={s.planPrice}>{formatPrice(price.unit_amount)}</Text>
-                            <Text style={s.planInterval}>/{price.interval === "year" ? "year" : "mo"}</Text>
+                            <Text style={s.planInterval}>/{price.interval === "year" ? "yr" : "mo"}</Text>
+                            {price.interval === "year" && (
+                              <Text style={s.originalPrice}>
+                                ${((price.unit_amount / 100 / 12) / 0.8 * 12).toFixed(0)}/yr
+                              </Text>
+                            )}
                           </View>
                         ) : (
                           <Text style={s.planDesc}>Pricing unavailable</Text>
                         )}
-                        <Text style={s.planDesc}>{plan.description}</Text>
+                        {price?.interval === "year" && (
+                          <Text style={{ color: colors.positive, fontSize: 12, fontFamily: "Inter_600SemiBold", marginTop: 2 }}>
+                            = {formatPrice(Math.round(price.unit_amount / 12))}/mo — save 20%
+                          </Text>
+                        )}
                       </View>
+
                       <View style={s.features}>
                         {features.map((f) => (
-                          <View key={f} style={s.featureRow}>
-                            <Feather name="check-circle" size={14} color={colors.positive} />
-                            <Text style={s.featureText}>{f}</Text>
+                          <View key={f.text} style={s.featureRow}>
+                            <Feather
+                              name={f.included ? "check-circle" : "x-circle"}
+                              size={14}
+                              color={f.included ? colors.positive : colors.mutedForeground}
+                            />
+                            <Text style={[s.featureText, f.included ? s.featureIncluded : s.featureExcluded]}>
+                              {f.text}
+                            </Text>
                           </View>
                         ))}
                       </View>
+
                       {price && (
-                        <TouchableOpacity style={s.subscribeBtn} onPress={() => handleSubscribe(plan)} disabled={isLoading}>
+                        <TouchableOpacity
+                          style={[s.subscribeBtn, !isHighlight && s.subscribeBtnSecondary]}
+                          onPress={() => handleSubscribe(plan)}
+                          disabled={isLoading}
+                        >
                           {isLoading ? (
-                            <ActivityIndicator color={colors.primaryForeground} />
+                            <ActivityIndicator color={isHighlight ? colors.primaryForeground : colors.foreground} />
                           ) : (
-                            <Text style={s.subscribeBtnText}>Subscribe · {formatPrice(price.unit_amount)}/{price.interval === "year" ? "yr" : "mo"}</Text>
+                            <Text style={[s.subscribeBtnText, !isHighlight && s.subscribeBtnTextSecondary]}>
+                              {currentTier === "pro" && isPremium ? "Upgrade to Premium" : `Get ${plan.name}`} · {formatPrice(price.unit_amount)}/{price.interval === "year" ? "yr" : "mo"}
+                            </Text>
                           )}
                         </TouchableOpacity>
                       )}
@@ -214,9 +267,10 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general" }: Pr
             )}
             <View style={{ height: 16 }} />
           </ScrollView>
+
           <View style={s.footer}>
-            <Text style={[s.footerText, { color: "#FF6B00", marginBottom: 6, fontFamily: "Inter_600SemiBold" }]}>
-              Early subscribers keep this price for 12 months. Pricing may change after that.
+            <Text style={[s.footerText, { color: colors.accent, marginBottom: 6, fontFamily: "Inter_600SemiBold" }]}>
+              Early subscribers keep this price for 12 months.
             </Text>
             <Text style={s.footerText}>Cancel anytime · Secure payment via Stripe · Restore purchases on sign in</Text>
           </View>

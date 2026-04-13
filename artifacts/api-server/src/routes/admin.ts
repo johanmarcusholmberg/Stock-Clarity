@@ -75,7 +75,30 @@ router.post("/users", async (req, res) => {
     return void res.status(403).json({ error: "Access denied" });
   }
   try {
-    const users = await query("SELECT clerk_user_id, email, tier, created_at, updated_at FROM users ORDER BY created_at DESC LIMIT 100");
+    const users = await query(`
+      SELECT
+        u.clerk_user_id,
+        u.email,
+        u.tier,
+        u.stripe_customer_id,
+        u.created_at,
+        u.updated_at,
+        COALESCE(jsonb_array_length(u.watchlist_data), 0) AS folder_count,
+        COALESCE((
+          SELECT SUM(jsonb_array_length(f->'tickers'))
+          FROM jsonb_array_elements(COALESCE(u.watchlist_data, '[]'::jsonb)) AS f
+        ), 0) AS watchlist_count,
+        COALESCE((
+          SELECT COUNT(*) FROM user_events ue WHERE ue.user_id = u.clerk_user_id
+        ), 0) AS events_total,
+        COALESCE((
+          SELECT COUNT(DISTINCT DATE(ue.created_at)) FROM user_events ue WHERE ue.user_id = u.clerk_user_id
+        ), 0) AS days_active,
+        GREATEST(1, DATE_PART('day', NOW() - u.created_at)::int) AS days_since_joined
+      FROM users u
+      ORDER BY u.created_at DESC
+      LIMIT 100
+    `);
     res.json({ users });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -138,7 +161,16 @@ button{width:100%;padding:12px;border-radius:8px;border:none;background:#14b8a6;
       query(`SELECT ticker, stock_name, COUNT(*) as views FROM stock_views WHERE created_at > NOW() - INTERVAL '7 days' GROUP BY ticker, stock_name ORDER BY views DESC LIMIT 5`),
       query("SELECT id, error_type, message, endpoint, created_at FROM error_logs ORDER BY created_at DESC LIMIT 10"),
       query("SELECT id, category, message, rating, email, status, created_at FROM feedback ORDER BY created_at DESC LIMIT 10"),
-      query("SELECT clerk_user_id, email, tier, stripe_customer_id, stripe_subscription_id, created_at FROM users ORDER BY created_at DESC LIMIT 50"),
+      query(`
+        SELECT
+          u.clerk_user_id, u.email, u.tier, u.stripe_customer_id, u.created_at,
+          COALESCE(jsonb_array_length(u.watchlist_data), 0) AS folder_count,
+          COALESCE((SELECT SUM(jsonb_array_length(f->'tickers')) FROM jsonb_array_elements(COALESCE(u.watchlist_data,'[]'::jsonb)) f), 0) AS watchlist_count,
+          COALESCE((SELECT COUNT(*) FROM user_events ue WHERE ue.user_id = u.clerk_user_id), 0) AS events_total,
+          COALESCE((SELECT COUNT(DISTINCT DATE(ue.created_at)) FROM user_events ue WHERE ue.user_id = u.clerk_user_id), 0) AS days_active,
+          GREATEST(1, DATE_PART('day', NOW() - u.created_at)::int) AS days_since_joined
+        FROM users u ORDER BY u.created_at DESC LIMIT 50
+      `),
     ]);
     stats.users = parseInt(usersRes[0]?.c ?? "0");
     stats.events_today = parseInt(eventsRes[0]?.c ?? "0");
@@ -195,10 +227,12 @@ button{width:100%;padding:12px;border-radius:8px;border:none;background:#14b8a6;
 
   const usersRows = users.length
     ? users.map(u => `<tr>
-        <td class="uid" title="${u.clerk_user_id}">${u.clerk_user_id}</td>
         <td>${u.email ?? "—"}</td>
         <td><span class="badge badge-${u.tier ?? 'free'}">${u.tier ?? 'free'}</span></td>
-        <td>${u.stripe_customer_id ? `<span style="font-family:monospace;font-size:11px;color:#475569">${u.stripe_customer_id}</span>` : "—"}</td>
+        <td style="text-align:center">${u.watchlist_count ?? 0}</td>
+        <td style="text-align:center">${u.folder_count ?? 0}</td>
+        <td style="text-align:center">${u.events_total ?? 0}</td>
+        <td style="text-align:center">${u.days_active ?? 0} / ${u.days_since_joined ?? 1}</td>
         <td>
           <div class="tier-form">
             <button class="tier-btn ${(u.tier ?? 'free') === 'free' ? 'active-free' : ''}" onclick="setTier('${u.clerk_user_id}','free',this)">Free</button>
@@ -208,7 +242,7 @@ button{width:100%;padding:12px;border-radius:8px;border:none;background:#14b8a6;
         </td>
         <td style="color:#64748b">${new Date(u.created_at).toLocaleDateString()}</td>
       </tr>`).join("")
-    : '<tr><td colspan="6" style="color:#64748b;padding:20px">No users yet</td></tr>';
+    : '<tr><td colspan="8" style="color:#64748b;padding:20px">No users yet</td></tr>';
 
   res.send(`<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -232,7 +266,7 @@ button{width:100%;padding:12px;border-radius:8px;border:none;background:#14b8a6;
     <h2>👥 Users &amp; Subscriptions</h2>
     <div style="overflow-x:auto">
       <table>
-        <tr><th>User ID</th><th>Email</th><th>Tier</th><th>Stripe Customer</th><th>Override Tier</th><th>Joined</th></tr>
+        <tr><th>Email</th><th>Tier</th><th>Watchlist</th><th>Folders</th><th>Events</th><th>Days Active / Since Join</th><th>Override Tier</th><th>Joined</th></tr>
         ${usersRows}
       </table>
     </div>

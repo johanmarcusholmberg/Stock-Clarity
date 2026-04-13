@@ -401,8 +401,21 @@ export default function AccountScreen() {
 
             {tier === "free" ? (
               <TouchableOpacity style={s.upgradeBtn} onPress={() => setShowPaywall(true)}>
-                <Text style={s.upgradeBtnText}>⚡ Upgrade to Pro — $9.99/mo</Text>
+                <Text style={s.upgradeBtnText}>⚡ Upgrade — Pro from $4.99/mo</Text>
               </TouchableOpacity>
+            ) : tier === "pro" ? (
+              <View>
+                <TouchableOpacity style={s.upgradeBtn} onPress={() => setShowPaywall(true)}>
+                  <Text style={s.upgradeBtnText}>⬆ Upgrade to Premium — $9.99/mo</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.manageBtn} onPress={handleManageSubscription} disabled={portalLoading}>
+                  {portalLoading ? (
+                    <ActivityIndicator color={colors.foreground} />
+                  ) : (
+                    <Text style={s.manageBtnText}>Manage Subscription</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
             ) : (
               <TouchableOpacity style={s.manageBtn} onPress={handleManageSubscription} disabled={portalLoading}>
                 {portalLoading ? (
@@ -487,7 +500,7 @@ export default function AccountScreen() {
         <View style={{ height: 40 }} />
       </ScrollView>
 
-      <PaywallSheet visible={showPaywall} onClose={() => setShowPaywall(false)} triggerReason="general" />
+      <PaywallSheet visible={showPaywall} onClose={() => setShowPaywall(false)} triggerReason="general" currentTier={tier} />
     </SafeAreaView>
   );
 }

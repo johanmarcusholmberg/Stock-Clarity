@@ -26,8 +26,14 @@ interface UserRow {
   clerk_user_id: string;
   email: string;
   tier: string;
+  stripe_customer_id: string | null;
   created_at: string;
   updated_at: string;
+  watchlist_count: number;
+  folder_count: number;
+  events_total: number;
+  days_active: number;
+  days_since_joined: number;
 }
 
 interface StatsData {
@@ -353,39 +359,57 @@ export default function AdminPanelScreen() {
                   </Text>
                 ) : (
                   users.map((u, i) => (
-                    <View key={u.clerk_user_id} style={[s.userRow, i === users.length - 1 && { borderBottomWidth: 0 }]}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={s.userEmail} numberOfLines={1}>{u.email || "—"}</Text>
-                        <Text style={{ color: colors.mutedForeground, fontSize: 11, fontFamily: "Inter_400Regular" }}>
-                          {new Date(u.created_at).toLocaleDateString()}
-                        </Text>
-                      </View>
-                      <View style={[s.userTierBadge, { backgroundColor: tierColors[u.tier || "free"] + "22" }]}>
-                        <Text style={{ fontSize: 10, fontFamily: "Inter_700Bold", color: tierColors[u.tier || "free"] }}>
-                          {(u.tier || "free").toUpperCase()}
-                        </Text>
-                      </View>
-                      {/* Quick tier buttons for other users */}
-                      {u.clerk_user_id !== userId && (
-                        <View style={{ flexDirection: "row", gap: 4 }}>
-                          {(["free", "pro", "premium"] as Tier[]).map((t) => (
-                            <TouchableOpacity
-                              key={t}
-                              style={[s.miniTierBtn, u.tier === t && { borderColor: tierColors[t], backgroundColor: tierColors[t] + "22" }]}
-                              onPress={() => setUserTier(u.clerk_user_id, u.email, t)}
-                              disabled={settingTier !== null}
-                            >
-                              {settingTier === u.clerk_user_id + t ? (
-                                <ActivityIndicator size="small" color={colors.primary} style={{ width: 20 }} />
-                              ) : (
-                                <Text style={[s.miniTierBtnText, u.tier === t && { color: tierColors[t] }]}>
-                                  {t[0].toUpperCase()}
-                                </Text>
-                              )}
-                            </TouchableOpacity>
-                          ))}
+                    <View key={u.clerk_user_id} style={[s.userRow, i === users.length - 1 && { borderBottomWidth: 0 }, { flexDirection: "column", alignItems: "stretch", gap: 8 }]}>
+                      {/* Top row: email + tier badge + tier buttons */}
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.userEmail} numberOfLines={1}>{u.email || "—"}</Text>
+                          <Text style={{ color: colors.mutedForeground, fontSize: 11, fontFamily: "Inter_400Regular" }}>
+                            Joined {new Date(u.created_at).toLocaleDateString()} · {u.days_since_joined ?? 1} day{u.days_since_joined !== 1 ? "s" : ""} ago
+                          </Text>
                         </View>
-                      )}
+                        <View style={[s.userTierBadge, { backgroundColor: tierColors[u.tier || "free"] + "22" }]}>
+                          <Text style={{ fontSize: 10, fontFamily: "Inter_700Bold", color: tierColors[u.tier || "free"] }}>
+                            {(u.tier || "free").toUpperCase()}
+                          </Text>
+                        </View>
+                        {u.clerk_user_id !== userId && (
+                          <View style={{ flexDirection: "row", gap: 4 }}>
+                            {(["free", "pro", "premium"] as Tier[]).map((t) => (
+                              <TouchableOpacity
+                                key={t}
+                                style={[s.miniTierBtn, u.tier === t && { borderColor: tierColors[t], backgroundColor: tierColors[t] + "22" }]}
+                                onPress={() => setUserTier(u.clerk_user_id, u.email, t)}
+                                disabled={settingTier !== null}
+                              >
+                                {settingTier === u.clerk_user_id + t ? (
+                                  <ActivityIndicator size="small" color={colors.primary} style={{ width: 20 }} />
+                                ) : (
+                                  <Text style={[s.miniTierBtnText, u.tier === t && { color: tierColors[t] }]}>
+                                    {t[0].toUpperCase()}
+                                  </Text>
+                                )}
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
+                      </View>
+                      {/* Stats row */}
+                      <View style={{ flexDirection: "row", gap: 12, paddingLeft: 2, flexWrap: "wrap" }}>
+                        {[
+                          { icon: "bookmark", label: "Watchlist", value: u.watchlist_count ?? 0 },
+                          { icon: "folder", label: "Folders", value: u.folder_count ?? 0 },
+                          { icon: "zap", label: "Events", value: u.events_total ?? 0 },
+                          { icon: "calendar", label: "Active days", value: `${u.days_active ?? 0}d` },
+                        ].map((stat) => (
+                          <View key={stat.label} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                            <Feather name={stat.icon as any} size={11} color={colors.mutedForeground} />
+                            <Text style={{ color: colors.mutedForeground, fontSize: 11, fontFamily: "Inter_400Regular" }}>
+                              {stat.label}: <Text style={{ color: colors.foreground, fontFamily: "Inter_600SemiBold" }}>{stat.value}</Text>
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
                     </View>
                   ))
                 )}
