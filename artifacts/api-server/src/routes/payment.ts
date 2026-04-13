@@ -192,12 +192,31 @@ router.get("/subscription/:userId", async (req, res) => {
     if (!user) return void res.json({ tier: "free", subscription: null });
 
     let subscription = null;
+    let tier: "free" | "pro" | "premium" = user.tier ?? "free";
+
     if (user.stripe_customer_id) {
       subscription = await storage.getSubscriptionByCustomerId(user.stripe_customer_id);
+
+      // Derive tier from live Stripe subscription data (product metadata)
+      const stripeTier = await storage.getTierFromSubscription(user.stripe_customer_id);
+
+      // If subscription is active, trust Stripe as ground truth
+      if (stripeTier !== "free") {
+        tier = stripeTier;
+      } else if (!subscription) {
+        // No active subscription in Stripe — revert to free if DB says otherwise
+        tier = "free";
+      }
+
+      // Sync tier back to DB if it has drifted
+      if (tier !== (user.tier ?? "free")) {
+        await storage.updateUserTier(userId, tier);
+        logger.info({ userId, from: user.tier, to: tier }, "Tier synced from Stripe");
+      }
     }
 
     res.json({
-      tier: user.tier ?? "free",
+      tier,
       subscription: subscription ? {
         id: (subscription as any).id,
         status: (subscription as any).status,

@@ -141,52 +141,54 @@ export default function WatchlistScreen() {
 
         <FolderTabStrip />
 
-        <View style={[styles.sectionHeader, { paddingHorizontal: 16, marginBottom: 10 }]}>
+        {/* Toolbar row 1: section title + Add Stock */}
+        <View style={[styles.toolbarRow, { paddingHorizontal: 16, marginBottom: 10 }]}>
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
             {activeFolder?.name ?? "Watchlist"}
           </Text>
-          <View style={styles.sectionActions}>
-            <TouchableOpacity
-              style={[styles.changeToggle, { backgroundColor: colors.secondary, borderColor: colors.border }]}
-              onPress={toggleChangeMode}
-            >
-              <Text style={[styles.changeToggleText, { color: showPercent ? colors.primary : colors.mutedForeground }]}>%</Text>
-              <View style={[styles.changeToggleDivider, { backgroundColor: colors.border }]} />
-              <Text style={[styles.changeToggleText, { color: !showPercent ? colors.primary : colors.mutedForeground }]}>$</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.addButton, { backgroundColor: `${colors.primary}22`, borderColor: `${colors.primary}44` }]}
-              onPress={() => router.push("/(tabs)/search")}
-            >
-              <Feather name="plus" size={14} color={colors.primary} />
-              <Text style={[styles.addButtonText, { color: colors.primary }]}>Add stock</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={[styles.addButton, { backgroundColor: colors.primary }]}
+            onPress={() => router.push("/(tabs)/search")}
+          >
+            <Feather name="plus" size={14} color={colors.primaryForeground} />
+            <Text style={[styles.addButtonText, { color: colors.primaryForeground }]}>Add Stock</Text>
+          </TouchableOpacity>
         </View>
 
-        <View style={[styles.filterRow, { marginBottom: 12, paddingHorizontal: 16 }]}>
-          {FILTERS.map((f) => (
-            <TouchableOpacity
-              key={f.key}
-              style={[
-                styles.filterChip,
-                {
-                  backgroundColor: filter === f.key ? colors.primary : colors.secondary,
-                  borderColor: filter === f.key ? colors.primary : colors.border,
-                },
-              ]}
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setFilter(f.key); }}
-            >
-              <Text style={[styles.filterChipText, { color: filter === f.key ? colors.primaryForeground : colors.mutedForeground }]}>
-                {f.label}
-              </Text>
-              {f.count > 0 && (
-                <View style={[styles.filterCount, { backgroundColor: filter === f.key ? `${colors.primaryForeground}33` : `${colors.primary}22` }]}>
-                  <Text style={[styles.filterCountText, { color: filter === f.key ? colors.primaryForeground : colors.primary }]}>{f.count}</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          ))}
+        {/* Toolbar row 2: filters (left) + %/$ toggle (right) */}
+        <View style={[styles.filterRow, { marginBottom: 12, paddingHorizontal: 16, justifyContent: "space-between" }]}>
+          <View style={styles.filterChips}>
+            {FILTERS.map((f) => (
+              <TouchableOpacity
+                key={f.key}
+                style={[
+                  styles.filterChip,
+                  {
+                    backgroundColor: filter === f.key ? colors.primary : colors.secondary,
+                    borderColor: filter === f.key ? colors.primary : colors.border,
+                  },
+                ]}
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setFilter(f.key); }}
+              >
+                <Text style={[styles.filterChipText, { color: filter === f.key ? colors.primaryForeground : colors.mutedForeground }]}>
+                  {f.label}
+                </Text>
+                {f.count > 0 && (
+                  <View style={[styles.filterCount, { backgroundColor: filter === f.key ? `${colors.primaryForeground}33` : `${colors.primary}22` }]}>
+                    <Text style={[styles.filterCountText, { color: filter === f.key ? colors.primaryForeground : colors.primary }]}>{f.count}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+          <TouchableOpacity
+            style={[styles.changeToggle, { backgroundColor: colors.secondary, borderColor: colors.border }]}
+            onPress={toggleChangeMode}
+          >
+            <Text style={[styles.changeToggleText, { color: showPercent ? colors.primary : colors.mutedForeground }]}>%</Text>
+            <View style={[styles.changeToggleDivider, { backgroundColor: colors.border }]} />
+            <Text style={[styles.changeToggleText, { color: !showPercent ? colors.primary : colors.mutedForeground }]}>$</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -235,15 +237,15 @@ const styles = StyleSheet.create({
   statCard: { flex: 1, paddingVertical: 14, paddingHorizontal: 12, borderRadius: 14, borderWidth: 1, alignItems: "center" },
   statValue: { fontSize: 22, fontFamily: "Inter_700Bold", marginBottom: 2 },
   statLabel: { fontSize: 11, fontFamily: "Inter_400Regular" },
-  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  toolbarRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sectionTitle: { fontSize: 18, fontFamily: "Inter_700Bold" },
-  sectionActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  addButton: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, gap: 5 },
+  addButtonText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  filterRow: { flexDirection: "row", alignItems: "center" },
+  filterChips: { flexDirection: "row", gap: 8 },
   changeToggle: { flexDirection: "row", alignItems: "center", borderRadius: 8, borderWidth: 1, overflow: "hidden" },
   changeToggleText: { fontSize: 12, fontFamily: "Inter_700Bold", paddingHorizontal: 10, paddingVertical: 6 },
   changeToggleDivider: { width: 1, height: "100%" },
-  addButton: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, gap: 4 },
-  addButtonText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
-  filterRow: { flexDirection: "row", gap: 8 },
   filterChip: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, borderWidth: 1, gap: 6 },
   filterChipText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
   filterCount: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 8, minWidth: 18, alignItems: "center" },

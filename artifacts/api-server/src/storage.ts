@@ -24,6 +24,25 @@ export const storage = {
     `, [customerId]);
   },
 
+  /** Derive the tier from the customer's active Stripe subscription via product metadata */
+  async getTierFromSubscription(customerId: string): Promise<"free" | "pro" | "premium"> {
+    // Try joining subscriptions → subscription items → prices → products
+    const row = await queryOne<{ tier: string }>(`
+      SELECT p.metadata->>'tier' AS tier
+      FROM stripe.subscriptions s
+      JOIN stripe.subscription_items si ON si.subscription = s.id
+      JOIN stripe.prices pr ON pr.id = si.price
+      JOIN stripe.products p ON p.id = pr.product
+      WHERE s.customer = $1
+        AND s.status IN ('active', 'trialing')
+      ORDER BY s.created DESC
+      LIMIT 1
+    `, [customerId]);
+    const t = row?.tier;
+    if (t === "pro" || t === "premium") return t;
+    return "free";
+  },
+
   async getCustomerByEmail(email: string) {
     return queryOne("SELECT * FROM stripe.customers WHERE email = $1 LIMIT 1", [email]);
   },

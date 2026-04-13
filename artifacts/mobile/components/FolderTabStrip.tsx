@@ -192,6 +192,7 @@ export function FolderTabStrip() {
         >
           {folders.map((folder) => {
             const isActive = folder.id === activeFolderId;
+            const isDefault = folder.id === DEFAULT_FOLDER_ID;
             return (
               <TouchableOpacity
                 key={folder.id}
@@ -203,8 +204,8 @@ export function FolderTabStrip() {
                   },
                 ]}
                 onPress={() => handleTabPress(folder.id)}
-                onLongPress={() => handleTabLongPress(folder)}
-                delayLongPress={500}
+                onLongPress={() => !isDefault && handleTabLongPress(folder)}
+                delayLongPress={400}
                 activeOpacity={0.7}
               >
                 <Text
@@ -236,6 +237,24 @@ export function FolderTabStrip() {
                       {folder.tickers.length}
                     </Text>
                   </View>
+                )}
+                {!isDefault && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setContextMenuFolder(folder);
+                      setContextMenuVisible(true);
+                    }}
+                    hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
+                    activeOpacity={0.5}
+                    style={styles.tabMenuBtn}
+                  >
+                    <Feather
+                      name="more-horizontal"
+                      size={13}
+                      color={isActive ? `${colors.primaryForeground}BB` : colors.mutedForeground}
+                    />
+                  </TouchableOpacity>
                 )}
               </TouchableOpacity>
             );
@@ -529,6 +548,11 @@ const styles = StyleSheet.create({
   countText: {
     fontSize: 10,
     fontFamily: "Inter_700Bold",
+  },
+  tabMenuBtn: {
+    marginLeft: 2,
+    padding: 2,
+    borderRadius: 4,
   },
   addTab: {
     width: 36,
