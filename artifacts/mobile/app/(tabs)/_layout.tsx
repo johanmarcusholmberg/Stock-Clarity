@@ -96,15 +96,13 @@ export default function TabLayout() {
         name="alerts"
         options={{
           href: null,
-          tabBarButton: () => null,
-          tabBarIcon: ({ color }) => <Feather name="bell" size={ICON_SIZE} color={color} />,
         }}
       />
       <Tabs.Screen
         name="admin-panel"
         options={{
           title: "Admin",
-          tabBarButton: isAdmin ? undefined : () => null,
+          href: isAdmin ? undefined : null,
           tabBarIcon: ({ color }) => <Feather name="shield" size={ICON_SIZE} color={color} />,
         }}
       />
