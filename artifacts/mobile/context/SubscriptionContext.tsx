@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
+import { Linking } from "react-native";
 import { useAuth } from "@clerk/expo";
 import { useUser } from "@clerk/expo";
 
@@ -216,6 +217,29 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       checkAdminStatus();
     }
   }, [checkAdminStatus, email, userId]);
+
+  const handledUrls = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const handleDeepLink = (url: string | null) => {
+      if (!url) return;
+      if (handledUrls.current.has(url)) return;
+      if (url.startsWith("stockclarify://checkout/success")) {
+        handledUrls.current.add(url);
+        fetchSubscription();
+      }
+    };
+
+    Linking.getInitialURL().then(handleDeepLink).catch(() => {});
+
+    const subscription = Linking.addEventListener("url", (event) => {
+      handleDeepLink(event.url);
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [fetchSubscription]);
 
   return (
     <SubscriptionContext.Provider

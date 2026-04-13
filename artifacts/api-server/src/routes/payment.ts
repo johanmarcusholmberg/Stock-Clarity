@@ -10,6 +10,91 @@ const APP_BASE = () => {
   return domain ? `https://${domain}` : "http://localhost:3000";
 };
 
+// Payment return page (redirect target from Stripe)
+router.get("/return", (req, res) => {
+  const status = req.query.status === "cancelled" ? "cancelled" : "success";
+  const deepLink = `stockclarify://checkout/${status}`;
+  const title = status === "success" ? "Payment Successful" : "Payment Cancelled";
+  const message =
+    status === "success"
+      ? "Your subscription is now active. Returning you to StockClarify..."
+      : "Your payment was cancelled. Returning you to StockClarify...";
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${title} – StockClarify</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0A1628;
+      color: #E8EDF5;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+      text-align: center;
+    }
+    .icon {
+      font-size: 64px;
+      margin-bottom: 24px;
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      color: ${status === "success" ? "#4ADE80" : "#FACC15"};
+    }
+    p {
+      font-size: 16px;
+      color: #94A3B8;
+      margin-bottom: 32px;
+      max-width: 320px;
+      line-height: 1.5;
+    }
+    a.btn {
+      display: inline-block;
+      background: #3B82F6;
+      color: #fff;
+      text-decoration: none;
+      font-size: 16px;
+      font-weight: 600;
+      padding: 14px 32px;
+      border-radius: 12px;
+      transition: background 0.2s;
+    }
+    a.btn:hover { background: #2563EB; }
+    .note {
+      margin-top: 20px;
+      font-size: 13px;
+      color: #64748B;
+    }
+  </style>
+</head>
+<body>
+  <div class="icon">${status === "success" ? "✅" : "↩️"}</div>
+  <h1>${title}</h1>
+  <p>${message}</p>
+  <a class="btn" href="${deepLink}">Return to App</a>
+  <p class="note">If the app didn't open automatically, tap the button above.</p>
+  <script>
+    (function () {
+      var link = "${deepLink}";
+      window.location.href = link;
+    })();
+  </script>
+</body>
+</html>`;
+
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(html);
+});
+
 // Get subscription plans
 router.get("/plans", async (_req, res) => {
   try {
@@ -65,8 +150,8 @@ router.post("/checkout", async (req, res) => {
       payment_method_types: ["card"],
       line_items: [{ price: priceId, quantity: 1 }],
       mode: "subscription",
-      success_url: `${base}/mobile?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${base}/mobile?checkout=cancelled`,
+      success_url: `${base}/api/payment/return?status=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${base}/api/payment/return?status=cancelled`,
       metadata: { userId: userId ?? "" },
     });
 
@@ -89,7 +174,7 @@ router.post("/portal", async (req, res) => {
     const stripe = await getUncachableStripeClient();
     const session = await stripe.billingPortal.sessions.create({
       customer: user.stripe_customer_id,
-      return_url: APP_BASE() + "/mobile",
+      return_url: APP_BASE() + "/api/payment/return?status=success",
     });
 
     res.json({ url: session.url });
