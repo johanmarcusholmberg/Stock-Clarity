@@ -23,7 +23,7 @@ export default function DigestScreen() {
   const [activeTab, setActiveTab] = useState<Tab>("digest");
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
-  const bottomPadding = Platform.OS === "web" ? 34 + 84 : insets.bottom + 84;
+  const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
 
   const today = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 

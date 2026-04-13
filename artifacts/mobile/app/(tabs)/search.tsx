@@ -40,7 +40,7 @@ export default function SearchScreen() {
   const [quoteLoading, setQuoteLoading] = useState(false);
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
-  const bottomPadding = Platform.OS === "web" ? 34 + 84 : insets.bottom + 84;
+  const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
 
   const doSearch = useCallback(
     debounce(async (q: string) => {

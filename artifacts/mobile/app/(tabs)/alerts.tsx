@@ -32,7 +32,7 @@ export default function AlertsScreen() {
   const [filter, setFilter] = useState<AlertFilter>("all");
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
-  const bottomPadding = Platform.OS === "web" ? 34 + 84 : insets.bottom + 84;
+  const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
 
   const filtered = filter === "all" ? alerts : alerts.filter((a) => a.type === filter);
   const unread = filtered.filter((a) => !a.read);

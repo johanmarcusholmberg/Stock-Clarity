@@ -29,7 +29,7 @@ export default function WatchlistScreen() {
   const [filter, setFilter] = useState<Filter>("all");
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
-  const bottomPadding = Platform.OS === "web" ? 34 + 84 : insets.bottom + 84;
+  const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
 
   const allWatched = watchlist.map((ticker) => stocks[ticker]).filter(Boolean);
   const gainers = allWatched.filter((s) => s.changePercent >= 0);
