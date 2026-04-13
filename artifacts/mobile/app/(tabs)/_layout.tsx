@@ -1,8 +1,5 @@
 import { BlurView } from "expo-blur";
-import { isLiquidGlassAvailable } from "expo-glass-effect";
 import { Redirect, Tabs } from "expo-router";
-import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
-import { SymbolView } from "expo-symbols";
 import { Feather } from "@expo/vector-icons";
 import React from "react";
 import { Platform, StyleSheet, View, useColorScheme } from "react-native";
@@ -10,36 +7,17 @@ import { useAuth } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 import { useWatchlist } from "@/context/WatchlistContext";
 
-function NativeTabLayout() {
-  return (
-    <NativeTabs>
-      <NativeTabs.Trigger name="index">
-        <Icon sf={{ default: "chart.line.uptrend.xyaxis", selected: "chart.line.uptrend.xyaxis" }} />
-        <Label>Watchlist</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="digest">
-        <Icon sf={{ default: "newspaper", selected: "newspaper.fill" }} />
-        <Label>Digest</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="alerts">
-        <Icon sf={{ default: "bell", selected: "bell.fill" }} />
-        <Label>Alerts</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="search">
-        <Icon sf={{ default: "plus.circle", selected: "plus.circle.fill" }} />
-        <Label>Add</Label>
-      </NativeTabs.Trigger>
-    </NativeTabs>
-  );
-}
-
-function ClassicTabLayout() {
+export default function TabLayout() {
+  const { isSignedIn, isLoaded } = useAuth();
   const colors = useColors();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
   const { unreadAlertCount } = useWatchlist();
+
+  if (!isLoaded) return null;
+  if (!isSignedIn) return <Redirect href="/(auth)/sign-in" />;
 
   return (
     <Tabs
@@ -65,30 +43,24 @@ function ClassicTabLayout() {
           ) : (
             <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.card }]} />
           ),
+        tabBarLabelStyle: {
+          fontSize: 10,
+          fontFamily: "Inter_600SemiBold",
+        },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
           title: "Watchlist",
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="chart.line.uptrend.xyaxis" tintColor={color} size={22} />
-            ) : (
-              <Feather name="bar-chart-2" size={22} color={color} />
-            ),
+          tabBarIcon: ({ color, size }) => <Feather name="bar-chart-2" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
         name="digest"
         options={{
           title: "Digest",
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="newspaper" tintColor={color} size={22} />
-            ) : (
-              <Feather name="book-open" size={22} color={color} />
-            ),
+          tabBarIcon: ({ color, size }) => <Feather name="book-open" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -97,40 +69,18 @@ function ClassicTabLayout() {
           title: "Alerts",
           tabBarBadge: unreadAlertCount > 0 ? unreadAlertCount : undefined,
           tabBarBadgeStyle: { backgroundColor: colors.primary, color: colors.primaryForeground, fontSize: 10 },
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="bell" tintColor={color} size={22} />
-            ) : (
-              <Feather name="bell" size={22} color={color} />
-            ),
+          tabBarIcon: ({ color, size }) => <Feather name="bell" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
         name="search"
         options={{
           title: "Add",
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="plus.circle" tintColor={color} size={22} />
-            ) : (
-              <Feather name="plus-circle" size={22} color={color} />
-            ),
+          tabBarIcon: ({ color, size }) => <Feather name="plus-circle" size={size} color={color} />,
         }}
       />
     </Tabs>
   );
-}
-
-export default function TabLayout() {
-  const { isSignedIn, isLoaded } = useAuth();
-
-  if (!isLoaded) return null;
-  if (!isSignedIn) return <Redirect href="/(auth)/sign-in" />;
-
-  if (isLiquidGlassAvailable()) {
-    return <NativeTabLayout />;
-  }
-  return <ClassicTabLayout />;
 }
 
 const styles = StyleSheet.create({});

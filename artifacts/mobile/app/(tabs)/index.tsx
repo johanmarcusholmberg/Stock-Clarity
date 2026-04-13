@@ -17,6 +17,8 @@ import { useColors } from "@/hooks/useColors";
 import { useWatchlist } from "@/context/WatchlistContext";
 import StockCard from "@/components/StockCard";
 
+type Filter = "all" | "gainers" | "losers";
+
 export default function WatchlistScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -24,13 +26,16 @@ export default function WatchlistScreen() {
   const { signOut } = useAuth();
   const { user } = useUser();
   const [profileOpen, setProfileOpen] = useState(false);
-
-  const watchedStocks = watchlist.map((ticker) => stocks[ticker]).filter(Boolean);
-  const gainers = watchedStocks.filter((s) => s.changePercent >= 0).length;
-  const losers = watchedStocks.filter((s) => s.changePercent < 0).length;
+  const [filter, setFilter] = useState<Filter>("all");
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 + 84 : insets.bottom + 84;
+
+  const allWatched = watchlist.map((ticker) => stocks[ticker]).filter(Boolean);
+  const gainers = allWatched.filter((s) => s.changePercent >= 0);
+  const losers = allWatched.filter((s) => s.changePercent < 0);
+
+  const displayed = filter === "gainers" ? gainers : filter === "losers" ? losers : allWatched;
 
   const handleSignOut = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -42,15 +47,17 @@ export default function WatchlistScreen() {
     ? `${user.firstName[0]}${user.lastName?.[0] ?? ""}`.toUpperCase()
     : user?.emailAddresses?.[0]?.emailAddress?.[0]?.toUpperCase() ?? "?";
 
+  const FILTERS: { key: Filter; label: string; count: number }[] = [
+    { key: "all", label: "All", count: allWatched.length },
+    { key: "gainers", label: "Gainers", count: gainers.length },
+    { key: "losers", label: "Losers", count: losers.length },
+  ];
+
   return (
     <View style={[styles.fill, { backgroundColor: colors.background }]}>
       <ScrollView
         style={styles.fill}
-        contentContainerStyle={{
-          paddingTop: topPadding + 16,
-          paddingBottom: bottomPadding,
-          paddingHorizontal: 16,
-        }}
+        contentContainerStyle={{ paddingTop: topPadding + 16, paddingBottom: bottomPadding, paddingHorizontal: 16 }}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.titleRow}>
@@ -81,23 +88,23 @@ export default function WatchlistScreen() {
           </View>
         </View>
 
-        <View style={[styles.statsRow, { marginTop: 20, marginBottom: 24 }]}>
+        <View style={[styles.statsRow, { marginTop: 20 }]}>
           <View style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.statValue, { color: colors.foreground }]}>{watchedStocks.length}</Text>
+            <Text style={[styles.statValue, { color: colors.foreground }]}>{allWatched.length}</Text>
             <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Watching</Text>
           </View>
           <View style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.statValue, { color: colors.positive }]}>{gainers}</Text>
+            <Text style={[styles.statValue, { color: colors.positive }]}>{gainers.length}</Text>
             <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Gainers</Text>
           </View>
           <View style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.statValue, { color: colors.negative }]}>{losers}</Text>
+            <Text style={[styles.statValue, { color: colors.negative }]}>{losers.length}</Text>
             <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Losers</Text>
           </View>
         </View>
 
         <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Watchlist</Text>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>My Watchlist</Text>
           <TouchableOpacity
             style={[styles.addButton, { backgroundColor: `${colors.primary}22`, borderColor: `${colors.primary}44` }]}
             onPress={() => router.push("/(tabs)/search")}
@@ -107,12 +114,37 @@ export default function WatchlistScreen() {
           </TouchableOpacity>
         </View>
 
-        {watchedStocks.length === 0 ? (
+        <View style={[styles.filterRow, { marginBottom: 12 }]}>
+          {FILTERS.map((f) => (
+            <TouchableOpacity
+              key={f.key}
+              style={[
+                styles.filterChip,
+                {
+                  backgroundColor: filter === f.key ? colors.primary : colors.secondary,
+                  borderColor: filter === f.key ? colors.primary : colors.border,
+                },
+              ]}
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setFilter(f.key); }}
+            >
+              <Text style={[styles.filterChipText, { color: filter === f.key ? colors.primaryForeground : colors.mutedForeground }]}>
+                {f.label}
+              </Text>
+              {f.count > 0 && (
+                <View style={[styles.filterCount, { backgroundColor: filter === f.key ? `${colors.primaryForeground}33` : `${colors.primary}22` }]}>
+                  <Text style={[styles.filterCountText, { color: filter === f.key ? colors.primaryForeground : colors.primary }]}>{f.count}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {displayed.length === 0 && allWatched.length === 0 ? (
           <View style={[styles.empty, { borderColor: colors.border }]}>
             <Feather name="bar-chart-2" size={32} color={colors.mutedForeground} />
             <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No stocks yet</Text>
             <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
-              Add stocks from world markets to start receiving updates and insights.
+              Search and add stocks from any world market to start tracking them.
             </Text>
             <TouchableOpacity
               style={[styles.emptyButton, { backgroundColor: colors.primary }]}
@@ -121,8 +153,12 @@ export default function WatchlistScreen() {
               <Text style={[styles.emptyButtonText, { color: colors.primaryForeground }]}>Browse world markets</Text>
             </TouchableOpacity>
           </View>
+        ) : displayed.length === 0 ? (
+          <View style={[styles.emptyFilter, { borderColor: colors.border }]}>
+            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No {filter} right now.</Text>
+          </View>
         ) : (
-          watchedStocks.map((stock) => <StockCard key={stock.ticker} stock={stock} />)
+          displayed.map((stock) => <StockCard key={stock.ticker} stock={stock} />)
         )}
       </ScrollView>
 
@@ -161,15 +197,21 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 9, fontFamily: "Inter_700Bold" },
   avatarButton: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   avatarText: { fontSize: 13, fontFamily: "Inter_700Bold" },
-  statsRow: { flexDirection: "row", gap: 10 },
+  statsRow: { flexDirection: "row", gap: 10, marginBottom: 20 },
   statCard: { flex: 1, paddingVertical: 14, paddingHorizontal: 12, borderRadius: 14, borderWidth: 1, alignItems: "center" },
   statValue: { fontSize: 22, fontFamily: "Inter_700Bold", marginBottom: 2 },
   statLabel: { fontSize: 11, fontFamily: "Inter_400Regular" },
-  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
+  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
   sectionTitle: { fontSize: 18, fontFamily: "Inter_700Bold" },
   addButton: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, gap: 4 },
   addButtonText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  filterRow: { flexDirection: "row", gap: 8 },
+  filterChip: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, borderWidth: 1, gap: 6 },
+  filterChipText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  filterCount: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 8, minWidth: 18, alignItems: "center" },
+  filterCountText: { fontSize: 10, fontFamily: "Inter_700Bold" },
   empty: { alignItems: "center", paddingVertical: 48, gap: 10, borderWidth: 1, borderStyle: "dashed", borderRadius: 16, paddingHorizontal: 24 },
+  emptyFilter: { alignItems: "center", paddingVertical: 32, borderWidth: 1, borderStyle: "dashed", borderRadius: 12 },
   emptyTitle: { fontSize: 18, fontFamily: "Inter_700Bold", marginTop: 4 },
   emptyText: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 20 },
   emptyButton: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, marginTop: 8 },
