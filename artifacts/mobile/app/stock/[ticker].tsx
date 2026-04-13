@@ -98,8 +98,43 @@ function computeXLabels(
 ): { label: string; x: number }[] {
   if (!timestamps.length) return [];
   const n = timestamps.length;
-  const count = Math.min(numLabels, n);
   const plotWidth = plotRight - plotLeft;
+
+  // For monthly interval (3Y / 5Y): anchor labels at each calendar-year boundary
+  // so the axis always shows distinct years like 2023, 2024, 2025, 2026.
+  if (interval === "1mo") {
+    const boundaryIndices: number[] = [0];
+    let lastYear = new Date(timestamps[0]).getFullYear();
+    for (let i = 1; i < n; i++) {
+      const yr = new Date(timestamps[i]).getFullYear();
+      if (yr !== lastYear) {
+        boundaryIndices.push(i);
+        lastYear = yr;
+      }
+    }
+    if (boundaryIndices[boundaryIndices.length - 1] !== n - 1) {
+      boundaryIndices.push(n - 1);
+    }
+    // Sample down to at most 6 labels if span covers many years
+    const MAX_LABELS = 6;
+    let indices = boundaryIndices;
+    if (indices.length > MAX_LABELS) {
+      const sampled = [indices[0]];
+      const step = (indices.length - 1) / (MAX_LABELS - 1);
+      for (let i = 1; i < MAX_LABELS - 1; i++) {
+        sampled.push(indices[Math.round(i * step)]);
+      }
+      sampled.push(indices[indices.length - 1]);
+      indices = [...new Set(sampled)];
+    }
+    return indices.map((idx) => ({
+      label: String(new Date(timestamps[idx]).getFullYear()),
+      x: plotLeft + (idx / Math.max(n - 1, 1)) * plotWidth,
+    }));
+  }
+
+  // Default: evenly-spaced labels
+  const count = Math.min(numLabels, n);
   const result: { label: string; x: number }[] = [];
   for (let i = 0; i < count; i++) {
     const idx = Math.round((i / (count - 1)) * (n - 1));
@@ -122,12 +157,11 @@ interface ChartProps {
   width: number;
   currency: string;
   mode: ChartMode;
-  yMin?: number;
-  yMax?: number;
+  yPadding: number;
   onHoverChange?: (index: number | null) => void;
 }
 
-function InteractiveChart({ prices, timestamps, interval, color, positiveColor, negativeColor, borderColor, mutedColor, width, currency, mode, yMin: forcedYMin, yMax: forcedYMax, onHoverChange }: ChartProps) {
+function InteractiveChart({ prices, timestamps, interval, color, positiveColor, negativeColor, borderColor, mutedColor, width, currency, mode, yPadding, onHoverChange }: ChartProps) {
   const [touchIndex, setTouchIndex] = useState<number | null>(null);
 
   const plotLeft = Y_AXIS_WIDTH;
@@ -146,10 +180,11 @@ function InteractiveChart({ prices, timestamps, interval, color, positiveColor, 
     return prices;
   }, [prices, mode]);
 
+  // Anchor to actual data min/max within the selected range, then apply padding
   const dataMin = displayValues.length ? Math.min(...displayValues) : 0;
   const dataMax = displayValues.length ? Math.max(...displayValues) : 1;
-  const minVal = (mode === "price" && forcedYMin !== undefined) ? forcedYMin : dataMin;
-  const maxVal = (mode === "price" && forcedYMax !== undefined) ? forcedYMax : dataMax;
+  const minVal = dataMin - yPadding;
+  const maxVal = dataMax + yPadding;
   const valRange = maxVal - minVal || 1;
 
   const toSvgX = (idx: number) =>
@@ -603,25 +638,13 @@ export default function StockDetailScreen() {
       ? ((chartPrices[chartPrices.length - 1] - chartPrices[0]) / (chartPrices[0] || 1)) * 100
       : 0;
 
-  // Y-axis bounds per range category
-  const chartYBounds = useMemo((): { yMin?: number; yMax?: number } => {
-    if (!chartPrices.length) return {};
-    const ri = selectedRange;
-    if (ri === 0 || ri === 1) {
-      // 1D, 1W: ±2 from current price
-      return { yMin: price - 2, yMax: price + 2 };
-    }
-    if (ri === 2 || ri === 3) {
-      // 1M, YTD: ±5 from current price
-      return { yMin: price - 5, yMax: price + 5 };
-    }
-    // 1Y, 3Y, 5Y: nearest 25
-    const low = Math.min(...chartPrices);
-    const high = Math.max(...chartPrices);
-    const yMin = Math.floor(low / 25) * 25;
-    const yMax = Math.ceil(high / 25) * 25;
-    return { yMin: yMin === yMax ? yMin - 25 : yMin, yMax: yMin === yMax ? yMax + 25 : yMax };
-  }, [selectedRange, chartPrices, price]);
+  // Y-axis padding per range — applied on top of actual data min/max inside the chart
+  // Rules: 1D ±1.5, 1W ±3, 1M ±5, YTD ±8, 1Y ±15, 3Y ±20, 5Y ±25
+  // Same number works for both price (dollar points) and percent (percentage points)
+  const chartYPadding = useMemo(() => {
+    const padTable = [1.5, 3, 5, 8, 15, 20, 25];
+    return padTable[selectedRange] ?? 25;
+  }, [selectedRange]);
 
   // Per-stock AI tracking
   const summaryCount = ticker ? aiUsageForStock(ticker) : 0;
@@ -784,8 +807,7 @@ export default function StockDetailScreen() {
               width={chartWidth}
               currency={currency}
               mode={chartMode}
-              yMin={chartYBounds.yMin}
-              yMax={chartYBounds.yMax}
+              yPadding={chartYPadding}
             />
           )}
         </View>
