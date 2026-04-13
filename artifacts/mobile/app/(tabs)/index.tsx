@@ -1,10 +1,8 @@
 import { Feather } from "@expo/vector-icons";
-import { useAuth, useUser } from "@clerk/expo";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import React, { useState } from "react";
 import {
-  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -24,9 +22,6 @@ export default function WatchlistScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { watchlist, stocks, unreadAlertCount, folders, activeFolderId, displayName } = useWatchlist();
-  const { signOut } = useAuth();
-  const { user } = useUser();
-  const [profileOpen, setProfileOpen] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
@@ -40,16 +35,6 @@ export default function WatchlistScreen() {
 
   const displayed = filter === "gainers" ? gainers : filter === "losers" ? losers : allWatched;
 
-  const handleSignOut = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setProfileOpen(false);
-    await signOut();
-  };
-
-  const userInitials = user?.firstName
-    ? `${user.firstName[0]}${user.lastName?.[0] ?? ""}`.toUpperCase()
-    : user?.emailAddresses?.[0]?.emailAddress?.[0]?.toUpperCase() ?? "?";
-
   const FILTERS: { key: Filter; label: string; count: number }[] = [
     { key: "all", label: "All", count: allWatched.length },
     { key: "gainers", label: "Gainers", count: gainers.length },
@@ -62,7 +47,7 @@ export default function WatchlistScreen() {
         <View style={[styles.titleRow, { paddingHorizontal: 16 }]}>
           <View>
             <Text style={[styles.greeting, { color: colors.mutedForeground }]}>
-              {(displayName || user?.firstName) ? `Good morning, ${displayName || user?.firstName}` : "Good morning"}
+              {displayName ? `Good morning, ${displayName}` : "Good morning"}
             </Text>
             <Text style={[styles.appTitle, { color: colors.foreground }]}>StockClarify</Text>
           </View>
@@ -78,12 +63,6 @@ export default function WatchlistScreen() {
                 </View>
               </TouchableOpacity>
             )}
-            <TouchableOpacity
-              style={[styles.avatarButton, { backgroundColor: `${colors.primary}22`, borderColor: `${colors.primary}44` }]}
-              onPress={() => setProfileOpen(true)}
-            >
-              <Text style={[styles.avatarText, { color: colors.primary }]}>{userInitials}</Text>
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -171,26 +150,6 @@ export default function WatchlistScreen() {
         )}
       </ScrollView>
 
-      <Modal visible={profileOpen} transparent animationType="fade" onRequestClose={() => setProfileOpen(false)}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setProfileOpen(false)}>
-          <View style={[styles.profileSheet, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <View style={[styles.profileAvatar, { backgroundColor: `${colors.primary}22`, borderColor: `${colors.primary}44` }]}>
-              <Text style={[styles.profileAvatarText, { color: colors.primary }]}>{userInitials}</Text>
-            </View>
-            <Text style={[styles.profileName, { color: colors.foreground }]}>
-              {displayName || (user?.firstName ? `${user.firstName} ${user.lastName ?? ""}`.trim() : "Your account")}
-            </Text>
-            <Text style={[styles.profileEmail, { color: colors.mutedForeground }]}>
-              {user?.emailAddresses?.[0]?.emailAddress ?? ""}
-            </Text>
-            <View style={[styles.profileDivider, { backgroundColor: colors.border }]} />
-            <TouchableOpacity style={styles.profileMenuItem} onPress={handleSignOut}>
-              <Feather name="log-out" size={16} color={colors.negative} />
-              <Text style={[styles.profileMenuItemText, { color: colors.negative }]}>Sign out</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
     </View>
   );
 }
@@ -204,8 +163,6 @@ const styles = StyleSheet.create({
   iconButton: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", position: "relative" },
   badge: { position: "absolute", top: 5, right: 5, width: 14, height: 14, borderRadius: 7, alignItems: "center", justifyContent: "center" },
   badgeText: { fontSize: 9, fontFamily: "Inter_700Bold" },
-  avatarButton: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  avatarText: { fontSize: 13, fontFamily: "Inter_700Bold" },
   statsRow: { flexDirection: "row", gap: 10 },
   statCard: { flex: 1, paddingVertical: 14, paddingHorizontal: 12, borderRadius: 14, borderWidth: 1, alignItems: "center" },
   statValue: { fontSize: 22, fontFamily: "Inter_700Bold", marginBottom: 2 },
@@ -225,13 +182,4 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 20 },
   emptyButton: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, marginTop: 8 },
   emptyButtonText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center" },
-  profileSheet: { width: 280, borderRadius: 20, borderWidth: 1, padding: 24, alignItems: "center", gap: 6 },
-  profileAvatar: { width: 64, height: 64, borderRadius: 32, borderWidth: 1, alignItems: "center", justifyContent: "center", marginBottom: 6 },
-  profileAvatarText: { fontSize: 24, fontFamily: "Inter_700Bold" },
-  profileName: { fontSize: 17, fontFamily: "Inter_700Bold" },
-  profileEmail: { fontSize: 13, fontFamily: "Inter_400Regular" },
-  profileDivider: { height: 1, width: "100%", marginVertical: 12 },
-  profileMenuItem: { flexDirection: "row", alignItems: "center", gap: 8, width: "100%", paddingVertical: 4 },
-  profileMenuItemText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
 });

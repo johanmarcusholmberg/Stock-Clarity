@@ -4,7 +4,6 @@ import React from "react";
 import { Platform, View } from "react-native";
 import { useAuth } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
-import { useWatchlist } from "@/context/WatchlistContext";
 import { useSubscription } from "@/context/SubscriptionContext";
 
 const ICON_SIZE = 24;
@@ -14,8 +13,6 @@ export default function TabLayout() {
   const { isSignedIn, isLoaded } = useAuth();
   const colors = useColors();
   const isWeb = Platform.OS === "web";
-  const { unreadAlertCount } = useWatchlist();
-
   if (!isLoaded) return null;
   if (!isSignedIn) return <Redirect href="/(auth)/sign-in" />;
 
@@ -59,24 +56,6 @@ export default function TabLayout() {
           title: "Digest",
           tabBarIcon: ({ color, focused }) => (
             <Feather name="book-open" size={ICON_SIZE} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="alerts"
-        options={{
-          title: "Alerts",
-          tabBarBadge: unreadAlertCount > 0 ? unreadAlertCount : undefined,
-          tabBarBadgeStyle: {
-            backgroundColor: colors.primary,
-            color: colors.primaryForeground,
-            fontSize: 10,
-            minWidth: 16,
-            height: 16,
-            lineHeight: 16,
-          },
-          tabBarIcon: ({ color, focused }) => (
-            <Feather name="bell" size={ICON_SIZE} color={color} />
           ),
         }}
       />
