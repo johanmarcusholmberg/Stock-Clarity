@@ -627,9 +627,11 @@ export default function StockDetailScreen() {
   } = useSubscription();
 
   const [liveQuote, setLiveQuote] = useState<any>(null);
-  const [chartPrices, setChartPrices] = useState<number[]>([]);
-  const [chartTimestamps, setChartTimestamps] = useState<number[]>([]);
+  // Chart data cached per range index so all time frames stay in sync
+  const [chartCache, setChartCache] = useState<Record<number, { prices: number[]; timestamps: number[] }>>({});
   const [chartLoading, setChartLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState(false);
   const [chartMode, setChartMode] = useState<ChartMode>("price");
   const [events, setEvents] = useState<StockEvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(true);
@@ -639,9 +641,14 @@ export default function StockDetailScreen() {
   const [paywallReason, setPaywallReason] = useState<"ai_stock_limit" | "stock_daily_limit">("ai_stock_limit");
   const [showPaywall, setShowPaywall] = useState(false);
   const [lastManualRefresh, setLastManualRefresh] = useState<number | null>(null);
-  const [cooldownSec, setCooldownSec] = useState(0);
-  const cooldownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 10-second tick for cooldown — avoids per-second re-renders
+  const [tickMs, setTickMs] = useState(Date.now());
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const stockViewRecorded = useRef(false);
+
+  // Derived chart data from cache for the selected range
+  const chartPrices = chartCache[selectedRange]?.prices ?? [];
+  const chartTimestamps = chartCache[selectedRange]?.timestamps ?? [];
 
   const cachedStock = stocks[ticker ?? ""];
   const inAnyFolder = isInWatchlist(ticker ?? "");
@@ -660,7 +667,22 @@ export default function StockDetailScreen() {
     }
   }, [ticker]);
 
-  // Load live quote
+  // 10-second tick — drives the cooldown display without per-second re-renders
+  useEffect(() => {
+    if (tickRef.current) clearInterval(tickRef.current);
+    tickRef.current = setInterval(() => setTickMs(Date.now()), 10_000);
+    return () => { if (tickRef.current) clearInterval(tickRef.current); };
+  }, []);
+
+  // Derived cooldown values (no separate interval needed — driven by tickMs)
+  const cooldownTotal = tier === "premium" ? 60 : 300; // seconds
+  const cooldownRemainSec = lastManualRefresh !== null
+    ? Math.max(0, cooldownTotal - Math.floor((tickMs - lastManualRefresh) / 1000))
+    : 0;
+  const isOnCooldown = cooldownRemainSec > 0;
+  const cooldownMin = Math.ceil(cooldownRemainSec / 60);
+
+  // Load live quote on mount
   useEffect(() => {
     if (!ticker) return;
     getQuotes([ticker]).then((qs) => {
@@ -668,51 +690,58 @@ export default function StockDetailScreen() {
     }).catch(() => {});
   }, [ticker]);
 
-  // Load chart data
-  const loadChart = useCallback(async (rangeIdx: number) => {
-    if (!ticker) return;
-    setChartLoading(true);
-    try {
-      const { range, interval } = CHART_RANGES[rangeIdx];
-      const data = await getChart(ticker, range, interval);
-      setChartPrices(data.prices);
-      setChartTimestamps(data.timestamps);
-    } catch {
-      setChartPrices(cachedStock?.priceHistory ?? []);
-      setChartTimestamps([]);
-    } finally {
-      setChartLoading(false);
-    }
-  }, [ticker, cachedStock]);
-
-  useEffect(() => { loadChart(selectedRange); }, [selectedRange]);
-
-  // Cooldown countdown for manual refresh button
+  // Load only the initially-selected range quickly on mount / range change.
+  // If the cache already has fresh data (from a manual refresh) skip the fetch.
   useEffect(() => {
-    if (cooldownIntervalRef.current) clearInterval(cooldownIntervalRef.current);
-    if (lastManualRefresh === null) { setCooldownSec(0); return; }
-    const cooldownTotal = tier === "premium" ? 60 : 300;
-    const update = () => {
-      const elapsed = Math.floor((Date.now() - (lastManualRefresh ?? 0)) / 1000);
-      const remaining = Math.max(0, cooldownTotal - elapsed);
-      setCooldownSec(remaining);
-      if (remaining === 0 && cooldownIntervalRef.current) {
-        clearInterval(cooldownIntervalRef.current);
-      }
-    };
-    update();
-    cooldownIntervalRef.current = setInterval(update, 1000);
-    return () => { if (cooldownIntervalRef.current) clearInterval(cooldownIntervalRef.current); };
-  }, [lastManualRefresh, tier]);
+    if (!ticker) return;
+    if (chartCache[selectedRange]) { setChartLoading(false); return; }
+    setChartLoading(true);
+    const { range, interval } = CHART_RANGES[selectedRange];
+    getChart(ticker, range, interval)
+      .then((data) => {
+        setChartCache((prev) => ({ ...prev, [selectedRange]: data }));
+      })
+      .catch(() => {
+        setChartCache((prev) => ({
+          ...prev,
+          [selectedRange]: { prices: cachedStock?.priceHistory ?? [], timestamps: [] },
+        }));
+      })
+      .finally(() => setChartLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRange, ticker]);
 
+  // Manual refresh: fetch quote + ALL chart ranges in one go, apply atomically
   const handleManualRefresh = useCallback(async () => {
-    if (cooldownSec > 0) return;
-    setLastManualRefresh(Date.now());
-    await Promise.all([
-      loadChart(selectedRange),
-      getQuotes([ticker!]).then((qs) => { if (qs[0]) setLiveQuote(qs[0]); }).catch(() => {}),
-    ]);
-  }, [cooldownSec, selectedRange, ticker, loadChart]);
+    if (isOnCooldown || refreshing || !ticker) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setRefreshing(true);
+    setRefreshError(false);
+    // Record timestamp immediately so button disables right away
+    const now = Date.now();
+    setLastManualRefresh(now);
+    setTickMs(now); // force cooldown to re-derive immediately
+    try {
+      // Single parallel fetch: quote + every chart range
+      const [quotesResult, ...chartResults] = await Promise.all([
+        getQuotes([ticker]),
+        ...CHART_RANGES.map(({ range, interval }) => getChart(ticker, range, interval)),
+      ]);
+      // Atomic commit — only if all requests resolved
+      if (quotesResult[0]) setLiveQuote(quotesResult[0]);
+      const newCache: Record<number, { prices: number[]; timestamps: number[] }> = {};
+      chartResults.forEach((data, idx) => { newCache[idx] = data; });
+      setChartCache(newCache);
+    } catch {
+      // Full rollback: revert timestamp so the cooldown doesn't linger on error
+      setLastManualRefresh(null);
+      setTickMs(Date.now());
+      setRefreshError(true);
+      setTimeout(() => setRefreshError(false), 3000);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [isOnCooldown, refreshing, ticker]);
 
   // Load events
   useEffect(() => {
@@ -1001,32 +1030,36 @@ export default function StockDetailScreen() {
             {/* Pro / Premium: refresh button */}
             {(tier === "pro" || tier === "premium") && (
               <TouchableOpacity
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); handleManualRefresh(); }}
-                disabled={cooldownSec > 0}
+                onPress={handleManualRefresh}
+                disabled={isOnCooldown || refreshing}
                 style={[
                   styles.refreshButton,
                   {
-                    backgroundColor: cooldownSec > 0 ? colors.secondary : `${colors.primary}18`,
-                    borderColor: cooldownSec > 0 ? colors.border : `${colors.primary}44`,
+                    backgroundColor: (isOnCooldown || refreshing) ? colors.secondary : refreshError ? `${colors.negative}14` : `${colors.primary}18`,
+                    borderColor: (isOnCooldown || refreshing) ? colors.border : refreshError ? `${colors.negative}40` : `${colors.primary}44`,
                   },
                 ]}
               >
                 <Feather
                   name="refresh-cw"
                   size={13}
-                  color={cooldownSec > 0 ? colors.mutedForeground : colors.primary}
+                  color={(isOnCooldown || refreshing) ? colors.mutedForeground : refreshError ? colors.negative : colors.primary}
                 />
-                <Text style={[styles.refreshButtonText, { color: cooldownSec > 0 ? colors.mutedForeground : colors.primary }]}>
-                  {cooldownSec > 0
-                    ? `Refresh in ${cooldownSec}s`
-                    : "Refresh Data"}
+                <Text style={[styles.refreshButtonText, { color: (isOnCooldown || refreshing) ? colors.mutedForeground : refreshError ? colors.negative : colors.primary }]}>
+                  {refreshing
+                    ? "Refreshing all data…"
+                    : refreshError
+                    ? "Refresh failed — try again"
+                    : isOnCooldown
+                    ? `Refreshes in ${cooldownMin} min`
+                    : "Refresh Stock"}
                 </Text>
-                {tier === "pro" && (
+                {!refreshing && !refreshError && !isOnCooldown && tier === "pro" && (
                   <View style={[styles.tierChip, { backgroundColor: colors.warning + "22" }]}>
                     <Text style={[styles.tierChipText, { color: colors.warning }]}>PRO</Text>
                   </View>
                 )}
-                {tier === "premium" && (
+                {!refreshing && !refreshError && !isOnCooldown && tier === "premium" && (
                   <View style={[styles.tierChip, { backgroundColor: colors.positive + "22" }]}>
                     <Text style={[styles.tierChipText, { color: colors.positive }]}>PREMIUM</Text>
                   </View>
