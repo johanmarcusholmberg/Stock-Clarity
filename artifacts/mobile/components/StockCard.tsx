@@ -5,7 +5,6 @@ import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useColors } from "@/hooks/useColors";
 import { Stock } from "@/context/WatchlistContext";
 import MiniChart from "./MiniChart";
-import TickerBadge from "./TickerBadge";
 
 interface Props {
   stock: Stock;
@@ -51,17 +50,14 @@ export default function StockCard({ stock, showPercent = true, editMode = false,
         ]}
         onPress={() => !editMode && router.push({ pathname: "/stock/[ticker]", params: { ticker: stock.ticker } })}
       >
-        {/* Left: badge + identity */}
+        {/* Left: ticker + company name */}
         <View style={styles.left}>
-          <TickerBadge ticker={shortTicker} />
-          <View style={styles.identity}>
-            <Text style={[styles.tickerLabel, { color: colors.foreground }]} numberOfLines={1}>
-              {shortTicker}
-            </Text>
-            <Text style={[styles.companyName, { color: colors.mutedForeground }]} numberOfLines={1}>
-              {stock.name}
-            </Text>
-          </View>
+          <Text style={[styles.tickerLabel, { color: colors.foreground }]} numberOfLines={1}>
+            {shortTicker}
+          </Text>
+          <Text style={[styles.companyName, { color: colors.mutedForeground }]} numberOfLines={1}>
+            {stock.name}
+          </Text>
         </View>
 
         {/* Center: sparkline */}
@@ -106,15 +102,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 10,
   },
-  /* Left section: badge + identity block */
+  /* Left section: ticker + company name */
   left: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    minWidth: 0,
-  },
-  identity: {
     flex: 1,
     minWidth: 0,
     gap: 2,
