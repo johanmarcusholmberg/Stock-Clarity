@@ -825,9 +825,14 @@ export default function StockDetailScreen() {
     ? (liveQuote?.regularMarketPrice ?? chartLast ?? cachedStock?.price ?? 0)
     : (chartLast ?? liveQuote?.regularMarketPrice ?? cachedStock?.price ?? 0);
 
-  // Period start/end come purely from chart data
+  // Period start/end.
+  // For 1D when market is open, use the live quote for end so that the hero
+  // price, the "Current" strip value, and the change % all show the same number.
+  // For all other ranges (or when closed) use the last chart bar as usual.
   const periodStart: number | null = chartFirst;
-  const periodEnd: number | null   = chartLast ?? (liveQuote?.regularMarketPrice ?? null);
+  const periodEnd: number | null = (is1D && marketOpen)
+    ? (liveQuote?.regularMarketPrice ?? chartLast ?? null)
+    : (chartLast ?? liveQuote?.regularMarketPrice ?? null);
 
   // Change relative to the start of the selected chart window
   const periodChangePoints = (periodStart != null && periodEnd != null)
