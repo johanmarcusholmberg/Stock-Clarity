@@ -13,10 +13,11 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import DraggableFlatList, { RenderItemParams } from "react-native-draggable-flatlist";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUser } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
-import { useWatchlist } from "@/context/WatchlistContext";
+import { useWatchlist, Stock } from "@/context/WatchlistContext";
 import StockCard from "@/components/StockCard";
 import { FolderTabStrip } from "@/components/FolderTabStrip";
 import { FolderAddSheet } from "@/components/FolderAddSheet";
@@ -145,6 +146,7 @@ export default function WatchlistScreen() {
     activeFolderId,
     displayName,
     removeFromFolder,
+    reorderFolder,
     deleteFolder,
   } = useWatchlist();
 
@@ -203,6 +205,8 @@ export default function WatchlistScreen() {
   const displayed = editMode
     ? baseDisplayed.filter((s) => !pendingRemovals.has(s.ticker))
     : baseDisplayed;
+
+  const dragEnabled = filter === "all" && !editMode && displayed.length > 1;
 
   const FILTERS: { key: Filter; label: string; count: number }[] = [
     { key: "all", label: "All", count: allWatched.length },
@@ -416,55 +420,73 @@ export default function WatchlistScreen() {
         </View>
       </View>
 
-      <ScrollView
-        style={styles.fill}
-        contentContainerStyle={{ paddingBottom: bottomPadding, paddingHorizontal: 16 }}
-        showsVerticalScrollIndicator={false}
-      >
-        {displayed.length === 0 && allWatched.length === 0 ? (
-          <View style={[styles.empty, { borderColor: colors.border }]}>
-            <View style={[styles.emptyIconRing, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "40" }]}>
-              <Feather name="trending-up" size={34} color={colors.primary} />
+      {displayed.length === 0 ? (
+        <ScrollView
+          style={styles.fill}
+          contentContainerStyle={{ paddingBottom: bottomPadding, paddingHorizontal: 16 }}
+          showsVerticalScrollIndicator={false}
+        >
+          {allWatched.length === 0 ? (
+            <View style={[styles.empty, { borderColor: colors.border }]}>
+              <View style={[styles.emptyIconRing, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "40" }]}>
+                <Feather name="trending-up" size={34} color={colors.primary} />
+              </View>
+              <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Your Watchlist is empty</Text>
+              <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
+                Search for any stock, ETF, or fund from world markets and add it here to start tracking it.
+              </Text>
+              <TouchableOpacity
+                style={[styles.emptyButton, { backgroundColor: colors.primary }]}
+                onPress={() => router.push("/(tabs)/search")}
+              >
+                <Feather name="search" size={15} color={colors.primaryForeground} style={{ marginRight: 6 }} />
+                <Text style={[styles.emptyButtonText, { color: colors.primaryForeground }]}>Search for a stock</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.emptyButtonOutline, { borderColor: colors.border }]}
+                onPress={() => setAddSheetVisible(true)}
+              >
+                <Feather name="plus" size={15} color={colors.mutedForeground} style={{ marginRight: 6 }} />
+                <Text style={[styles.emptyButtonOutlineText, { color: colors.mutedForeground }]}>Browse & add stocks</Text>
+              </TouchableOpacity>
             </View>
-            <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Your Watchlist is empty</Text>
-            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
-              Search for any stock, ETF, or fund from world markets and add it here to start tracking it.
-            </Text>
-            <TouchableOpacity
-              style={[styles.emptyButton, { backgroundColor: colors.primary }]}
-              onPress={() => router.push("/(tabs)/search")}
-            >
-              <Feather name="search" size={15} color={colors.primaryForeground} style={{ marginRight: 6 }} />
-              <Text style={[styles.emptyButtonText, { color: colors.primaryForeground }]}>Search for a stock</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.emptyButtonOutline, { borderColor: colors.border }]}
-              onPress={() => setAddSheetVisible(true)}
-            >
-              <Feather name="plus" size={15} color={colors.mutedForeground} style={{ marginRight: 6 }} />
-              <Text style={[styles.emptyButtonOutlineText, { color: colors.mutedForeground }]}>Browse & add stocks</Text>
-            </TouchableOpacity>
-          </View>
-        ) : displayed.length === 0 && editMode ? (
-          <View style={[styles.emptyFilter, { borderColor: colors.border }]}>
-            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>All stocks removed. Tap Done to confirm.</Text>
-          </View>
-        ) : displayed.length === 0 ? (
-          <View style={[styles.emptyFilter, { borderColor: colors.border }]}>
-            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No {filter} right now.</Text>
-          </View>
-        ) : (
-          displayed.map((stock) => (
+          ) : editMode ? (
+            <View style={[styles.emptyFilter, { borderColor: colors.border }]}>
+              <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>All stocks removed. Tap Done to confirm.</Text>
+            </View>
+          ) : (
+            <View style={[styles.emptyFilter, { borderColor: colors.border }]}>
+              <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No {filter} right now.</Text>
+            </View>
+          )}
+        </ScrollView>
+      ) : (
+        <DraggableFlatList
+          data={displayed}
+          keyExtractor={(item) => item.ticker}
+          renderItem={({ item, drag: dragFn, isActive: active }: RenderItemParams<Stock>) => (
             <StockCard
-              key={stock.ticker}
-              stock={stock}
+              stock={item}
               showPercent={showPercent}
               editMode={editMode}
-              onRemove={() => handlePendingRemove(stock.ticker)}
+              onRemove={() => handlePendingRemove(item.ticker)}
+              drag={dragEnabled ? () => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                dragFn();
+              } : undefined}
+              isActive={active}
             />
-          ))
-        )}
-      </ScrollView>
+          )}
+          onDragEnd={({ data }) => {
+            const newTickers = data.map((s) => s.ticker);
+            reorderFolder(activeFolderId, newTickers);
+          }}
+          containerStyle={styles.fill}
+          contentContainerStyle={{ paddingBottom: bottomPadding, paddingHorizontal: 16 }}
+          showsVerticalScrollIndicator={false}
+          activationDistance={dragEnabled ? 0 : 99999}
+        />
+      )}
 
       <FolderAddSheet
         visible={addSheetVisible}

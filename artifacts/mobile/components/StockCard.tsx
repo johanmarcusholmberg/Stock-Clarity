@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useColors } from "@/hooks/useColors";
 import { Stock } from "@/context/WatchlistContext";
 import MiniChart from "./MiniChart";
@@ -12,9 +12,11 @@ interface Props {
   showPercent?: boolean;
   editMode?: boolean;
   onRemove?: () => void;
+  drag?: () => void;
+  isActive?: boolean;
 }
 
-export default function StockCard({ stock, showPercent = true, editMode = false, onRemove }: Props) {
+export default function StockCard({ stock, showPercent = true, editMode = false, onRemove, drag, isActive = false }: Props) {
   const colors = useColors();
   const isPositive = stock.change >= 0;
   const changeColor = isPositive ? colors.positive : colors.negative;
@@ -38,18 +40,27 @@ export default function StockCard({ stock, showPercent = true, editMode = false,
     : `${isPositive ? "+" : "\u2212"}${formatChange(stock.change)}`;
 
   return (
-    <View style={{ position: "relative", marginBottom: 8 }}>
+    <View
+      style={[
+        { position: "relative", marginBottom: 8 },
+        isActive && styles.activeWrapper,
+      ]}
+    >
       <TouchableOpacity
         activeOpacity={editMode ? 1 : 0.75}
         style={[
           styles.card,
           {
             backgroundColor: colors.card,
-            borderColor: colors.border,
+            borderColor: isActive ? colors.primary : colors.border,
             opacity: editMode ? 0.85 : 1,
           },
+          isActive && styles.activeCard,
         ]}
         onPress={() => !editMode && router.push({ pathname: "/stock/[ticker]", params: { ticker: stock.ticker } })}
+        onLongPress={drag}
+        delayLongPress={200}
+        disabled={isActive}
       >
         {/* Left: badge + identity */}
         <View style={styles.left}>
@@ -150,6 +161,25 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: "Inter_500Medium",
     fontVariant: ["tabular-nums"],
+  },
+  /* Active drag state */
+  activeWrapper: {
+    zIndex: 999,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.18,
+        shadowRadius: 16,
+      },
+      android: {
+        elevation: 12,
+      },
+      default: {},
+    }),
+  },
+  activeCard: {
+    transform: [{ scale: 1.03 }],
   },
   /* Edit mode remove button */
   removeBtn: {

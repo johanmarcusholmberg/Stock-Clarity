@@ -94,6 +94,7 @@ interface WatchlistContextType {
   deleteFolder: (id: string, removeStocksCompletely?: boolean) => void;
   addToFolder: (ticker: string, folderId: string, data?: AddStockData) => void;
   removeFromFolder: (ticker: string, folderId: string) => void;
+  reorderFolder: (folderId: string, newTickers: string[]) => void;
   folderLimit: number;
   canCreateFolder: boolean;
   displayName: string;
@@ -517,6 +518,14 @@ export function WatchlistProvider({
     });
   }, [saveFolders]);
 
+  const reorderFolder = useCallback((folderId: string, newTickers: string[]) => {
+    setFolders((prev) => {
+      const next = prev.map((f) => (f.id === folderId ? { ...f, tickers: newTickers } : f));
+      saveFolders(next);
+      return next;
+    });
+  }, [saveFolders]);
+
   const addToWatchlist = useCallback((ticker: string, data?: AddStockData, folderId?: string) => {
     const targetId = folderId ?? activeFolderId;
     addToFolder(ticker, targetId, data);
@@ -583,6 +592,7 @@ export function WatchlistProvider({
       deleteFolder,
       addToFolder,
       removeFromFolder,
+      reorderFolder,
       folderLimit,
       canCreateFolder,
       displayName,
