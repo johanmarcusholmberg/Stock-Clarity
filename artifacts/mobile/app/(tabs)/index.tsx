@@ -360,17 +360,16 @@ export default function WatchlistScreen() {
             <View style={styles.toolbarRight}>
               {(allWatched.length > 0 || !isDefaultFolder) && (
                 <TouchableOpacity
-                  style={[styles.editButton, { backgroundColor: colors.secondary, borderColor: colors.border }]}
+                  style={styles.editButtonGhost}
                   onPress={handleEnterEdit}
                 >
-                  <Text style={[styles.editButtonText, { color: colors.foreground }]}>Edit</Text>
+                  <Text style={[styles.editButtonGhostText, { color: colors.mutedForeground }]}>Edit</Text>
                 </TouchableOpacity>
               )}
               <TouchableOpacity
                 style={[styles.addButton, { backgroundColor: colors.primary }]}
                 onPress={() => setAddSheetVisible(true)}
               >
-                <Feather name="plus" size={14} color={colors.primaryForeground} />
                 <Text style={[styles.addButtonText, { color: colors.primaryForeground }]}>Add Stock</Text>
               </TouchableOpacity>
             </View>
@@ -403,14 +402,17 @@ export default function WatchlistScreen() {
               </TouchableOpacity>
             ))}
           </View>
-          <TouchableOpacity
-            style={[styles.changeToggle, { backgroundColor: colors.secondary, borderColor: colors.border }]}
-            onPress={toggleChangeMode}
-          >
-            <Text style={[styles.changeToggleText, { color: showPercent ? colors.primary : colors.mutedForeground }]}>%</Text>
-            <View style={[styles.changeToggleDivider, { backgroundColor: colors.border }]} />
-            <Text style={[styles.changeToggleText, { color: !showPercent ? colors.primary : colors.mutedForeground }]}>$</Text>
-          </TouchableOpacity>
+          <View style={styles.filterRowRight}>
+            <View style={[styles.filterRowSeparator, { backgroundColor: colors.border }]} />
+            <TouchableOpacity
+              style={[styles.changeToggle, { backgroundColor: colors.secondary, borderColor: colors.border }]}
+              onPress={toggleChangeMode}
+            >
+              <Text style={[styles.changeToggleText, { color: showPercent ? colors.primary : colors.mutedForeground }]}>%</Text>
+              <View style={[styles.changeToggleDivider, { backgroundColor: colors.border }]} />
+              <Text style={[styles.changeToggleText, { color: !showPercent ? colors.primary : colors.mutedForeground }]}>$</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
 
@@ -506,12 +508,16 @@ const styles = StyleSheet.create({
   addButtonText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   editButton: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, borderWidth: 1 },
   editButtonText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  editButtonGhost: { paddingHorizontal: 8, paddingVertical: 8 },
+  editButtonGhostText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   doneButton: { paddingHorizontal: 18, paddingVertical: 8, borderRadius: 10 },
   doneButtonText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   deleteButton: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1, gap: 5 },
   deleteButtonText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   filterRow: { flexDirection: "row", alignItems: "center" },
   filterChips: { flexDirection: "row", gap: 8 },
+  filterRowRight: { flexDirection: "row", alignItems: "center", gap: 12 },
+  filterRowSeparator: { width: 1, height: 20 },
   changeToggle: { flexDirection: "row", alignItems: "center", borderRadius: 8, borderWidth: 1, overflow: "hidden" },
   changeToggleText: { fontSize: 12, fontFamily: "Inter_700Bold", paddingHorizontal: 10, paddingVertical: 6 },
   changeToggleDivider: { width: 1, height: "100%" },
