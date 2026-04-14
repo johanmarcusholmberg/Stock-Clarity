@@ -17,6 +17,7 @@ import DraggableFlatList, { RenderItemParams } from "react-native-draggable-flat
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUser } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
+import { useMiniCharts } from "@/hooks/useMiniCharts";
 import { useWatchlist, Stock } from "@/context/WatchlistContext";
 import StockCard from "@/components/StockCard";
 import { FolderTabStrip } from "@/components/FolderTabStrip";
@@ -198,6 +199,10 @@ export default function WatchlistScreen() {
   const isDefaultFolder = activeFolderId === DEFAULT_FOLDER_ID;
 
   const allWatched = watchlist.map((ticker) => stocks[ticker]).filter(Boolean);
+
+  // Fetch real 1Y chart data for all visible tickers via TanStack Query.
+  // This replaces the old per-ticker sequential fetch in WatchlistContext.
+  const { charts: miniCharts } = useMiniCharts(watchlist);
   const gainers = allWatched.filter((s) => s.changePercent >= 0);
   const losers = allWatched.filter((s) => s.changePercent < 0);
 
@@ -467,6 +472,7 @@ export default function WatchlistScreen() {
           renderItem={({ item, drag: dragFn, isActive: active }: RenderItemParams<Stock>) => (
             <StockCard
               stock={item}
+              chartData={miniCharts[item.ticker]}
               showPercent={showPercent}
               editMode={editMode}
               onRemove={() => handlePendingRemove(item.ticker)}

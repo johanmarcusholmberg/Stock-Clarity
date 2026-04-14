@@ -3,7 +3,7 @@ import { View } from "react-native";
 import Svg, { Path, Defs, LinearGradient, Stop } from "react-native-svg";
 
 interface Props {
-  data: number[];
+  data?: number[];
   color: string;
   width: number;
   height: number;
@@ -31,7 +31,13 @@ export default function MiniChart({ data, color, width, height }: Props) {
     return d;
   }, [data, width, height]);
 
-  if (!path) return <View style={{ width, height }} />;
+  // Stable-size placeholder while chart data is loading.
+  // Renders as an empty box — no fake lines or spinners.
+  if (!path) {
+    return (
+      <View style={{ width, height, opacity: 0.12, backgroundColor: color, borderRadius: 4 }} />
+    );
+  }
 
   return (
     <Svg width={width} height={height}>

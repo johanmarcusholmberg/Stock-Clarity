@@ -8,6 +8,8 @@ import MiniChart from "./MiniChart";
 
 interface Props {
   stock: Stock;
+  /** Real chart data from useMiniCharts — when provided, used instead of stock.priceHistory. */
+  chartData?: number[];
   showPercent?: boolean;
   editMode?: boolean;
   onRemove?: () => void;
@@ -15,7 +17,7 @@ interface Props {
   isActive?: boolean;
 }
 
-export default function StockCard({ stock, showPercent = true, editMode = false, onRemove, drag, isActive = false }: Props) {
+export default function StockCard({ stock, chartData, showPercent = true, editMode = false, onRemove, drag, isActive = false }: Props) {
   const colors = useColors();
   const isPositive = stock.change >= 0;
   const changeColor = isPositive ? colors.positive : colors.negative;
@@ -74,7 +76,7 @@ export default function StockCard({ stock, showPercent = true, editMode = false,
         {/* Center: sparkline */}
         {!editMode && (
           <View style={styles.chartContainer}>
-            <MiniChart data={stock.priceHistory} color={changeColor} width={56} height={28} />
+            <MiniChart data={chartData} color={changeColor} width={56} height={28} />
           </View>
         )}
 

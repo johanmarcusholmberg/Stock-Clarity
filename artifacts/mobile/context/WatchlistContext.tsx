@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/expo";
 import { useUser } from "@clerk/expo";
-import { getQuotes, getChart } from "@/services/stockApi";
+import { getQuotes } from "@/services/stockApi";
 import { isMarketOpen } from "@/utils/marketHours";
 
 // Re-export StockEvent so components can import it from here
@@ -321,6 +321,9 @@ export function WatchlistProvider({
   }, [userId, isSignedIn]);
 
   // ── Quote refresh ─────────────────────────────────────────────
+  // Only updates quote data (price, change, etc.).  Mini-chart 1Y data is
+  // fetched separately by the useMiniCharts hook via TanStack Query so that
+  // chart loading is grouped, cached, and not limited to a subset of tickers.
   const refreshQuotes = useCallback(async () => {
     if (!allTickers.length) return;
     try {
@@ -346,29 +349,13 @@ export function WatchlistProvider({
             exchange: q.fullExchangeName || existing.exchange || "",
             exchangeFlag: existing.exchangeFlag || "🌐",
             description: existing.description || "",
-            priceHistory: makePriceHistory(newPrice, newChangePct),
+            priceHistory: existing.priceHistory ?? [],
             pe: q.trailingPE ?? existing.pe,
           };
         }
         AsyncStorage.setItem(STOCKS_KEY, JSON.stringify(next));
         return next;
       });
-
-      // Fetch 1Y chart data for each stock (for accurate mini chart sparklines)
-      // Stagger requests to avoid rate limiting
-      for (const ticker of allTickers.slice(0, 8)) {
-        try {
-          await new Promise((r) => setTimeout(r, 300));
-          const chart = await getChart(ticker, "1y", "1wk");
-          if (chart?.prices?.length >= 4) {
-            setStockData((prev) => {
-              if (!prev[ticker]) return prev;
-              const updated = { ...prev[ticker], priceHistory: chart.prices };
-              return { ...prev, [ticker]: updated };
-            });
-          }
-        } catch {}
-      }
     } catch {}
   }, [allTickers.join(",")]);
 
@@ -474,22 +461,21 @@ export function WatchlistProvider({
     if (data) {
       setStockData((prev) => {
         const existing = prev[ticker] ?? SEED_STOCKS[ticker] ?? {};
-        const newPrice = data.price ?? existing.price ?? 0;
-        const newChangePct = data.changePercent ?? existing.changePercent ?? 0;
         const updated = {
           ...existing,
           ticker: data.ticker,
           name: data.name || existing.name || data.ticker,
           exchange: data.exchange || existing.exchange || "",
           exchangeFlag: data.exchangeFlag || existing.exchangeFlag || "🌐",
-          price: newPrice,
+          price: data.price ?? existing.price ?? 0,
           currency: data.currency ?? existing.currency ?? "USD",
           change: data.change ?? existing.change ?? 0,
-          changePercent: newChangePct,
+          changePercent: data.changePercent ?? existing.changePercent ?? 0,
           marketCap: existing.marketCap || "N/A",
           sector: existing.sector || "",
           description: existing.description || "",
-          priceHistory: makePriceHistory(newPrice, newChangePct),
+          // Don't fabricate chart data — useMiniCharts will fetch real 1Y data
+          priceHistory: existing.priceHistory ?? [],
         };
         const next = { ...prev, [ticker]: updated };
         AsyncStorage.setItem(STOCKS_KEY, JSON.stringify(next));
