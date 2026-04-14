@@ -689,14 +689,11 @@ export default function StockDetailScreen() {
   const cooldownMin = Math.ceil(cooldownRemainSec / 60);
 
   // ─────────────────────────────────────────────────────────────────────────
-  // SINGLE SOURCE OF TRUTH — all visible values (hero price, period-change
-  // strip, open/close row, chart) derive exclusively from `liveQuote` and
-  // `chartCache`. Quote and chart data are ALWAYS fetched and committed in
-  // one atomic operation so every field flips to new data simultaneously.
-  // • Ticker change → quote + chart loaded together via Promise.all
-  // • Range change  → quote already current; only the chart range is loaded
-  // Never add a standalone getQuotes() or getChart() call outside of this
-  // effect or handleManualRefresh — doing so breaks the synchronisation.
+  // Data fetching — quote + chart are always kept in sync.
+  // • Ticker change  → clear stale data, fetch quote + first chart range together
+  // • Range switch (cache miss) → fetch quote + new chart range together
+  // • Range switch (cache hit)  → chart is instant; still refresh quote silently
+  //   so displayPrice never shows a stale value when the user is browsing ranges
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!ticker) return;
@@ -705,42 +702,44 @@ export default function StockDetailScreen() {
     prevTickerRef.current = ticker;
 
     if (tickerChanged) {
-      // New stock opened — clear stale data from the previous ticker immediately
+      // New stock — clear previous ticker's data immediately
       setChartCache({});
       setLiveQuote(null);
     }
 
-    // Cache hit on range switch: nothing to fetch, just remove the loading state
+    const { range, interval } = CHART_RANGES[selectedRange];
+
     if (!tickerChanged && chartCache[selectedRange]) {
+      // Chart cached for this range — no loading state needed, but silently
+      // refresh the quote so the live price stays current across range switches.
+      getQuotes([ticker]).then((quotes) => {
+        if (quotes[0]) setLiveQuote(quotes[0]);
+      }).catch(() => {});
       setChartLoading(false);
       return;
     }
 
+    // Fetch quote + chart together so both commit in the same render.
     setChartLoading(true);
-    const { range, interval } = CHART_RANGES[selectedRange];
-
-    if (tickerChanged) {
-      // Ticker change: load quote + chart together, apply both atomically on resolve
-      Promise.all([getQuotes([ticker]), getChart(ticker, range, interval)])
-        .then(([quotes, chart]) => {
-          setLiveQuote(quotes[0] ?? null);
-          setChartCache({ [selectedRange]: chart });
-        })
-        .catch(() => {
-          setChartCache({ [selectedRange]: { prices: cachedStock?.priceHistory ?? [], timestamps: [] } });
-        })
-        .finally(() => setChartLoading(false));
-    } else {
-      // Range switch: quote is already up-to-date, just load the new chart range
-      getChart(ticker, range, interval)
-        .then((data) => setChartCache((prev) => ({ ...prev, [selectedRange]: data })))
-        .catch(() =>
-          setChartCache((prev) => ({ ...prev, [selectedRange]: { prices: [], timestamps: [] } }))
-        )
-        .finally(() => setChartLoading(false));
-    }
-  // chartCache intentionally omitted from deps — we only read it as a snapshot
-  // to check for cache hits; putting it in deps would cause an infinite loop.
+    Promise.all([getQuotes([ticker]), getChart(ticker, range, interval)])
+      .then(([quotes, chart]) => {
+        if (quotes[0]) setLiveQuote(quotes[0]);
+        setChartCache((prev) =>
+          tickerChanged
+            ? { [selectedRange]: chart }
+            : { ...prev, [selectedRange]: chart }
+        );
+      })
+      .catch(() => {
+        setChartCache((prev) =>
+          tickerChanged
+            ? { [selectedRange]: { prices: cachedStock?.priceHistory ?? [], timestamps: [] } }
+            : { ...prev, [selectedRange]: { prices: [], timestamps: [] } }
+        );
+      })
+      .finally(() => setChartLoading(false));
+  // chartCache intentionally omitted from deps — read as snapshot only;
+  // including it would cause an infinite loop.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRange, ticker]);
 
@@ -811,28 +810,31 @@ export default function StockDetailScreen() {
     return exch ? isMarketOpen(exch) : false;
   }, [liveQuote?.exchange, liveQuote?.fullExchangeName, exchange]);
 
-  // ── Chart-derived statistics — always in sync with the graph ─────
-  // All period stats come from the same chartPrices array the graph renders.
-  // This guarantees the pill, change row, and open/start strip always match
-  // what's visually shown, regardless of which time-frame is selected.
   const chartFirst = chartPrices.length > 0 ? chartPrices[0] : null;
   const chartLast  = chartPrices.length > 0 ? chartPrices[chartPrices.length - 1] : null;
-
-  // Hero price: live quote for 1D when market is open (true real-time tick),
-  // otherwise use the last bar of the chart so it matches the graph endpoint.
   const is1D = CHART_RANGES[selectedRange].range === "1d";
-  const price = (is1D && marketOpen)
-    ? (liveQuote?.regularMarketPrice ?? chartLast ?? cachedStock?.price ?? 0)
-    : (chartLast ?? liveQuote?.regularMarketPrice ?? cachedStock?.price ?? 0);
 
-  // Period start/end.
-  // For 1D when market is open, use the live quote for end so that the hero
-  // price, the "Current" strip value, and the change % all show the same number.
-  // For all other ranges (or when closed) use the last chart bar as usual.
+  // livePrice: always the most recent real-time quote, independent of chart range.
+  const livePrice: number | null = liveQuote?.regularMarketPrice ?? null;
+
+  // displayPrice: hero value shown to the user.
+  // Always live quote first — switching chart ranges must not change this number.
+  const displayPrice = livePrice ?? chartLast ?? cachedStock?.price ?? 0;
+
+  // periodEnd: used for change calculations and the Current/End strip value.
+  // Prefer live price so the displayed % always reflects range-start → now.
   const periodStart: number | null = chartFirst;
-  const periodEnd: number | null = (is1D && marketOpen)
-    ? (liveQuote?.regularMarketPrice ?? chartLast ?? null)
-    : (chartLast ?? liveQuote?.regularMarketPrice ?? null);
+  const periodEnd: number | null   = livePrice ?? chartLast ?? null;
+
+  // displayChartPrices: when market is open, patch the last chart bar to match
+  // livePrice so the graph endpoint visually aligns with the displayed price.
+  // Only the final point is replaced — historical shape is unchanged.
+  const displayChartPrices = useMemo(() => {
+    if (!livePrice || !marketOpen || chartPrices.length === 0) return chartPrices;
+    const patched = [...chartPrices];
+    patched[patched.length - 1] = livePrice;
+    return patched;
+  }, [chartPrices, livePrice, marketOpen]);
 
   // Change relative to the start of the selected chart window
   const periodChangePoints = (periodStart != null && periodEnd != null)
@@ -845,13 +847,13 @@ export default function StockDetailScreen() {
   // Label for the change row: "today" only for 1D, otherwise "this {range}"
   const periodLabel = is1D ? "today" : `this ${CHART_RANGES[selectedRange].label}`;
 
-  // For the open/start strip: use today's open for 1D, chart first bar otherwise
-  // (chart[0] already equals today's open for 1D, but fallback to liveQuote for safety)
+  // Open/Start strip: 1D uses today's open from the quote, all other ranges use chart first bar
   const stripStartPrice: number | null = is1D
     ? (liveQuote?.regularMarketOpen ?? chartFirst)
     : chartFirst;
   const stripStartLabel = is1D ? "Open" : "Start";
-  const stripEndLabel   = is1D ? (marketOpen ? "Current" : "Close") : "End";
+  // "Current" whenever market is open (live price exists), regardless of range
+  const stripEndLabel = marketOpen ? "Current" : (is1D ? "Close" : "End");
 
   const isPositive = periodChangePct >= 0;
   const changeColor = isPositive ? colors.positive : colors.negative;
@@ -942,7 +944,7 @@ export default function StockDetailScreen() {
 
           <View style={styles.priceRow}>
             <Text style={[styles.priceText, { color: colors.foreground }]}>
-              {currSym}{formatPrice(price, currency)}
+              {currSym}{formatPrice(displayPrice, currency)}
             </Text>
             <View style={[styles.changePill, { backgroundColor: `${changeColor}22` }]}>
               <Feather name={isPositive ? "trending-up" : "trending-down"} size={13} color={changeColor} />
@@ -1047,7 +1049,7 @@ export default function StockDetailScreen() {
             </View>
           ) : (
             <InteractiveChart
-              prices={chartPrices}
+              prices={displayChartPrices}
               timestamps={chartTimestamps}
               rangeKey={CHART_RANGES[selectedRange].range}
               color={chartChangePct >= 0 ? colors.positive : colors.negative}
