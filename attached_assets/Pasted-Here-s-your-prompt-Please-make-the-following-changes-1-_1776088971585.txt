@@ -1,0 +1,26 @@
+Here's your prompt:
+
+Please make the following changes:
+1. Enforce Secure Password Requirements on Account Creation
+When a user creates a new account, enforce the following password requirements before the account can be registered:
+
+Minimum 8 characters in length
+Must contain at least one uppercase letter
+Must contain at least one lowercase letter
+Must contain at least one number
+Must contain at least one special character (e.g. !, @, #, $, %)
+Show a real-time password strength indicator as the user types — for example a progress bar or checklist that updates live showing which requirements have been met and which are still missing
+If the user tries to submit with a password that doesn't meet the requirements, show a clear and specific error message explaining what is missing — not just a generic "invalid password" message
+Add a show/hide password toggle (eye icon) on the password field so the user can verify what they have typed
+
+
+2. First-Time User Onboarding Tour
+When a user logs in for the first time, automatically launch a guided tour of the application that introduces the key features in a friendly and intuitive way:
+
+The tour should highlight and explain the main sections one step at a time — for example the Watchlist, folders, stock graphs, digest, notifications, and account settings
+Each step should have a short, clear description and visually point to or highlight the relevant element on screen
+Include "Back" and "Next" buttons on every step so the user can move freely through the tour at their own pace
+Include a "Skip tour" option that is clearly visible at all times so users who prefer to explore on their own can exit immediately
+At the end of the tour, show a brief "You're all set!" summary screen with a button to start using the app
+The tour should only appear once automatically — on first login. After that it should be accessible manually from the account settings or help section in case the user wants to revisit it
+The tour should work smoothly on both iOS and Android screen sizes without any elements being hidden or cut off

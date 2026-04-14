@@ -1,0 +1,33 @@
+Please make the following changes:
+1. Clean Up Graph & Stock Price Display
+
+Remove the % development label inside/on the graph entirely
+Remove the points/amount change displayed beneath the stock price
+Keep only the % development shown next to the stock price as it currently is
+Keep the three column strip as is — this should be the only supplementary data visible below the stock price
+
+
+2. Harmonize the Three Column Strip
+The three columns in the strip are currently visually inconsistent. Fix the following so all three columns feel like one unified component:
+
+All three columns must have identical heights
+Padding, font sizes, and spacing must be consistent across all three columns
+Dividers or borders between columns (if any) must be evenly and symmetrically placed
+The strip should look like a single cohesive element, not three separate blocks placed next to each other
+
+
+3. Adding Stocks to a New Folder from My Watchlist
+When a user creates a new folder, they should be able to browse and add stocks directly from their existing "My Watchlist" without having to manually search for each stock. The flow should be:
+
+When creating or editing a folder, show a list of stocks already in "My Watchlist" that the user can tap to add instantly
+The user can still use search to add stocks not already in their Watchlist
+Already added stocks should be clearly marked so the user doesn't add duplicates
+
+
+4. Deleting Custom Folders
+Users should be able to delete any folder they have created, with the following rules:
+
+A delete option should be accessible from the folder (e.g. long press, edit mode, or a settings icon)
+"My Watchlist" must be protected and cannot be deleted — the delete option should never appear for it
+Before deleting, show a confirmation prompt so folders are not removed by accident (e.g. "Are you sure you want to delete this folder? The stocks inside will not be deleted")
+Deleting a folder should only remove the folder itself — the stocks inside should remain in "My Watchlist"

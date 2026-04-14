@@ -1,0 +1,31 @@
+Here's your prompt:
+
+Please make the following changes:
+1. Fix Folder Deletion
+The option to delete a folder is currently not findable or not working. Make sure folder deletion is clearly accessible with the following:
+
+Add a visible delete option when the user long presses a folder or enters an edit/manage mode for the folder
+Alternatively, add a three-dot (⋮) menu or settings icon directly on the folder that includes a "Delete folder" option
+The delete option must not appear on "My Watchlist" — that folder should be permanent and protected
+On deletion, show the previously specified confirmation prompt with the choice to keep or remove stocks from the Watchlist
+
+
+2. Reorganise the Watchlist Toolbar — Make it User Friendly
+The current layout has elements placed inconsistently. Reorganise as follows:
+
+Top row: The "Add Stock" button sits here on its own, aligned to the right — this is a primary action and should be clearly visible and easy to reach
+Bottom row: The "All", "Gainers", "Losers" filter tabs sit on the left side of this row, and the % / Value toggle sits on the right side of the same row, aligned so the two elements balance each other out naturally
+
+The result should feel like a clean, intentional two-row toolbar that is easy to scan and use — not a row of buttons competing for space. Spacing, alignment, and font sizes across both rows should be visually consistent.
+
+3. Test and Verify Payment Options
+Go through the full payment flow end to end and verify the following:
+
+All payment options are visible and selectable on the subscription/upgrade screen
+The payment process completes successfully without errors or broken steps
+After a successful payment, the user's account is correctly upgraded to the relevant tier (Pro or Premium) and the new features become immediately accessible
+If a payment fails, a clear and helpful error message is shown to the user
+Test both Pro and Premium upgrade paths separately and confirm each one behaves correctly
+Confirm that the cooldown timers, Update button availability, and any other tier-gated features correctly activate after upgrading
+
+Report back on any steps in the payment flow that are broken, incomplete, or missing so they can be fixed.

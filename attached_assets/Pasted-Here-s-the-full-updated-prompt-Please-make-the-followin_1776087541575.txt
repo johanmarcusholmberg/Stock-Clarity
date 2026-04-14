@@ -1,0 +1,47 @@
+Here's the full updated prompt:
+
+Please make the following changes:
+1. Fix Subscription Text on Account Page
+In the subscription section on the account page:
+
+Change the label to read "AI Summaries" exactly — no abbreviations or extra words
+Ensure the text sits on a single row and does not wrap or get cut off regardless of device screen size
+Adjust spacing or font size if necessary to keep it on one line while remaining consistent with the rest of the subscription UI
+
+
+2. Easier Stock Management in Folders
+Make it more intuitive for users to add or remove stocks from existing folders:
+
+When inside a folder, add an edit mode (e.g. tap an "Edit" button) that reveals a clear remove (✕) icon next to each stock for quick removal
+When adding stocks to an existing folder, the user should have two options presented together:
+
+"From My Watchlist" — browse and select stocks already in their Watchlist via a checklist
+"Search" — search for any stock not yet in their Watchlist and add it directly to the folder (and automatically to "My Watchlist" as well)
+
+
+Both options should be accessible from the same screen without navigating away — for example as two tabs or sections within the add-stock flow
+Changes should only be committed when the user confirms, to avoid accidental additions or removals
+
+
+3. Fix Folder Deletion — Stock Removal Choice
+When a user deletes a folder, present a clear confirmation prompt with the following two explicit options:
+
+"Remove folder only" — the folder is deleted but all stocks inside are kept in any other folders they belong to and in "My Watchlist"
+"Remove folder and stocks" — the folder is deleted and the stocks are fully removed from all folders and "My Watchlist" entirely
+Make the distinction between the two options crystal clear in the wording so the user fully understands the consequences before confirming
+
+
+4. Replace Three-Dot Menu with In-Folder Delete Button
+Remove the three-dot (⋮) menu next to folder names as it takes up space and adds unnecessary taps. Instead:
+
+Place a "Delete folder" button inside the folder itself, for example in the folder header or accessible via the Edit mode introduced in point 2
+This keeps the folder list clean and uncluttered while still making deletion easy to find
+The delete button must remain hidden or disabled for "My Watchlist"
+
+
+5. Time Picker for Notification Delivery Time
+Replace the current notification time input with a native time picker styled like an alarm clock:
+
+When the user taps to set a delivery time, a clock-style popup should appear — similar to the alarm-setting UI on iOS and Android — where the user can scroll or tap to select hours and minutes
+The selected time should be clearly displayed in the notification settings once set (e.g. "Daily brief at 8:00 AM")
+The picker should support AM/PM or 24-hour format based on the user's device locale settings
