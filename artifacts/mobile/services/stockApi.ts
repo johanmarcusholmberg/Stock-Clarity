@@ -1,8 +1,19 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
 const API_BASE = (() => {
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
   if (domain) return `https://${domain}/api`;
   return "http://localhost:8080/api";
 })();
+
+// TTLs mirror the backend cache so the client doesn't re-fetch while the
+// server would have returned the same data anyway.
+const EVENT_CACHE_TTL_MS: Record<EventPeriod, number> = {
+  day:   20 * 60 * 1000,        // 20 min
+  week:   4 * 60 * 60 * 1000,   // 4 hr
+  month: 12 * 60 * 60 * 1000,   // 12 hr
+  year:  12 * 60 * 60 * 1000,   // 12 hr
+};
 
 export interface SearchResult {
   symbol: string;
@@ -100,9 +111,29 @@ export async function getChart(symbol: string, range: string, interval: string):
 }
 
 export async function getEvents(symbol: string, period: EventPeriod = "week"): Promise<StockEvent[]> {
+  const cacheKey = `@sc_events:${symbol}:${period}`;
+
+  // Return cached result if still within TTL — avoids a network round-trip
+  // on every page open and every period tab switch within the same session.
+  try {
+    const raw = await AsyncStorage.getItem(cacheKey);
+    if (raw) {
+      const { data, expiresAt } = JSON.parse(raw) as { data: StockEvent[]; expiresAt: number };
+      if (Date.now() < expiresAt) return data;
+    }
+  } catch {}
+
   const res = await fetch(`${API_BASE}/stocks/events/${encodeURIComponent(symbol)}?period=${period}`);
-  const data = await res.json();
-  return data.events ?? [];
+  const json = await res.json();
+  const events: StockEvent[] = json.events ?? [];
+
+  // Persist to AsyncStorage — fire-and-forget, failure is silent.
+  try {
+    const ttl = EVENT_CACHE_TTL_MS[period] ?? EVENT_CACHE_TTL_MS.week;
+    await AsyncStorage.setItem(cacheKey, JSON.stringify({ data: events, expiresAt: Date.now() + ttl }));
+  } catch {}
+
+  return events;
 }
 
 export function formatMarketCap(cap?: number): string {

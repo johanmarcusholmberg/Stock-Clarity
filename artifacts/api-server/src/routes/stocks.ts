@@ -401,7 +401,7 @@ Return ONLY a JSON array. No markdown, no prose. Format:
 If fewer than 2 headlines are genuinely relevant to ${symbol}, return an empty array [].`;
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-5-mini",
+      model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
     });
 
@@ -435,9 +435,9 @@ If fewer than 2 headlines are genuinely relevant to ${symbol}, return an empty a
     });
 
     const ttl =
-      period === "day" ? 20 * 60 * 1000
-      : period === "week" ? 60 * 60 * 1000
-      : 4 * 60 * 60 * 1000;
+      period === "day"  ? 20 * 60 * 1000        // 20 min — news changes fast intraday
+      : period === "week"  ?  4 * 60 * 60 * 1000  // 4 hr  (was 1 hr)
+      : 12 * 60 * 60 * 1000;                      // 12 hr (was 4 hr) for month/year
 
     setInCache(cacheKey, events, ttl);
     res.json({ events });

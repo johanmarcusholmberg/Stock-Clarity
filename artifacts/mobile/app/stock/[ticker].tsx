@@ -648,6 +648,9 @@ export default function StockDetailScreen() {
   // Tracks the previous ticker so we can tell "ticker changed" from "range changed"
   // inside the combined data-fetch effect below.
   const prevTickerRef = useRef<string | null>(null);
+  // Separate ref for the events effect — lets us clear stale events only on
+  // ticker change, not on period switch (period switch shows stale while loading).
+  const prevEventTickerRef = useRef<string | null>(null);
 
   // Derived chart data from cache for the selected range
   const chartPrices = chartCache[selectedRange]?.prices ?? [];
@@ -774,10 +777,15 @@ export default function StockDetailScreen() {
   }, [isOnCooldown, refreshing, ticker]);
 
   // Load events
+  // On ticker change: clear stale events from the previous stock immediately.
+  // On period switch: keep current events visible while the new period loads —
+  // this avoids a blank list flash when the backend cache is warm.
   useEffect(() => {
     if (!ticker) return;
+    const tickerChanged = prevEventTickerRef.current !== ticker;
+    prevEventTickerRef.current = ticker;
     setEventsLoading(true);
-    setEvents([]);
+    if (tickerChanged) setEvents([]);
     getEvents(ticker, selectedPeriod)
       .then((evts) => setEvents(evts))
       .catch(() => setEvents([]))
