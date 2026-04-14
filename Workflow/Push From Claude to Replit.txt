@@ -1,0 +1,19 @@
+1. Let Claude Code make the changes. Then check whether they were made in the main project folder or in a Claude worktree. Also do not rely on Claude to have made the commits you want in your main repo.
+2. Go to your main StockClarify folder in Git Bash:
+cd "/c/Users/marcus.holmberg/OneDrive - Hypergene AB/Dokument/Privat/Lovable/StockClarify"
+3. Confirm you see correct folders
+ls
+4. Check where the changes actually are - if the files show up continue.
+git status
+5. Stage the real project changes
+git add .
+6. Commit the changes
+git commit -m "XXXXDescribe the Claude Code changesXXXX"
+7. Push to GitHub
+git push
+8. Verify it worked - should state: "nothing to commit, working tree clean"
+git status 
+9. Open Replit
+10. Open the project
+11. Open Git
+12. Pull from Github and sync
