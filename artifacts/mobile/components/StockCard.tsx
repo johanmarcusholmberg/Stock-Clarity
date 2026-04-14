@@ -5,6 +5,7 @@ import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useColors } from "@/hooks/useColors";
 import { Stock } from "@/context/WatchlistContext";
 import MiniChart from "./MiniChart";
+import TickerBadge from "./TickerBadge";
 
 interface Props {
   stock: Stock;
@@ -27,7 +28,6 @@ export default function StockCard({ stock, showPercent = true, editMode = false,
   const formatChange = (val: number) => {
     const abs = Math.abs(val);
     if (abs >= 1000) return abs.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-    if (abs >= 10) return abs.toFixed(2);
     return abs.toFixed(2);
   };
 
@@ -35,7 +35,7 @@ export default function StockCard({ stock, showPercent = true, editMode = false,
 
   const changeLabel = showPercent
     ? `${isPositive ? "+" : ""}${stock.changePercent.toFixed(2)}%`
-    : `${isPositive ? "+" : "−"}${formatChange(stock.change)}`;
+    : `${isPositive ? "+" : "\u2212"}${formatChange(stock.change)}`;
 
   return (
     <View style={{ position: "relative", marginBottom: 8 }}>
@@ -46,41 +46,39 @@ export default function StockCard({ stock, showPercent = true, editMode = false,
           {
             backgroundColor: colors.card,
             borderColor: colors.border,
-            marginBottom: 0,
             opacity: editMode ? 0.85 : 1,
           },
         ]}
         onPress={() => !editMode && router.push({ pathname: "/stock/[ticker]", params: { ticker: stock.ticker } })}
       >
+        {/* Left: badge + identity */}
         <View style={styles.left}>
-          <View style={[styles.tickerBadge, { backgroundColor: colors.secondary }]}>
-            <Text style={[styles.tickerText, { color: colors.primary }]}>{shortTicker}</Text>
-            <Text style={styles.flagText}>{stock.exchangeFlag}</Text>
-          </View>
-          <View style={styles.nameRow}>
-            <Text style={[styles.stockName, { color: colors.foreground }]} numberOfLines={1}>
+          <TickerBadge ticker={shortTicker} />
+          <View style={styles.identity}>
+            <Text style={[styles.tickerLabel, { color: colors.foreground }]} numberOfLines={1}>
+              {shortTicker}
+            </Text>
+            <Text style={[styles.companyName, { color: colors.mutedForeground }]} numberOfLines={1}>
               {stock.name}
             </Text>
-            <Text style={[styles.sector, { color: colors.mutedForeground }]}>{stock.sector}</Text>
           </View>
         </View>
 
+        {/* Center: sparkline */}
         {!editMode && (
-          <View style={styles.center}>
-            <MiniChart data={stock.priceHistory} color={changeColor} width={60} height={28} />
+          <View style={styles.chartContainer}>
+            <MiniChart data={stock.priceHistory} color={changeColor} width={56} height={28} />
           </View>
         )}
 
+        {/* Right: price + change */}
         <View style={styles.right}>
           <Text style={[styles.price, { color: colors.foreground }]}>
             {stock.currency === "GBp" ? "p" : ""}{formatPrice(stock.price)}
           </Text>
-          <View style={[styles.changeBadge, { backgroundColor: isPositive ? `${colors.positive}22` : `${colors.negative}22` }]}>
-            <Feather name={isPositive ? "trending-up" : "trending-down"} size={10} color={changeColor} />
-            <Text style={[styles.changeText, { color: changeColor }]}>
-              {changeLabel}
-            </Text>
-          </View>
+          <Text style={[styles.change, { color: changeColor }]}>
+            {changeLabel}
+          </Text>
         </View>
       </TouchableOpacity>
 
@@ -100,21 +98,60 @@ export default function StockCard({ stock, showPercent = true, editMode = false,
 
 const styles = StyleSheet.create({
   card: {
-    flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 14,
-    borderRadius: 14, borderWidth: 1, gap: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 10,
   },
-  left: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10, minWidth: 0 },
-  tickerBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, minWidth: 52, alignItems: "center", gap: 2 },
-  tickerText: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
-  flagText: { fontSize: 10 },
-  nameRow: { flex: 1, minWidth: 0 },
-  stockName: { fontSize: 14, fontFamily: "Inter_600SemiBold", marginBottom: 1 },
-  sector: { fontSize: 11, fontFamily: "Inter_400Regular" },
-  center: { width: 60, alignItems: "center" },
-  right: { alignItems: "flex-end", minWidth: 72 },
-  price: { fontSize: 14, fontFamily: "Inter_700Bold", marginBottom: 4 },
-  changeBadge: { flexDirection: "row", alignItems: "center", paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, gap: 3 },
-  changeText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  /* Left section: badge + identity block */
+  left: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minWidth: 0,
+  },
+  identity: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  tickerLabel: {
+    fontSize: 14,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.2,
+  },
+  companyName: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+  },
+  /* Center: sparkline chart */
+  chartContainer: {
+    width: 56,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  /* Right section: price + change */
+  right: {
+    alignItems: "flex-end",
+    minWidth: 74,
+  },
+  price: {
+    fontSize: 14,
+    fontFamily: "Inter_700Bold",
+    fontVariant: ["tabular-nums"],
+    marginBottom: 2,
+  },
+  change: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    fontVariant: ["tabular-nums"],
+  },
+  /* Edit mode remove button */
   removeBtn: {
     position: "absolute",
     top: -6,
