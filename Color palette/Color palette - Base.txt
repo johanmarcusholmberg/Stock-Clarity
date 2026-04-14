@@ -1,0 +1,21 @@
+#38BEEB
+#3BEBA1
+#EB7438
+#6B5B54
+#4F646B
+#4F6B5F
+
+Primary
+#38BEEB
+
+Secondary
+#3BEBA1
+
+Accent
+#EB7438
+
+Neutral UI
+#6B5B54
+#4F646B
+#4F6B5F
+

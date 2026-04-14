@@ -1,0 +1,29 @@
+Primary
+#38BEEB
+
+Secondary
+#3BEBA1
+
+Accent
+#EB7438
+
+Background
+#F7FAFC
+
+Card / Surface
+#FFFFFF
+
+Section Background
+#EEF3F6
+
+Primary Text
+#2F3A40
+
+Secondary Text
+#4F646B
+
+Tertiary / Labels
+#6B5B54
+
+Borders / Dividers
+#E1E7EB
