@@ -826,7 +826,7 @@ export default function AccountScreen() {
         </TouchableOpacity>
 
         <Text style={{ color: colors.border, fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "center", paddingVertical: 8 }}>
-          StockClarify v1.0
+          StockClarify v1.0.1
         </Text>
 
         <View style={{ height: 40 }} />
