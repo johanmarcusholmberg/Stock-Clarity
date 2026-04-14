@@ -26,10 +26,11 @@ import Svg, {
   Text as SvgText,
 } from "react-native-svg";
 import { useColors } from "@/hooks/useColors";
+import { useMultiRangeChart } from "@/hooks/useMultiRangeChart";
 import { useWatchlist } from "@/context/WatchlistContext";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { PaywallSheet } from "@/components/PaywallSheet";
-import { getChart, getQuotes, getEvents, CHART_RANGES, EVENT_PERIODS, formatPrice, formatMarketCap, exchangeToFlag, type StockEvent, type EventPeriod } from "@/services/stockApi";
+import { getQuotes, getEvents, CHART_RANGES, EVENT_PERIODS, formatPrice, formatMarketCap, exchangeToFlag, type StockEvent, type EventPeriod } from "@/services/stockApi";
 import { isMarketOpen } from "@/utils/marketHours";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
@@ -627,9 +628,9 @@ export default function StockDetailScreen() {
   } = useSubscription();
 
   const [liveQuote, setLiveQuote] = useState<any>(null);
-  // Chart data cached per range index so all time frames stay in sync
-  const [chartCache, setChartCache] = useState<Record<number, { prices: number[]; timestamps: number[] }>>({});
-  const [chartLoading, setChartLoading] = useState(true);
+  // All chart ranges fetched in parallel via TanStack Query
+  const chart = useMultiRangeChart(ticker);
+  const chartLoading = chart.isInitialLoading;
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState(false);
   const [chartMode, setChartMode] = useState<ChartMode>("price");
@@ -645,16 +646,13 @@ export default function StockDetailScreen() {
   const [tickMs, setTickMs] = useState(Date.now());
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const stockViewRecorded = useRef(false);
-  // Tracks the previous ticker so we can tell "ticker changed" from "range changed"
-  // inside the combined data-fetch effect below.
-  const prevTickerRef = useRef<string | null>(null);
   // Separate ref for the events effect — lets us clear stale events only on
   // ticker change, not on period switch (period switch shows stale while loading).
   const prevEventTickerRef = useRef<string | null>(null);
 
   // Derived chart data from cache for the selected range
-  const chartPrices = chartCache[selectedRange]?.prices ?? [];
-  const chartTimestamps = chartCache[selectedRange]?.timestamps ?? [];
+  const chartPrices = chart.data[selectedRange]?.prices ?? [];
+  const chartTimestamps = chart.data[selectedRange]?.timestamps ?? [];
 
   const cachedStock = stocks[ticker ?? ""];
   const inAnyFolder = isInWatchlist(ticker ?? "");
@@ -689,61 +687,19 @@ export default function StockDetailScreen() {
   const cooldownMin = Math.ceil(cooldownRemainSec / 60);
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Data fetching — quote + chart are always kept in sync.
-  // • Ticker change  → clear stale data, fetch quote + first chart range together
-  // • Range switch (cache miss) → fetch quote + new chart range together
-  // • Range switch (cache hit)  → chart is instant; still refresh quote silently
-  //   so displayPrice never shows a stale value when the user is browsing ranges
+  // Quote refresh — chart data is handled by useMultiRangeChart (TanStack Query).
+  // We still need to keep liveQuote fresh: fetch on mount and on every range
+  // switch so the hero price never shows a stale value.
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!ticker) return;
-
-    const tickerChanged = prevTickerRef.current !== ticker;
-    prevTickerRef.current = ticker;
-
-    if (tickerChanged) {
-      // New stock — clear previous ticker's data immediately
-      setChartCache({});
-      setLiveQuote(null);
-    }
-
-    const { range, interval } = CHART_RANGES[selectedRange];
-
-    if (!tickerChanged && chartCache[selectedRange]) {
-      // Chart cached for this range — no loading state needed, but silently
-      // refresh the quote so the live price stays current across range switches.
-      getQuotes([ticker]).then((quotes) => {
-        if (quotes[0]) setLiveQuote(quotes[0]);
-      }).catch(() => {});
-      setChartLoading(false);
-      return;
-    }
-
-    // Fetch quote + chart together so both commit in the same render.
-    setChartLoading(true);
-    Promise.all([getQuotes([ticker]), getChart(ticker, range, interval)])
-      .then(([quotes, chart]) => {
-        if (quotes[0]) setLiveQuote(quotes[0]);
-        setChartCache((prev) =>
-          tickerChanged
-            ? { [selectedRange]: chart }
-            : { ...prev, [selectedRange]: chart }
-        );
-      })
-      .catch(() => {
-        setChartCache((prev) =>
-          tickerChanged
-            ? { [selectedRange]: { prices: cachedStock?.priceHistory ?? [], timestamps: [] } }
-            : { ...prev, [selectedRange]: { prices: [], timestamps: [] } }
-        );
-      })
-      .finally(() => setChartLoading(false));
-  // chartCache intentionally omitted from deps — read as snapshot only;
-  // including it would cause an infinite loop.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    getQuotes([ticker]).then((quotes) => {
+      if (quotes[0]) setLiveQuote(quotes[0]);
+    }).catch(() => {});
   }, [selectedRange, ticker]);
 
-  // Manual refresh: fetch quote + ALL chart ranges in one go, apply atomically
+  // Manual refresh: invalidate all chart queries (TanStack Query refetches in
+  // background) + fetch fresh quote.
   const handleManualRefresh = useCallback(async () => {
     if (isOnCooldown || refreshing || !ticker) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -754,16 +710,11 @@ export default function StockDetailScreen() {
     setLastManualRefresh(now);
     setTickMs(now); // force cooldown to re-derive immediately
     try {
-      // Single parallel fetch: quote + every chart range
-      const [quotesResult, ...chartResults] = await Promise.all([
-        getQuotes([ticker]),
-        ...CHART_RANGES.map(({ range, interval }) => getChart(ticker, range, interval)),
-      ]);
-      // Atomic commit — only if all requests resolved
-      if (quotesResult[0]) setLiveQuote(quotesResult[0]);
-      const newCache: Record<number, { prices: number[]; timestamps: number[] }> = {};
-      chartResults.forEach((data, idx) => { newCache[idx] = data; });
-      setChartCache(newCache);
+      // Invalidate all chart queries — TanStack Query refetches them in parallel
+      chart.invalidateAll();
+      // Refresh quote
+      const quotes = await getQuotes([ticker]);
+      if (quotes[0]) setLiveQuote(quotes[0]);
     } catch {
       // Full rollback: revert timestamp so the cooldown doesn't linger on error
       setLastManualRefresh(null);
@@ -773,7 +724,7 @@ export default function StockDetailScreen() {
     } finally {
       setRefreshing(false);
     }
-  }, [isOnCooldown, refreshing, ticker]);
+  }, [isOnCooldown, refreshing, ticker, chart]);
 
   // Load events
   // On ticker change: clear stale events from the previous stock immediately.
