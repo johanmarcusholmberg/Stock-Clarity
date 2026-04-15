@@ -20,7 +20,7 @@ import { useColors } from "@/hooks/useColors";
 import { useMiniCharts } from "@/hooks/useMiniCharts";
 import { useWatchlist, Stock } from "@/context/WatchlistContext";
 import StockCard from "@/components/StockCard";
-import { FolderTabStrip } from "@/components/FolderTabStrip";
+
 import { FolderAddSheet } from "@/components/FolderAddSheet";
 import { TabHintPopup } from "@/components/TabHintPopup";
 
@@ -145,6 +145,7 @@ export default function WatchlistScreen() {
     unreadAlertCount,
     folders,
     activeFolderId,
+    setActiveFolderId,
     displayName,
     removeFromFolder,
     reorderFolder,
@@ -157,6 +158,7 @@ export default function WatchlistScreen() {
   const [pendingRemovals, setPendingRemovals] = useState<Set<string>>(new Set());
   const [addSheetVisible, setAddSheetVisible] = useState(false);
   const [deleteModal, setDeleteModal] = useState<DeleteModalState>({ visible: false, folderName: "", folderId: "", hasStocks: false });
+  const [pickerVisible, setPickerVisible] = useState(false);
   const params = useLocalSearchParams<{ pendingTimezone?: string }>();
 
   useEffect(() => {
@@ -197,6 +199,7 @@ export default function WatchlistScreen() {
 
   const activeFolder = folders.find((f) => f.id === activeFolderId);
   const isDefaultFolder = activeFolderId === DEFAULT_FOLDER_ID;
+  const portfolios = folders.filter((f) => f.id !== DEFAULT_FOLDER_ID);
 
   const allWatched = watchlist.map((ticker) => stocks[ticker]).filter(Boolean);
 
@@ -323,22 +326,98 @@ export default function WatchlistScreen() {
           </View>
         </View>
 
-        <View style={[styles.statsRow, { marginTop: 20, paddingHorizontal: 16, marginBottom: 16 }]}>
-          <View style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.statValue, { color: colors.foreground }]}>{allWatched.length}</Text>
-            <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Watching</Text>
-          </View>
-          <View style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.statValue, { color: colors.positive }]}>{gainers.length}</Text>
-            <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Gainers</Text>
-          </View>
-          <View style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.statValue, { color: colors.negative }]}>{losers.length}</Text>
-            <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Losers</Text>
-          </View>
+        {/* Stat cards — tappable filter controls */}
+        <View style={[styles.statsRow, { marginTop: 20, paddingHorizontal: 16, marginBottom: 12 }]}>
+          {([
+            { key: "all" as Filter, label: "Total", count: allWatched.length, valueColor: colors.foreground },
+            { key: "gainers" as Filter, label: "Gainers", count: gainers.length, valueColor: colors.positive },
+            { key: "losers" as Filter, label: "Losers", count: losers.length, valueColor: colors.negative },
+          ]).map((card) => {
+            const active = filter === card.key;
+            return (
+              <TouchableOpacity
+                key={card.key}
+                style={[
+                  styles.statCard,
+                  {
+                    backgroundColor: active ? `${colors.primary}10` : colors.card,
+                    borderColor: active ? colors.primary : colors.border,
+                  },
+                ]}
+                activeOpacity={0.7}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setFilter(card.key);
+                }}
+              >
+                <Text style={[styles.statValue, { color: card.valueColor }]}>{card.count}</Text>
+                <Text style={[styles.statLabel, { color: active ? colors.primary : colors.mutedForeground }]}>
+                  {card.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
-        <FolderTabStrip />
+        {/* Control row: folder switcher (left) + %/$ toggle (right) */}
+        <View style={[styles.controlRow, { paddingHorizontal: 16, marginBottom: 12 }]}>
+          <View style={[styles.segmentedControl, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+            <TouchableOpacity
+              style={[
+                styles.segment,
+                { backgroundColor: isDefaultFolder ? colors.primary : "transparent" },
+              ]}
+              activeOpacity={0.7}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setActiveFolderId(DEFAULT_FOLDER_ID);
+              }}
+            >
+              <Text
+                style={[
+                  styles.segmentText,
+                  { color: isDefaultFolder ? colors.primaryForeground : colors.mutedForeground },
+                ]}
+              >
+                Watchlist
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.segment,
+                { backgroundColor: !isDefaultFolder ? colors.primary : "transparent" },
+              ]}
+              activeOpacity={0.7}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setPickerVisible(true);
+              }}
+            >
+              <Text
+                style={[
+                  styles.segmentText,
+                  { color: !isDefaultFolder ? colors.primaryForeground : colors.mutedForeground, maxWidth: 120 },
+                ]}
+                numberOfLines={1}
+              >
+                {!isDefaultFolder && activeFolder ? activeFolder.name : "Portfolio"}
+              </Text>
+              <Feather
+                name="chevron-down"
+                size={12}
+                color={!isDefaultFolder ? colors.primaryForeground : colors.mutedForeground}
+              />
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity
+            style={[styles.changeToggle, { backgroundColor: colors.secondary, borderColor: colors.border }]}
+            onPress={toggleChangeMode}
+          >
+            <Text style={[styles.changeToggleText, { color: showPercent ? colors.primary : colors.mutedForeground }]}>%</Text>
+            <View style={[styles.changeToggleDivider, { backgroundColor: colors.border }]} />
+            <Text style={[styles.changeToggleText, { color: !showPercent ? colors.primary : colors.mutedForeground }]}>$</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Toolbar row 1: section title + action buttons */}
         {editMode ? (
@@ -385,44 +464,6 @@ export default function WatchlistScreen() {
           </View>
         )}
 
-        {/* Toolbar row 2: filters (left) + %/$ toggle (right) */}
-        <View style={[styles.filterRow, { marginBottom: 12, paddingHorizontal: 16, justifyContent: "space-between" }]}>
-          <View style={styles.filterChips}>
-            {FILTERS.map((f) => (
-              <TouchableOpacity
-                key={f.key}
-                style={[
-                  styles.filterChip,
-                  {
-                    backgroundColor: filter === f.key ? colors.primary : colors.secondary,
-                    borderColor: filter === f.key ? colors.primary : colors.border,
-                  },
-                ]}
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setFilter(f.key); }}
-              >
-                <Text style={[styles.filterChipText, { color: filter === f.key ? colors.primaryForeground : colors.mutedForeground }]}>
-                  {f.label}
-                </Text>
-                {f.count > 0 && (
-                  <View style={[styles.filterCount, { backgroundColor: filter === f.key ? `${colors.primaryForeground}33` : `${colors.primary}22` }]}>
-                    <Text style={[styles.filterCountText, { color: filter === f.key ? colors.primaryForeground : colors.primary }]}>{f.count}</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            ))}
-          </View>
-          <View style={styles.filterRowRight}>
-            <View style={[styles.filterRowSeparator, { backgroundColor: colors.border }]} />
-            <TouchableOpacity
-              style={[styles.changeToggle, { backgroundColor: colors.secondary, borderColor: colors.border }]}
-              onPress={toggleChangeMode}
-            >
-              <Text style={[styles.changeToggleText, { color: showPercent ? colors.primary : colors.mutedForeground }]}>%</Text>
-              <View style={[styles.changeToggleDivider, { backgroundColor: colors.border }]} />
-              <Text style={[styles.changeToggleText, { color: !showPercent ? colors.primary : colors.mutedForeground }]}>$</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
       </View>
 
       {displayed.length === 0 ? (
@@ -508,6 +549,68 @@ export default function WatchlistScreen() {
         onDeleteFolderAndStocks={handleModalDeleteFolderAndStocks}
         colors={colors}
       />
+      {/* Portfolio picker bottom sheet */}
+      <Modal
+        visible={pickerVisible}
+        transparent
+        animationType="slide"
+        presentationStyle="overFullScreen"
+        onRequestClose={() => setPickerVisible(false)}
+      >
+        <View style={pickerStyles.overlay}>
+          <TouchableOpacity
+            style={pickerStyles.backdrop}
+            activeOpacity={1}
+            onPress={() => setPickerVisible(false)}
+          />
+          <View style={[pickerStyles.sheet, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={[pickerStyles.handle, { backgroundColor: colors.border }]} />
+            <Text style={[pickerStyles.title, { color: colors.foreground }]}>Portfolios</Text>
+            {portfolios.length === 0 ? (
+              <View style={pickerStyles.empty}>
+                <Text style={[pickerStyles.emptyText, { color: colors.mutedForeground }]}>No portfolios yet</Text>
+              </View>
+            ) : (
+              <ScrollView style={pickerStyles.list} showsVerticalScrollIndicator={false}>
+                {portfolios.map((folder) => {
+                  const isSelected = folder.id === activeFolderId;
+                  return (
+                    <TouchableOpacity
+                      key={folder.id}
+                      style={[
+                        pickerStyles.row,
+                        {
+                          backgroundColor: isSelected ? `${colors.primary}12` : "transparent",
+                          borderColor: isSelected ? `${colors.primary}30` : colors.border,
+                        },
+                      ]}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setActiveFolderId(folder.id);
+                        setPickerVisible(false);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={pickerStyles.rowLeft}>
+                        <Text
+                          style={[pickerStyles.rowName, { color: isSelected ? colors.primary : colors.foreground }]}
+                          numberOfLines={1}
+                        >
+                          {folder.name}
+                        </Text>
+                        <Text style={[pickerStyles.rowCount, { color: colors.mutedForeground }]}>
+                          {folder.tickers.length} {folder.tickers.length === 1 ? "stock" : "stocks"}
+                        </Text>
+                      </View>
+                      {isSelected && <Feather name="check" size={16} color={colors.primary} />}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
       <TabHintPopup
         tabKey="home"
         hint="This is your Home tab — your personal watchlist. Add stocks you care about to track their live prices and daily changes at a glance."
@@ -562,4 +665,23 @@ const styles = StyleSheet.create({
   emptyButtonText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
   emptyButtonOutline: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, borderWidth: 1 },
   emptyButtonOutlineText: { fontSize: 14, fontFamily: "Inter_400Regular" },
+  controlRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  segmentedControl: { flexDirection: "row", borderRadius: 10, borderWidth: 1, overflow: "hidden" },
+  segment: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 7, gap: 4 },
+  segmentText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+});
+
+const pickerStyles = StyleSheet.create({
+  overlay: { flex: 1, justifyContent: "flex-end" },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.45)" },
+  sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, borderBottomWidth: 0, paddingBottom: 34, maxHeight: "50%" },
+  handle: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", marginTop: 10, marginBottom: 4 },
+  title: { fontSize: 18, fontFamily: "Inter_700Bold", paddingHorizontal: 20, paddingVertical: 14 },
+  list: { paddingHorizontal: 16, paddingBottom: 8 },
+  empty: { alignItems: "center", paddingVertical: 32 },
+  emptyText: { fontSize: 14, fontFamily: "Inter_400Regular" },
+  row: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 14, borderRadius: 12, borderWidth: 1, marginBottom: 8 },
+  rowLeft: { flex: 1, gap: 2 },
+  rowName: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  rowCount: { fontSize: 12, fontFamily: "Inter_400Regular" },
 });
