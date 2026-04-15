@@ -10,6 +10,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -146,6 +147,8 @@ export default function WatchlistScreen() {
     folders,
     activeFolderId,
     setActiveFolderId,
+    createFolder,
+    canCreateFolder,
     displayName,
     removeFromFolder,
     reorderFolder,
@@ -159,6 +162,8 @@ export default function WatchlistScreen() {
   const [addSheetVisible, setAddSheetVisible] = useState(false);
   const [deleteModal, setDeleteModal] = useState<DeleteModalState>({ visible: false, folderName: "", folderId: "", hasStocks: false });
   const [pickerVisible, setPickerVisible] = useState(false);
+  const [creatingPortfolio, setCreatingPortfolio] = useState(false);
+  const [newPortfolioName, setNewPortfolioName] = useState("");
   const params = useLocalSearchParams<{ pendingTimezone?: string }>();
 
   useEffect(() => {
@@ -300,6 +305,22 @@ export default function WatchlistScreen() {
     setEditMode(false);
     setDeleteModal({ visible: false, folderName: "", folderId: "", hasStocks: false });
   }, [deleteModal.folderId, deleteFolder]);
+
+  const closePortfolioPicker = useCallback(() => {
+    setPickerVisible(false);
+    setCreatingPortfolio(false);
+    setNewPortfolioName("");
+  }, []);
+
+  const handleCreatePortfolio = useCallback(() => {
+    const name = newPortfolioName.trim();
+    if (!name) return;
+    const folder = createFolder(name);
+    if (!folder) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setActiveFolderId(folder.id);
+    closePortfolioPicker();
+  }, [newPortfolioName, createFolder, setActiveFolderId, closePortfolioPicker]);
 
   return (
     <View style={[styles.fill, { backgroundColor: colors.background }]}>
@@ -555,22 +576,64 @@ export default function WatchlistScreen() {
         transparent
         animationType="slide"
         presentationStyle="overFullScreen"
-        onRequestClose={() => setPickerVisible(false)}
+        onRequestClose={closePortfolioPicker}
       >
         <View style={pickerStyles.overlay}>
           <TouchableOpacity
             style={pickerStyles.backdrop}
             activeOpacity={1}
-            onPress={() => setPickerVisible(false)}
+            onPress={closePortfolioPicker}
           />
           <View style={[pickerStyles.sheet, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={[pickerStyles.handle, { backgroundColor: colors.border }]} />
-            <Text style={[pickerStyles.title, { color: colors.foreground }]}>Portfolios</Text>
-            {portfolios.length === 0 ? (
+            <View style={pickerStyles.header}>
+              <Text style={[pickerStyles.title, { color: colors.foreground }]}>Portfolios</Text>
+              {canCreateFolder && !creatingPortfolio && (
+                <TouchableOpacity
+                  style={[pickerStyles.newBtn, { backgroundColor: colors.primary }]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setNewPortfolioName("");
+                    setCreatingPortfolio(true);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Feather name="plus" size={14} color={colors.primaryForeground} />
+                  <Text style={[pickerStyles.newBtnText, { color: colors.primaryForeground }]}>New</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            {creatingPortfolio && (
+              <View style={pickerStyles.createRow}>
+                <TextInput
+                  style={[pickerStyles.createInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.secondary }]}
+                  placeholder="Portfolio name"
+                  placeholderTextColor={colors.mutedForeground}
+                  value={newPortfolioName}
+                  onChangeText={setNewPortfolioName}
+                  autoFocus
+                  maxLength={30}
+                  returnKeyType="done"
+                  onSubmitEditing={handleCreatePortfolio}
+                />
+                <TouchableOpacity
+                  style={[pickerStyles.createBtn, { backgroundColor: newPortfolioName.trim() ? colors.primary : colors.secondary }]}
+                  onPress={handleCreatePortfolio}
+                  disabled={!newPortfolioName.trim()}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[pickerStyles.createBtnText, { color: newPortfolioName.trim() ? colors.primaryForeground : colors.mutedForeground }]}>
+                    Create
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {portfolios.length === 0 && !creatingPortfolio && (
               <View style={pickerStyles.empty}>
                 <Text style={[pickerStyles.emptyText, { color: colors.mutedForeground }]}>No portfolios yet</Text>
               </View>
-            ) : (
+            )}
+            {portfolios.length > 0 && (
               <ScrollView style={pickerStyles.list} showsVerticalScrollIndicator={false}>
                 {portfolios.map((folder) => {
                   const isSelected = folder.id === activeFolderId;
@@ -587,7 +650,7 @@ export default function WatchlistScreen() {
                       onPress={() => {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                         setActiveFolderId(folder.id);
-                        setPickerVisible(false);
+                        closePortfolioPicker();
                       }}
                       activeOpacity={0.7}
                     >
@@ -676,7 +739,14 @@ const pickerStyles = StyleSheet.create({
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.45)" },
   sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, borderBottomWidth: 0, paddingBottom: 34, maxHeight: "50%" },
   handle: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", marginTop: 10, marginBottom: 4 },
-  title: { fontSize: 18, fontFamily: "Inter_700Bold", paddingHorizontal: 20, paddingVertical: 14 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingVertical: 14 },
+  title: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  newBtn: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, gap: 4 },
+  newBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  createRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, marginBottom: 12 },
+  createInput: { flex: 1, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, fontFamily: "Inter_400Regular" },
+  createBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10 },
+  createBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   list: { paddingHorizontal: 16, paddingBottom: 8 },
   empty: { alignItems: "center", paddingVertical: 32 },
   emptyText: { fontSize: 14, fontFamily: "Inter_400Regular" },
