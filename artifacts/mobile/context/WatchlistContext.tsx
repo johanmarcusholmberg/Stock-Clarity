@@ -52,6 +52,8 @@ export interface DigestEntry {
   unusual: string;
   sentiment: "positive" | "negative" | "neutral";
   timestamp: string;
+  sourceUrl?: string;
+  sourceName?: string;
 }
 
 export interface WatchlistFolder {
@@ -129,6 +131,7 @@ const MOCK_DIGEST: DigestEntry[] = [
     why: "Sustained Services growth reduces Apple's reliance on iPhone hardware cycles and delivers higher-margin recurring revenue — a key driver of long-term valuation expansion.",
     unusual: "This marks the 6th consecutive quarter where Services alone beat analyst estimates by more than 5% — a streak that is exceptionally rare for a segment of this size.",
     sentiment: "positive", timestamp: "2026-04-12T07:00:00Z",
+    sourceUrl: "https://www.reuters.com/technology/apple-q2-earnings-2026-04-12/", sourceName: "Reuters",
   },
   {
     id: "d2", ticker: "TSLA", stockName: "Tesla",
@@ -137,6 +140,7 @@ const MOCK_DIGEST: DigestEntry[] = [
     why: "Delivery misses at this scale signal weakening demand for Tesla's aging model lineup, while intensifying competition from BYD and other EV makers pressures both volume and pricing.",
     unusual: "This is the steepest quarter-over-quarter delivery decline Tesla has reported as a public company, happening at a moment when the overall EV market is still growing.",
     sentiment: "negative", timestamp: "2026-04-12T07:00:00Z",
+    sourceUrl: "https://www.bloomberg.com/news/articles/2026-04-12/tesla-q1-deliveries", sourceName: "Bloomberg",
   },
   {
     id: "d3", ticker: "NVDA", stockName: "NVIDIA",
@@ -145,6 +149,7 @@ const MOCK_DIGEST: DigestEntry[] = [
     why: "A $1,000 target from a top-tier bank implies roughly 20% upside from current levels and reflects growing conviction that AI infrastructure spending will remain elevated through 2027.",
     unusual: "Three other major firms issued similar target raises in the same week — a coordinated wave of upgrades not seen for NVIDIA since the post-ChatGPT surge in early 2023.",
     sentiment: "positive", timestamp: "2026-04-12T07:00:00Z",
+    sourceUrl: "https://www.cnbc.com/2026/04/12/nvidia-price-target-raise.html", sourceName: "CNBC",
   },
   {
     id: "d4", ticker: "META", stockName: "Meta",
@@ -153,6 +158,7 @@ const MOCK_DIGEST: DigestEntry[] = [
     why: "Higher capex can weigh on near-term free cash flow but signals that Meta's AI features — Llama models, ad targeting, and Meta AI — are delivering enough return to justify accelerating investment.",
     unusual: "Increasing full-year capex by $10B mid-year is highly unusual — it suggests Meta's internal AI ROI data is compelling enough to override typical budget discipline.",
     sentiment: "neutral", timestamp: "2026-04-12T07:00:00Z",
+    sourceUrl: "https://www.wsj.com/articles/meta-ai-capex-2026-04-12", sourceName: "WSJ",
   },
   {
     id: "d5", ticker: "MSFT", stockName: "Microsoft",
@@ -161,6 +167,7 @@ const MOCK_DIGEST: DigestEntry[] = [
     why: "Accelerating AI contribution within Azure shows that enterprise customers are moving from pilots to production workloads — a transition that tends to drive durable, sticky revenue.",
     unusual: "The AI contribution to Azure growth has doubled in just two quarters, a pace of adoption that most analysts had not modeled until 2027.",
     sentiment: "positive", timestamp: "2026-04-12T07:00:00Z",
+    sourceUrl: "https://www.ft.com/content/azure-ai-growth-2026-04-12", sourceName: "Financial Times",
   },
 ];
 
