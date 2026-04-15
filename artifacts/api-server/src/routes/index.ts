@@ -7,6 +7,7 @@ import analyticsRouter from "./analytics";
 import adminRouter from "./admin";
 import devRouter from "./dev";
 import watchlistRouter from "./watchlist";
+import authRouter from "./auth";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use("/analytics", analyticsRouter);
 router.use("/admin", adminRouter);
 router.use("/dev", devRouter);
 router.use("/watchlist", watchlistRouter);
+router.use("/auth", authRouter);
 
 export default router;

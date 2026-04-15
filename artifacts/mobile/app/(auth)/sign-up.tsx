@@ -164,6 +164,19 @@ export default function SignUpScreen() {
         code: verificationCode,
       });
       if (result.status === "complete" && result.createdSessionId) {
+        // Record initial password in history (non-blocking)
+        try {
+          const domain = process.env.EXPO_PUBLIC_DOMAIN;
+          if (domain) {
+            await fetch(`https://${domain}/api/auth/record-password`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email, password }),
+            });
+          }
+        } catch {
+          // Non-blocking — history storage failure shouldn't block signup
+        }
         setSessionId(result.createdSessionId);
         setPendingVerification(false);
         setPendingTimezone(true);
@@ -302,43 +315,6 @@ export default function SignUpScreen() {
           Track the stocks you care about with real-time data and AI-powered insights.
         </Text>
 
-        {/* Social sign-up buttons */}
-        <View style={styles.socialSection}>
-          <TouchableOpacity
-            style={[styles.socialButton, { backgroundColor: colors.card, borderColor: colors.border, opacity: oauthLoading === "apple" ? 0.5 : 1 }]}
-            onPress={handleGoogleSignUp}
-            disabled={!!oauthLoading}
-          >
-            {oauthLoading === "google" ? (
-              <ActivityIndicator color={colors.foreground} size="small" />
-            ) : (
-              <Text style={{ fontSize: 16, lineHeight: 18 }}>G</Text>
-            )}
-            <Text style={[styles.socialButtonText, { color: colors.foreground }]}>Continue with Google</Text>
-          </TouchableOpacity>
-          {Platform.OS === "ios" && (
-            <TouchableOpacity
-              style={[styles.socialButton, { backgroundColor: colors.card, borderColor: colors.border, opacity: oauthLoading === "google" ? 0.5 : 1 }]}
-              onPress={handleAppleSignUp}
-              disabled={!!oauthLoading}
-            >
-              {oauthLoading === "apple" ? (
-                <ActivityIndicator color={colors.foreground} size="small" />
-              ) : (
-                <Feather name="smartphone" size={16} color={colors.foreground} />
-              )}
-              <Text style={[styles.socialButtonText, { color: colors.foreground }]}>Continue with Apple</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* Divider */}
-        <View style={styles.dividerRow}>
-          <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
-          <Text style={[styles.dividerText, { color: colors.mutedForeground }]}>or</Text>
-          <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
-        </View>
-
         <View style={styles.formSection}>
           <Text style={[styles.label, { color: colors.mutedForeground }]}>Email</Text>
           <TextInput
@@ -353,9 +329,9 @@ export default function SignUpScreen() {
           />
 
           <Text style={[styles.label, { color: colors.mutedForeground, marginTop: 14 }]}>Password</Text>
-          <View style={styles.passwordRow}>
+          <View style={styles.passwordWrapper}>
             <TextInput
-              style={[styles.passwordInput, { backgroundColor: colors.secondary, borderColor: colors.border, color: colors.foreground }]}
+              style={[styles.input, { backgroundColor: colors.secondary, borderColor: colors.border, color: colors.foreground, paddingRight: 48 }]}
               value={password}
               placeholder="••••••••"
               placeholderTextColor={colors.mutedForeground}
@@ -363,10 +339,11 @@ export default function SignUpScreen() {
               secureTextEntry={!showPassword}
             />
             <TouchableOpacity
-              style={[styles.eyeButton, { backgroundColor: colors.secondary, borderColor: colors.border }]}
+              style={styles.eyeToggle}
               onPress={() => setShowPassword((v) => !v)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Feather name={showPassword ? "eye-off" : "eye"} size={16} color={colors.mutedForeground} />
+              <Feather name={showPassword ? "eye-off" : "eye"} size={18} color={colors.mutedForeground} />
             </TouchableOpacity>
           </View>
 
@@ -441,6 +418,43 @@ export default function SignUpScreen() {
           By creating an account, you agree to our Terms of Service and Privacy Policy.
         </Text>
 
+        {/* Divider */}
+        <View style={styles.dividerRow}>
+          <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+          <Text style={[styles.dividerText, { color: colors.mutedForeground }]}>or</Text>
+          <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+        </View>
+
+        {/* Social sign-up buttons */}
+        <View style={styles.socialSection}>
+          <TouchableOpacity
+            style={[styles.socialButton, { backgroundColor: colors.card, borderColor: colors.border, opacity: oauthLoading === "apple" ? 0.5 : 1 }]}
+            onPress={handleGoogleSignUp}
+            disabled={!!oauthLoading}
+          >
+            {oauthLoading === "google" ? (
+              <ActivityIndicator color={colors.foreground} size="small" />
+            ) : (
+              <Text style={{ fontSize: 16, lineHeight: 18 }}>G</Text>
+            )}
+            <Text style={[styles.socialButtonText, { color: colors.foreground }]}>Continue with Google</Text>
+          </TouchableOpacity>
+          {Platform.OS === "ios" && (
+            <TouchableOpacity
+              style={[styles.socialButton, { backgroundColor: colors.card, borderColor: colors.border, opacity: oauthLoading === "google" ? 0.5 : 1 }]}
+              onPress={handleAppleSignUp}
+              disabled={!!oauthLoading}
+            >
+              {oauthLoading === "apple" ? (
+                <ActivityIndicator color={colors.foreground} size="small" />
+              ) : (
+                <Feather name="smartphone" size={16} color={colors.foreground} />
+              )}
+              <Text style={[styles.socialButtonText, { color: colors.foreground }]}>Continue with Apple</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
         <View style={styles.switchRow}>
           <Text style={[styles.switchText, { color: colors.mutedForeground }]}>Already have an account? </Text>
           <Link href="/(auth)/sign-in" asChild>
@@ -504,22 +518,14 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: "Inter_400Regular",
   },
-  passwordRow: { flexDirection: "row", gap: 8 },
-  passwordInput: {
-    flex: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    borderRadius: 12,
-    borderWidth: 1,
-    fontSize: 15,
-    fontFamily: "Inter_400Regular",
-  },
-  eyeButton: {
-    width: 48,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
+  passwordWrapper: { position: "relative" as const, justifyContent: "center" as const },
+  eyeToggle: {
+    position: "absolute" as const,
+    right: 14,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center" as const,
+    alignItems: "center" as const,
   },
   primaryButton: {
     paddingVertical: 15,
@@ -557,7 +563,7 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     marginTop: 4,
   },
-  socialSection: { gap: 10, marginBottom: 20, marginTop: 8 },
+  socialSection: { gap: 10, marginBottom: 16 },
   socialButton: {
     flexDirection: "row",
     alignItems: "center",
