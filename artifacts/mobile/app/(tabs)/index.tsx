@@ -77,8 +77,8 @@ function DeleteFolderModal({
           <Text style={[dm.title, { color: colors.foreground }]}>Delete "{state.folderName}"?</Text>
           <Text style={[dm.message, { color: colors.mutedForeground }]}>
             {state.hasStocks
-              ? "Choose what happens to the stocks in this folder:"
-              : "This folder is empty. It will be permanently deleted."}
+              ? "Choose what happens to the stocks in this portfolio:"
+              : "This portfolio is empty. It will be permanently deleted."}
           </Text>
 
           <View style={[dm.divider, { backgroundColor: colors.border }]} />
@@ -86,11 +86,11 @@ function DeleteFolderModal({
           <TouchableOpacity style={dm.option} onPress={onDeleteFolderOnly} activeOpacity={0.7}>
             <Feather name="folder-minus" size={16} color={colors.foreground} />
             <View style={dm.optionText}>
-              <Text style={[dm.optionTitle, { color: colors.foreground }]}>Delete folder only</Text>
+              <Text style={[dm.optionTitle, { color: colors.foreground }]}>Delete portfolio only</Text>
               <Text style={[dm.optionDesc, { color: colors.mutedForeground }]}>
                 {state.hasStocks
-                  ? "Stocks stay in My Watchlist and any other folders."
-                  : "The folder is removed. No stock data is affected."}
+                  ? "Stocks stay in My Watchlist and any other portfolios."
+                  : "The portfolio is removed. No stock data is affected."}
               </Text>
             </View>
           </TouchableOpacity>
@@ -101,9 +101,9 @@ function DeleteFolderModal({
               <TouchableOpacity style={dm.option} onPress={onDeleteFolderAndStocks} activeOpacity={0.7}>
                 <Feather name="trash-2" size={16} color={colors.negative} />
                 <View style={dm.optionText}>
-                  <Text style={[dm.optionTitle, { color: colors.negative }]}>Delete folder and remove stocks</Text>
+                  <Text style={[dm.optionTitle, { color: colors.negative }]}>Delete portfolio and remove stocks</Text>
                   <Text style={[dm.optionDesc, { color: colors.mutedForeground }]}>
-                    Stocks are fully unfollowed from every folder.
+                    Stocks are fully unfollowed from every portfolio.
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -254,7 +254,7 @@ export default function WatchlistScreen() {
       const buttons: import("react-native").AlertButton[] = [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Delete folder only",
+          text: "Delete portfolio only",
           style: "default",
           onPress: () => {
             deleteFolder(activeFolderId, false);
@@ -264,7 +264,7 @@ export default function WatchlistScreen() {
       ];
       if (hasStocks) {
         buttons.push({
-          text: "Delete folder and remove stocks",
+          text: "Delete portfolio and remove stocks",
           style: "destructive",
           onPress: () => {
             deleteFolder(activeFolderId, true);
@@ -275,8 +275,8 @@ export default function WatchlistScreen() {
       Alert.alert(
         `Delete "${activeFolder.name}"?`,
         hasStocks
-          ? "Choose what happens to the stocks in this folder:"
-          : "This folder is empty. It will be permanently deleted.",
+          ? "Choose what happens to the stocks in this portfolio:"
+          : "This portfolio is empty. It will be permanently deleted.",
         buttons
       );
     }
@@ -349,7 +349,7 @@ export default function WatchlistScreen() {
                 onPress={handleDeleteFolder}
               >
                 <Feather name="trash-2" size={13} color={colors.negative} />
-                <Text style={[styles.deleteButtonText, { color: colors.negative }]}>Delete Folder</Text>
+                <Text style={[styles.deleteButtonText, { color: colors.negative }]}>Delete Portfolio</Text>
               </TouchableOpacity>
             ) : (
               <View />
