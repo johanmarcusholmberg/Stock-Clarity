@@ -196,7 +196,7 @@ export function FolderAddSheet({ visible, onClose, folderId, folderName }: Props
                 onPress={() => setTab("watchlist")}
               >
                 <Feather name="bookmark" size={13} color={activeTab === "watchlist" ? colors.primary : colors.mutedForeground} />
-                <Text style={[s.tabBtnText, { color: activeTab === "watchlist" ? colors.primary : colors.mutedForeground }]}>My Watchlist</Text>
+                <Text style={[s.tabBtnText, { color: activeTab === "watchlist" ? colors.primary : colors.mutedForeground }]}>Watchlist</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[s.tabBtn, activeTab === "search" && { backgroundColor: colors.card }]}

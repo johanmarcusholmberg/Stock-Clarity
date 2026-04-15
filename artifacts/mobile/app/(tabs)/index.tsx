@@ -164,6 +164,7 @@ export default function WatchlistScreen() {
   const [pickerVisible, setPickerVisible] = useState(false);
   const [creatingPortfolio, setCreatingPortfolio] = useState(false);
   const [newPortfolioName, setNewPortfolioName] = useState("");
+  const [pickerDeletePending, setPickerDeletePending] = useState(false);
   const params = useLocalSearchParams<{ pendingTimezone?: string }>();
 
   useEffect(() => {
@@ -292,19 +293,40 @@ export default function WatchlistScreen() {
 
   const handleModalCancel = useCallback(() => {
     setDeleteModal({ visible: false, folderName: "", folderId: "", hasStocks: false });
-  }, []);
+    if (pickerDeletePending) {
+      setPickerDeletePending(false);
+      const remaining = folders.filter((f) => f.id !== DEFAULT_FOLDER_ID).length;
+      if (remaining > 0) {
+        setTimeout(() => setPickerVisible(true), 350);
+      }
+    }
+  }, [pickerDeletePending, folders]);
 
   const handleModalDeleteFolderOnly = useCallback(() => {
     deleteFolder(deleteModal.folderId, false);
     setEditMode(false);
     setDeleteModal({ visible: false, folderName: "", folderId: "", hasStocks: false });
-  }, [deleteModal.folderId, deleteFolder]);
+    if (pickerDeletePending) {
+      setPickerDeletePending(false);
+      const remaining = folders.filter((f) => f.id !== DEFAULT_FOLDER_ID && f.id !== deleteModal.folderId).length;
+      if (remaining > 0) {
+        setTimeout(() => setPickerVisible(true), 350);
+      }
+    }
+  }, [deleteModal.folderId, deleteFolder, pickerDeletePending, folders]);
 
   const handleModalDeleteFolderAndStocks = useCallback(() => {
     deleteFolder(deleteModal.folderId, true);
     setEditMode(false);
     setDeleteModal({ visible: false, folderName: "", folderId: "", hasStocks: false });
-  }, [deleteModal.folderId, deleteFolder]);
+    if (pickerDeletePending) {
+      setPickerDeletePending(false);
+      const remaining = folders.filter((f) => f.id !== DEFAULT_FOLDER_ID && f.id !== deleteModal.folderId).length;
+      if (remaining > 0) {
+        setTimeout(() => setPickerVisible(true), 350);
+      }
+    }
+  }, [deleteModal.folderId, deleteFolder, pickerDeletePending, folders]);
 
   const closePortfolioPicker = useCallback(() => {
     setPickerVisible(false);
@@ -320,7 +342,24 @@ export default function WatchlistScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setActiveFolderId(folder.id);
     closePortfolioPicker();
+    setTimeout(() => setAddSheetVisible(true), 350);
   }, [newPortfolioName, createFolder, setActiveFolderId, closePortfolioPicker]);
+
+  const handlePickerDelete = useCallback((folder: { id: string; name: string; tickers: string[] }) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setPickerVisible(false);
+    setCreatingPortfolio(false);
+    setNewPortfolioName("");
+    setPickerDeletePending(true);
+    setTimeout(() => {
+      setDeleteModal({
+        visible: true,
+        folderName: folder.name,
+        folderId: folder.id,
+        hasStocks: folder.tickers.length > 0,
+      });
+    }, 350);
+  }, []);
 
   return (
     <View style={[styles.fill, { backgroundColor: colors.background }]}>
@@ -513,7 +552,6 @@ export default function WatchlistScreen() {
                 style={[styles.emptyButtonOutline, { borderColor: colors.border }]}
                 onPress={() => setAddSheetVisible(true)}
               >
-                <Feather name="plus" size={15} color={colors.mutedForeground} style={{ marginRight: 6 }} />
                 <Text style={[styles.emptyButtonOutlineText, { color: colors.mutedForeground }]}>Browse & add stocks</Text>
               </TouchableOpacity>
             </View>
@@ -666,6 +704,13 @@ export default function WatchlistScreen() {
                         </Text>
                       </View>
                       {isSelected && <Feather name="check" size={16} color={colors.primary} />}
+                      <TouchableOpacity
+                        onPress={() => handlePickerDelete(folder)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        style={pickerStyles.trashBtn}
+                      >
+                        <Feather name="trash-2" size={16} color={colors.mutedForeground} />
+                      </TouchableOpacity>
                     </TouchableOpacity>
                   );
                 })}
@@ -754,4 +799,5 @@ const pickerStyles = StyleSheet.create({
   rowLeft: { flex: 1, gap: 2 },
   rowName: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   rowCount: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  trashBtn: { padding: 4, marginLeft: 8 },
 });
