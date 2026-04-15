@@ -27,7 +27,7 @@ export default function SearchBar({ value, onChangeText, placeholder = "Search s
         autoCorrect={false}
       />
       {value.length > 0 && (
-        <TouchableOpacity onPress={() => onChangeText("")} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+        <TouchableOpacity onPress={() => onChangeText("")} hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }} accessibilityLabel="Clear search">
           <Feather name="x" size={15} color={colors.mutedForeground} />
         </TouchableOpacity>
       )}

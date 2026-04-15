@@ -116,6 +116,7 @@ function StockCardInner({ stock, chartData, showPercent = true, editMode = false
           onPress={onRemove}
           activeOpacity={0.7}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityLabel="Remove stock"
         >
           <Feather name="x" size={13} color="#fff" />
         </TouchableOpacity>
@@ -197,11 +198,11 @@ const styles = StyleSheet.create({
   /* Edit mode remove button */
   removeBtn: {
     position: "absolute",
-    top: -6,
-    right: -6,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    top: -8,
+    right: -8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
     zIndex: 10,
