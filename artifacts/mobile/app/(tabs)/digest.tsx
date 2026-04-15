@@ -409,6 +409,7 @@ export default function DigestScreen() {
                 },
               ]}
               onPress={() => setFilterVisible(true)}
+              accessibilityLabel="Open filters"
             >
               <Feather
                 name="filter"

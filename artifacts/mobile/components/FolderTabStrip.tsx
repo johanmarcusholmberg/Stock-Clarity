@@ -259,6 +259,7 @@ export function FolderTabStrip() {
             ]}
             onPress={handlePlusPress}
             activeOpacity={0.7}
+            accessibilityLabel="Add folder"
           >
             <Feather name="plus" size={16} color={colors.mutedForeground} />
           </TouchableOpacity>
@@ -364,7 +365,8 @@ export function FolderTabStrip() {
                           <TouchableOpacity
                             style={sheetStyles.overflowBtn}
                             onPress={() => toggleOverflow(folder.id)}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            hitSlop={{ top: 9, bottom: 9, left: 9, right: 9 }}
+                            accessibilityLabel="Folder options"
                           >
                             <Feather
                               name="more-horizontal"
@@ -785,9 +787,9 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   addBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",

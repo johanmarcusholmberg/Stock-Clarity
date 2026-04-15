@@ -375,6 +375,7 @@ export default function WatchlistScreen() {
             <TouchableOpacity
               style={[styles.iconButton, { backgroundColor: colors.secondary }]}
               onPress={() => router.push("/(tabs)/alerts")}
+              accessibilityLabel="View alerts"
             >
               <Feather name="bell" size={18} color={unreadAlertCount > 0 ? colors.primary : colors.mutedForeground} />
               {unreadAlertCount > 0 && (
@@ -706,8 +707,9 @@ export default function WatchlistScreen() {
                       {isSelected && <Feather name="check" size={16} color={colors.primary} />}
                       <TouchableOpacity
                         onPress={() => handlePickerDelete(folder)}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                         style={pickerStyles.trashBtn}
+                        accessibilityLabel="Delete portfolio"
                       >
                         <Feather name="trash-2" size={16} color={colors.mutedForeground} />
                       </TouchableOpacity>
@@ -733,7 +735,7 @@ const styles = StyleSheet.create({
   greeting: { fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 2 },
   appTitle: { fontSize: 28, fontFamily: "Inter_700Bold", letterSpacing: -0.5 },
   headerButtons: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
-  iconButton: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", position: "relative" },
+  iconButton: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", position: "relative" },
   badge: { position: "absolute", top: 5, right: 5, width: 14, height: 14, borderRadius: 7, alignItems: "center", justifyContent: "center" },
   badgeText: { fontSize: 9, fontFamily: "Inter_700Bold" },
   statsRow: { flexDirection: "row", gap: 10 },
@@ -799,5 +801,5 @@ const pickerStyles = StyleSheet.create({
   rowLeft: { flex: 1, gap: 2 },
   rowName: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   rowCount: { fontSize: 12, fontFamily: "Inter_400Regular" },
-  trashBtn: { padding: 4, marginLeft: 8 },
+  trashBtn: { padding: 6, marginLeft: 8 },
 });

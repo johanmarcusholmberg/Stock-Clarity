@@ -109,7 +109,7 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general", curr
     },
     handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: "center", marginTop: 12, marginBottom: 8 },
     header: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
-    closeBtn: { position: "absolute", right: 20, top: 8, padding: 8 },
+    closeBtn: { position: "absolute", right: 16, top: 4, padding: 12 },
     badge: { backgroundColor: colors.primary + "22", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, alignSelf: "flex-start" },
     badgeText: { color: colors.primary, fontSize: 11, fontFamily: "Inter_600SemiBold" },
     launchBadge: { backgroundColor: colors.accent + "22", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, alignSelf: "flex-start", borderWidth: 1, borderColor: colors.accent + "44" },
@@ -155,7 +155,7 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general", curr
         <View style={s.sheet}>
           <View style={s.handle} />
           <View style={s.header}>
-            <TouchableOpacity style={s.closeBtn} onPress={onClose}>
+            <TouchableOpacity style={s.closeBtn} onPress={onClose} accessibilityLabel="Close">
               <Feather name="x" size={20} color={colors.mutedForeground} />
             </TouchableOpacity>
             <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>

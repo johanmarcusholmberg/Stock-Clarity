@@ -853,6 +853,7 @@ export default function StockDetailScreen() {
             onPress={() => router.back()}
             style={[styles.backButton, { backgroundColor: colors.secondary }]}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Go back"
           >
             <Feather name="arrow-left" size={18} color={colors.foreground} />
           </TouchableOpacity>

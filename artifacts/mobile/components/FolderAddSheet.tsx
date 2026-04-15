@@ -271,7 +271,7 @@ export function FolderAddSheet({ visible, onClose, folderId, folderName }: Props
                   autoCapitalize="none"
                 />
                 {searchQuery.length > 0 && (
-                  <TouchableOpacity onPress={() => { setSearchQuery(""); setSearchResults([]); }}>
+                  <TouchableOpacity onPress={() => { setSearchQuery(""); setSearchResults([]); }} accessibilityLabel="Clear search" hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}>
                     <Feather name="x" size={16} color={colors.mutedForeground} />
                   </TouchableOpacity>
                 )}

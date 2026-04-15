@@ -460,10 +460,10 @@ export default function AccountScreen() {
                       <ActivityIndicator color={colors.primary} size="small" />
                     ) : (
                       <>
-                        <TouchableOpacity style={s.nameActionBtn} onPress={handleSaveName}>
+                        <TouchableOpacity style={s.nameActionBtn} onPress={handleSaveName} accessibilityLabel="Save name" hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                           <Feather name="check" size={18} color={colors.primary} />
                         </TouchableOpacity>
-                        <TouchableOpacity style={s.nameActionBtn} onPress={handleCancelEditName}>
+                        <TouchableOpacity style={s.nameActionBtn} onPress={handleCancelEditName} accessibilityLabel="Cancel editing" hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                           <Feather name="x" size={18} color={colors.mutedForeground} />
                         </TouchableOpacity>
                       </>
@@ -473,7 +473,7 @@ export default function AccountScreen() {
               ) : (
                 <>
                   <Text style={s.rowLabel} numberOfLines={1}>{displayName}</Text>
-                  <TouchableOpacity onPress={handleEditName} style={{ padding: 4 }}>
+                  <TouchableOpacity onPress={handleEditName} style={{ padding: 4 }} accessibilityLabel="Edit name" hitSlop={{ top: 11, bottom: 11, left: 11, right: 11 }}>
                     <Feather name="edit-2" size={15} color={colors.mutedForeground} />
                   </TouchableOpacity>
                 </>
@@ -786,7 +786,7 @@ export default function AccountScreen() {
               {/* Star rating */}
               <View style={s.stars}>
                 {[1, 2, 3, 4, 5].map((star) => (
-                  <TouchableOpacity key={star} style={s.starBtn} onPress={() => setFeedbackRating(star)}>
+                  <TouchableOpacity key={star} style={s.starBtn} onPress={() => setFeedbackRating(star)} accessibilityLabel={`Rate ${star} star${star > 1 ? "s" : ""}`} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
                     <Feather
                       name="star"
                       size={24}
