@@ -53,6 +53,13 @@ export function useMiniCharts(tickers: string[]): MiniChartMap {
     })),
   });
 
+  // Build a lightweight identity string from query data lengths so the memo
+  // only recomputes when actual data changes, not on every render (useQueries
+  // returns a new array reference each time).
+  const dataIdentity = queries
+    .map((q) => (q.data ? q.data.length : "x"))
+    .join(",");
+
   const charts = useMemo(() => {
     const map: Record<string, number[]> = {};
     queries.forEach((q, idx) => {
@@ -63,7 +70,8 @@ export function useMiniCharts(tickers: string[]): MiniChartMap {
       }
     });
     return map;
-  }, [queries, sortedTickers]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataIdentity, sortedTickers]);
 
   const isLoading = queries.some((q) => q.isLoading);
 

@@ -261,6 +261,8 @@ export default function DigestScreen() {
           unusual: e.unusual ?? "",
           sentiment: e.sentiment,
           timestamp: e.timestamp,
+          sourceUrl: e.url || undefined,
+          sourceName: e.publisher || undefined,
         } as DigestEntry));
       })
     );

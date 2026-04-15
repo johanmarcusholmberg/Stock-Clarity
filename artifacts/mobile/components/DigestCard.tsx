@@ -2,7 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import React, { useState } from "react";
-import { StyleSheet, Text, TouchableOpacity, View, Animated } from "react-native";
+import { Linking, StyleSheet, Text, TouchableOpacity, View, Animated } from "react-native";
 import { useColors } from "@/hooks/useColors";
 import { DigestEntry } from "@/context/WatchlistContext";
 
@@ -36,6 +36,10 @@ export default function DigestCard({ entry }: Props) {
   const handlePress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setExpanded((v) => !v);
+  };
+
+  const handleOpenSource = () => {
+    if (entry.sourceUrl) Linking.openURL(entry.sourceUrl);
   };
 
   const handleViewStock = () => {
@@ -94,6 +98,23 @@ export default function DigestCard({ entry }: Props) {
             iconColor={colors.positive}
             colors={colors}
           />
+
+          {/* Source link */}
+          {entry.sourceUrl && (
+            <TouchableOpacity
+              style={[styles.sourceRow, { borderColor: colors.border }]}
+              onPress={handleOpenSource}
+              activeOpacity={0.7}
+            >
+              <View style={styles.sourceLeft}>
+                <Feather name="external-link" size={12} color={colors.mutedForeground} />
+                <Text style={[styles.sourceName, { color: colors.mutedForeground }]}>
+                  {entry.sourceName || "Source"}
+                </Text>
+              </View>
+              <Text style={[styles.readMore, { color: colors.primary }]}>Read more</Text>
+            </TouchableOpacity>
+          )}
 
           {/* View stock CTA */}
           <TouchableOpacity
@@ -205,6 +226,28 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: "Inter_400Regular",
     lineHeight: 19,
+  },
+  sourceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  sourceLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  sourceName: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+  },
+  readMore: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
   },
   viewStockButton: {
     flexDirection: "row",

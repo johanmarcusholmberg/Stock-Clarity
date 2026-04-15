@@ -98,7 +98,7 @@ function LockOverlay({ onUpgrade, message }: { onUpgrade: () => void; message: s
 export default function InsightsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { watchlist, stocks } = useWatchlist();
+  const { watchlist, stocks, folders, activeFolderId } = useWatchlist();
   const { tier } = useSubscription();
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [period, setPeriod] = useState<PerfPeriod>("today");
@@ -110,6 +110,10 @@ export default function InsightsScreen() {
     () => watchlist.map((t) => stocks[t]).filter(Boolean) as Stock[],
     [watchlist, stocks]
   );
+
+  const activePortfolioName = activeFolderId === "default"
+    ? "Watchlist"
+    : folders.find((f) => f.id === activeFolderId)?.name ?? "Watchlist";
 
   const isProOrPremium = tier === "pro" || tier === "premium";
   const isPremium = tier === "premium";
@@ -204,24 +208,26 @@ export default function InsightsScreen() {
           Insights
         </Text>
         <Text style={{ color: colors.mutedForeground, fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 20 }}>
-          Analytics for your {watchedStocks.length} watched stock{watchedStocks.length !== 1 ? "s" : ""}
+          Analytics for your {activePortfolioName}
         </Text>
 
         {/* ── Free Preview Card (visible to all) ───────────────────────────── */}
         <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <SectionHeader title="Today's Snapshot" icon="activity" />
           <View style={{ flexDirection: "row", gap: 10, marginBottom: 4 }}>
-            <View style={[s.miniCard, { backgroundColor: colors.secondary, flex: 1 }]}>
-              <Text style={{ color: colors.positive, fontSize: 22, fontFamily: "Inter_700Bold" }}>{gainers.length}</Text>
-              <Text style={{ color: colors.mutedForeground, fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 2 }}>Gainers</Text>
+            <View style={[s.snapshotCard, { backgroundColor: colors.secondary }]}>
+              <Text style={[s.snapshotLabel, { color: colors.mutedForeground }]}>Gainers</Text>
+              <Text style={[s.snapshotValue, { color: colors.positive }]}>{gainers.length}</Text>
             </View>
-            <View style={[s.miniCard, { backgroundColor: colors.secondary, flex: 1 }]}>
-              <Text style={{ color: colors.negative, fontSize: 22, fontFamily: "Inter_700Bold" }}>{losers.length}</Text>
-              <Text style={{ color: colors.mutedForeground, fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 2 }}>Losers</Text>
+            <View style={[s.snapshotCard, { backgroundColor: colors.secondary }]}>
+              <Text style={[s.snapshotLabel, { color: colors.mutedForeground }]}>Losers</Text>
+              <Text style={[s.snapshotValue, { color: colors.negative }]}>{losers.length}</Text>
             </View>
-            <View style={[s.miniCard, { backgroundColor: colors.secondary, flex: 1 }]}>
-              <ColoredPct value={avgChange} style={{ fontSize: 16 }} />
-              <Text style={{ color: colors.mutedForeground, fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 2 }}>Avg Δ</Text>
+            <View style={[s.snapshotCard, { backgroundColor: colors.secondary }]}>
+              <Text style={[s.snapshotLabel, { color: colors.mutedForeground }]}>Avg Δ</Text>
+              <Text style={[s.snapshotValue, { color: avgChange >= 0 ? colors.positive : colors.negative }]}>
+                {avgChange >= 0 ? "+" : ""}{avgChange.toFixed(2)}%
+              </Text>
             </View>
           </View>
         </View>
@@ -459,7 +465,17 @@ export default function InsightsScreen() {
 const s = StyleSheet.create({
   fill: { flex: 1 },
   card: { borderRadius: 16, borderWidth: 1, padding: 16 },
-  miniCard: { padding: 12, borderRadius: 12, alignItems: "center" },
+  snapshotCard: {
+    flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  snapshotLabel: { fontSize: 11, fontFamily: "Inter_400Regular" },
+  snapshotValue: { fontSize: 20, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
   premiumRow: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingVertical: 10, borderBottomWidth: 1,
