@@ -8,7 +8,7 @@ import MiniChart from "./MiniChart";
 
 interface Props {
   stock: Stock;
-  /** Real chart data from useMiniCharts — when provided, used instead of stock.priceHistory. */
+  /** Real 1Y chart data from useMiniCharts (separate from quote data on stock object). */
   chartData?: number[];
   showPercent?: boolean;
   editMode?: boolean;
@@ -17,7 +17,26 @@ interface Props {
   isActive?: boolean;
 }
 
-export default function StockCard({ stock, chartData, showPercent = true, editMode = false, onRemove, drag, isActive = false }: Props) {
+// Compares only props that affect visual output.  Callback references (drag,
+// onRemove) change every render inside DraggableFlatList's renderItem — ignoring
+// them lets React skip re-rendering rows whose visible data hasn't changed.
+// This prevents cascading redraws when individual mini-chart queries resolve.
+function arePropsEqual(prev: Props, next: Props): boolean {
+  return (
+    prev.stock.ticker === next.stock.ticker &&
+    prev.stock.price === next.stock.price &&
+    prev.stock.change === next.stock.change &&
+    prev.stock.changePercent === next.stock.changePercent &&
+    prev.stock.name === next.stock.name &&
+    prev.stock.currency === next.stock.currency &&
+    prev.chartData === next.chartData &&
+    prev.showPercent === next.showPercent &&
+    prev.editMode === next.editMode &&
+    prev.isActive === next.isActive
+  );
+}
+
+function StockCardInner({ stock, chartData, showPercent = true, editMode = false, onRemove, drag, isActive = false }: Props) {
   const colors = useColors();
   const isPositive = stock.change >= 0;
   const changeColor = isPositive ? colors.positive : colors.negative;
@@ -104,6 +123,9 @@ export default function StockCard({ stock, chartData, showPercent = true, editMo
     </View>
   );
 }
+
+const StockCard = React.memo(StockCardInner, arePropsEqual);
+export default StockCard;
 
 const styles = StyleSheet.create({
   card: {

@@ -101,31 +101,18 @@ interface WatchlistContextType {
   setDisplayName: (name: string) => void;
 }
 
-// Realistic directional sparkline: trends in direction of changePercent with noise
-function makePriceHistory(price: number, changePercent: number, len = 30): number[] {
-  const startPrice = price / (1 + changePercent / 100);
-  const result: number[] = [];
-  let current = startPrice;
-  const trend = (price - startPrice) / len;
-  for (let i = 0; i < len; i++) {
-    const noise = current * 0.005 * (Math.random() - 0.5) * 2;
-    current = current + trend + noise;
-    result.push(Math.max(0.01, current));
-  }
-  // Ensure last value matches actual price
-  result[len - 1] = price;
-  return result;
-}
-
+// Seed stocks provide fallback quote data for the UI before live quotes arrive.
+// Chart data (priceHistory) is intentionally empty — real 1Y chart data is fetched
+// by the useMiniCharts hook via TanStack Query, keeping chart and quote data separate.
 const SEED_STOCKS: Record<string, Stock> = {
-  AAPL: { ticker: "AAPL", name: "Apple Inc.", price: 189.43, currency: "USD", change: 2.17, changePercent: 1.16, marketCap: "$2.94T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "Consumer electronics, software, and online services.", priceHistory: makePriceHistory(189.43, 1.16), pe: 29.4 },
-  NVDA: { ticker: "NVDA", name: "NVIDIA Corporation", price: 842.5, currency: "USD", change: -12.3, changePercent: -1.44, marketCap: "$2.07T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "GPUs for gaming, data centers, and AI.", priceHistory: makePriceHistory(842.5, -1.44), pe: 68.2 },
-  MSFT: { ticker: "MSFT", name: "Microsoft Corporation", price: 415.2, currency: "USD", change: 5.6, changePercent: 1.37, marketCap: "$3.09T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "Software, cloud computing, and hardware.", priceHistory: makePriceHistory(415.2, 1.37), pe: 34.1 },
-  AMZN: { ticker: "AMZN", name: "Amazon.com Inc.", price: 178.35, currency: "USD", change: -1.45, changePercent: -0.81, marketCap: "$1.86T", sector: "Consumer Discretionary", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "E-commerce, cloud computing, and AI.", priceHistory: makePriceHistory(178.35, -0.81), pe: 43.7 },
-  GOOGL: { ticker: "GOOGL", name: "Alphabet Inc.", price: 168.72, currency: "USD", change: 3.21, changePercent: 1.94, marketCap: "$2.1T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "Search, advertising, cloud, and AI.", priceHistory: makePriceHistory(168.72, 1.94), pe: 22.8 },
-  TSLA: { ticker: "TSLA", name: "Tesla Inc.", price: 168.29, currency: "USD", change: -8.42, changePercent: -4.77, marketCap: "$537B", sector: "Consumer Discretionary", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "Electric vehicles and energy storage.", priceHistory: makePriceHistory(168.29, -4.77), pe: 56.3 },
-  META: { ticker: "META", name: "Meta Platforms Inc.", price: 497.81, currency: "USD", change: 9.3, changePercent: 1.9, marketCap: "$1.27T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "Social media: Facebook, Instagram, WhatsApp.", priceHistory: makePriceHistory(497.81, 1.9), pe: 25.6 },
-  JPM: { ticker: "JPM", name: "JPMorgan Chase & Co.", price: 194.62, currency: "USD", change: 1.18, changePercent: 0.61, marketCap: "$562B", sector: "Financials", exchange: "NYSE", exchangeFlag: "🇺🇸", description: "Global financial services and investment banking.", priceHistory: makePriceHistory(194.62, 0.61), pe: 12.1 },
+  AAPL: { ticker: "AAPL", name: "Apple Inc.", price: 189.43, currency: "USD", change: 2.17, changePercent: 1.16, marketCap: "$2.94T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "Consumer electronics, software, and online services.", priceHistory: [], pe: 29.4 },
+  NVDA: { ticker: "NVDA", name: "NVIDIA Corporation", price: 842.5, currency: "USD", change: -12.3, changePercent: -1.44, marketCap: "$2.07T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "GPUs for gaming, data centers, and AI.", priceHistory: [], pe: 68.2 },
+  MSFT: { ticker: "MSFT", name: "Microsoft Corporation", price: 415.2, currency: "USD", change: 5.6, changePercent: 1.37, marketCap: "$3.09T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "Software, cloud computing, and hardware.", priceHistory: [], pe: 34.1 },
+  AMZN: { ticker: "AMZN", name: "Amazon.com Inc.", price: 178.35, currency: "USD", change: -1.45, changePercent: -0.81, marketCap: "$1.86T", sector: "Consumer Discretionary", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "E-commerce, cloud computing, and AI.", priceHistory: [], pe: 43.7 },
+  GOOGL: { ticker: "GOOGL", name: "Alphabet Inc.", price: 168.72, currency: "USD", change: 3.21, changePercent: 1.94, marketCap: "$2.1T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "Search, advertising, cloud, and AI.", priceHistory: [], pe: 22.8 },
+  TSLA: { ticker: "TSLA", name: "Tesla Inc.", price: 168.29, currency: "USD", change: -8.42, changePercent: -4.77, marketCap: "$537B", sector: "Consumer Discretionary", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "Electric vehicles and energy storage.", priceHistory: [], pe: 56.3 },
+  META: { ticker: "META", name: "Meta Platforms Inc.", price: 497.81, currency: "USD", change: 9.3, changePercent: 1.9, marketCap: "$1.27T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "Social media: Facebook, Instagram, WhatsApp.", priceHistory: [], pe: 25.6 },
+  JPM: { ticker: "JPM", name: "JPMorgan Chase & Co.", price: 194.62, currency: "USD", change: 1.18, changePercent: 0.61, marketCap: "$562B", sector: "Financials", exchange: "NYSE", exchangeFlag: "🇺🇸", description: "Global financial services and investment banking.", priceHistory: [], pe: 12.1 },
 };
 
 const MOCK_ALERTS: Alert[] = [
