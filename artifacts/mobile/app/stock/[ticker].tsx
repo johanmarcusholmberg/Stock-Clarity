@@ -630,7 +630,10 @@ export default function StockDetailScreen() {
   const [liveQuote, setLiveQuote] = useState<any>(null);
   // All chart ranges fetched in parallel via TanStack Query
   const chart = useMultiRangeChart(ticker);
-  const chartLoading = chart.isInitialLoading;
+  // Track loading per selected range — not just the default 1D.
+  // This ensures switching to 1Y (or any range) shows a spinner until its data arrives.
+  const chartLoading = chart.isLoading(selectedRange);
+  const chartError = chart.isError(selectedRange);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState(false);
   const [chartMode, setChartMode] = useState<ChartMode>("price");
@@ -999,6 +1002,13 @@ export default function StockDetailScreen() {
             <View style={{ height: CHART_HEIGHT + 20, alignItems: "center", justifyContent: "center" }}>
               <ActivityIndicator color={colors.primary} />
             </View>
+          ) : chartError && chartPrices.length === 0 ? (
+            <View style={{ height: CHART_HEIGHT + 20, alignItems: "center", justifyContent: "center" }}>
+              <Feather name="alert-circle" size={20} color={colors.mutedForeground} />
+              <Text style={{ color: colors.mutedForeground, fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 6 }}>
+                Failed to load chart for this range
+              </Text>
+            </View>
           ) : (
             <InteractiveChart
               prices={displayChartPrices}
@@ -1217,10 +1227,12 @@ export default function StockDetailScreen() {
                           name,
                           exchange,
                           exchangeFlag: flag,
-                          price,
+                          price: displayPrice,
                           currency,
-                          change: periodChangePoints,
-                          changePercent: periodChangePct,
+                          // Always store 1D change — watchlist cards show 1D progress,
+                          // independent of which chart range is currently selected.
+                          change: liveQuote?.regularMarketChange ?? cachedStock?.change ?? 0,
+                          changePercent: liveQuote?.regularMarketChangePercent ?? cachedStock?.changePercent ?? 0,
                         });
                       }
                     }}
