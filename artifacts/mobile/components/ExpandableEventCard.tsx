@@ -112,6 +112,17 @@ export default function ExpandableEventCard({
         </View>
       </View>
 
+      {/* Short summary preview (collapsed state) — a 2-line teaser of the AI
+          'what happened' text so readers can gauge the story without expanding. */}
+      {!expanded && event.what ? (
+        <Text
+          style={[s.summary, { color: colors.mutedForeground }]}
+          numberOfLines={2}
+        >
+          {event.what}
+        </Text>
+      ) : null}
+
       {/* AI usage hint when not expanded */}
       {!expanded && hasAI && canExpand && summaryLimit < 9999 && (
         <Text style={[s.hint, { color: colors.mutedForeground }]}>
@@ -190,6 +201,7 @@ const s = StyleSheet.create({
   meta: { fontSize: 11, fontFamily: "Inter_400Regular" },
   lockBadge: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, paddingVertical: 3, borderRadius: 5 },
   lockText: { fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
+  summary: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 19, paddingHorizontal: 14, paddingBottom: 12, marginTop: -6 },
   hint: { fontSize: 11, fontFamily: "Inter_400Regular", paddingHorizontal: 14, paddingBottom: 10, marginTop: -4 },
   body: { paddingHorizontal: 14, paddingBottom: 14 },
   divider: { height: 1, marginBottom: 12 },

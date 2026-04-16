@@ -23,10 +23,13 @@ type Colors = ReturnType<typeof useColors>;
 
 type Tab = "daily" | "weekly";
 
-const DAILY_CACHE_KEY = "@stockclarify_digest_daily";
-const WEEKLY_CACHE_KEY = "@stockclarify_digest_weekly";
-const DAILY_DATE_KEY = "@stockclarify_digest_daily_date";
-const WEEKLY_DATE_KEY = "@stockclarify_digest_weekly_date";
+// Cache keys are versioned — v2 invalidates older caches that stored
+// pre-refactor DigestEntry shapes with sourceUrl fields. New entries use
+// the StockEvent shape (with event.url) fetched through getEvents().
+const DAILY_CACHE_KEY = "@stockclarify_digest_daily_v2";
+const WEEKLY_CACHE_KEY = "@stockclarify_digest_weekly_v2";
+const DAILY_DATE_KEY = "@stockclarify_digest_daily_date_v2";
+const WEEKLY_DATE_KEY = "@stockclarify_digest_weekly_date_v2";
 
 function todayString() {
   return new Date().toISOString().slice(0, 10);
@@ -518,7 +521,7 @@ export default function DigestScreen() {
                   <Feather name="sun" size={14} color={colors.primary} />
                   <Text style={[styles.infoText, { color: colors.primary }]}>
                     {isDefaultFolder
-                      ? "Today's most relevant news for your watchlist — refreshed daily."
+                      ? "Today's most relevant news for your watchlist."
                       : `Today's most relevant news for portfolio ${activeFolder?.name}.`}
                   </Text>
                 </View>
