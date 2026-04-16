@@ -244,8 +244,6 @@ export default function DigestScreen() {
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const today = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
-
   const tickers = Object.keys(stocks);
 
   const allWatchlistTickers = useMemo(() => {
@@ -406,9 +404,31 @@ export default function DigestScreen() {
         }
       >
         <View style={styles.titleRow}>
-          <View>
+          <View style={styles.titleBlock}>
             <Text style={[styles.screenTitle, { color: colors.foreground }]}>Market Digest</Text>
-            <Text style={[styles.date, { color: colors.mutedForeground }]}>{today}</Text>
+            {!isEmpty && !portfolioEmpty && activeFolder ? (
+              <View
+                style={[
+                  styles.portfolioChip,
+                  {
+                    backgroundColor: `${colors.primary}18`,
+                    borderColor: `${colors.primary}44`,
+                  },
+                ]}
+              >
+                <Feather
+                  name={isDefaultFolder ? "eye" : "folder"}
+                  size={12}
+                  color={colors.primary}
+                />
+                <Text
+                  style={[styles.portfolioChipText, { color: colors.primary }]}
+                  numberOfLines={1}
+                >
+                  {activeFolder.name}
+                </Text>
+              </View>
+            ) : null}
           </View>
           {!isEmpty && !portfolioEmpty && (
             <TouchableOpacity
@@ -519,10 +539,8 @@ export default function DigestScreen() {
               <View style={styles.contentSection}>
                 <View style={[styles.infoBanner, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]}>
                   <Feather name="sun" size={14} color={colors.primary} />
-                  <Text style={[styles.infoText, { color: colors.primary }]}>
-                    {isDefaultFolder
-                      ? "Today's most relevant news for your watchlist."
-                      : `Today's most relevant news for portfolio ${activeFolder?.name}.`}
+                  <Text style={[styles.infoText, { color: colors.primary }]} numberOfLines={1} ellipsizeMode="tail">
+                    Today's top headlines across your stocks.
                   </Text>
                 </View>
 
@@ -530,9 +548,7 @@ export default function DigestScreen() {
                   <View style={styles.loadingContainer}>
                     <ActivityIndicator color={colors.primary} size="small" />
                     <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>
-                      {isDefaultFolder
-                        ? "Fetching today's news for your watchlist…"
-                        : `Fetching today's news for ${activeFolder?.name}…`}
+                      Fetching today's headlines…
                     </Text>
                   </View>
                 ) : filteredDaily.length === 0 ? (
@@ -562,10 +578,8 @@ export default function DigestScreen() {
               <View style={styles.contentSection}>
                 <View style={[styles.infoBanner, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]}>
                   <Feather name="calendar" size={14} color={colors.primary} />
-                  <Text style={[styles.infoText, { color: colors.primary }]}>
-                    {isDefaultFolder
-                      ? "The most important highlights from the past 7 days across your watchlist."
-                      : `The most important highlights from the past 7 days for portfolio ${activeFolder?.name}.`}
+                  <Text style={[styles.infoText, { color: colors.primary }]} numberOfLines={1} ellipsizeMode="tail">
+                    Key highlights from the last 7 days.
                   </Text>
                 </View>
 
@@ -573,9 +587,7 @@ export default function DigestScreen() {
                   <View style={styles.loadingContainer}>
                     <ActivityIndicator color={colors.primary} size="small" />
                     <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>
-                      {isDefaultFolder
-                        ? "Fetching this week's highlights for your watchlist…"
-                        : `Fetching this week's highlights for ${activeFolder?.name}…`}
+                      Fetching this week's highlights…
                     </Text>
                   </View>
                 ) : filteredWeekly.length === 0 ? (
@@ -629,16 +641,33 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
+    gap: 10,
+  },
+  titleBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: 6,
   },
   screenTitle: {
     fontSize: 28,
     fontFamily: "Inter_700Bold",
     letterSpacing: -0.5,
-    marginBottom: 4,
   },
-  date: {
-    fontSize: 13,
-    fontFamily: "Inter_400Regular",
+  portfolioChip: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    maxWidth: "100%",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  portfolioChipText: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+    flexShrink: 1,
   },
   filterButton: {
     flexDirection: "row",

@@ -38,6 +38,11 @@ export function useMiniCharts(tickers: string[]): MiniChartMap {
     [tickers.join(",")],
   );
 
+  // IMPORTANT: keep the cached shape identical to useMultiRangeChart —
+  // both hooks share the `["chart", ticker, range, interval]` key so whichever
+  // one populates the cache first must store a shape the other can consume.
+  // Returning just `number[]` here would break the stock-detail multi-range
+  // hook (which reads `.prices`) and vice-versa.
   const queries = useQueries({
     queries: sortedTickers.map((ticker) => ({
       queryKey: ["chart", ticker, MINI_CHART_RANGE, MINI_CHART_INTERVAL] as const,
@@ -50,11 +55,11 @@ export function useMiniCharts(tickers: string[]): MiniChartMap {
         if (!chart.prices?.length) {
           throw new Error(`Empty 1Y chart data for ${ticker}`);
         }
-        return chart.prices;
+        return { prices: chart.prices, timestamps: chart.timestamps };
       },
       staleTime: STALE_TIME,
       // Keep previous data so charts don't blank on background refetch
-      placeholderData: (prev: number[] | undefined) => prev,
+      placeholderData: (prev: { prices: number[]; timestamps: number[] } | undefined) => prev,
       retry: 1,
       enabled: !!ticker,
     })),
@@ -64,13 +69,13 @@ export function useMiniCharts(tickers: string[]): MiniChartMap {
   // only recomputes when actual data changes, not on every render (useQueries
   // returns a new array reference each time).
   const dataIdentity = queries
-    .map((q) => (q.data ? q.data.length : "x"))
+    .map((q) => (q.data?.prices ? q.data.prices.length : "x"))
     .join(",");
 
   const charts = useMemo(() => {
     const map: Record<string, number[]> = {};
     queries.forEach((q, idx) => {
-      const prices = q.data;
+      const prices = q.data?.prices;
       // Only include entries with enough data points for a meaningful sparkline
       if (prices && prices.length >= 4) {
         map[sortedTickers[idx]] = prices;

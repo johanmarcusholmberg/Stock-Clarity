@@ -121,7 +121,13 @@ async function fetchQuoteViaChart(symbol: string): Promise<any | null> {
     const meta = result.meta;
     const closes: number[] = result.indicators?.quote?.[0]?.close ?? [];
     const validCloses = closes.filter((c: any) => c != null && !isNaN(c)) as number[];
-    const prevClose = meta.chartPreviousClose ?? (validCloses.length > 1 ? validCloses[validCloses.length - 2] : null);
+    // Yahoo's `chartPreviousClose` is the close BEFORE the range start — for a
+    // 2-day range that returns [yesterday, today], it points to 2 trading days
+    // ago, not yesterday's close. Using it as the 1D reference produces a
+    // 2-day change. Prefer the last completed daily close from the bars array.
+    const prevClose = validCloses.length >= 2
+      ? validCloses[validCloses.length - 2]
+      : meta.chartPreviousClose ?? null;
     const currentPrice = meta.regularMarketPrice ?? validCloses.at(-1) ?? null;
 
     if (!currentPrice) return null;
