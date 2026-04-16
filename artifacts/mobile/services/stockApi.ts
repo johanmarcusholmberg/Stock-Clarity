@@ -79,7 +79,7 @@ export const CHART_RANGES: { label: string; range: string; interval: string }[] 
   { label: "5D", range: "5d", interval: "15m" },
   { label: "1M", range: "1mo", interval: "1d" },
   { label: "YTD", range: "ytd", interval: "1d" },
-  { label: "1Y", range: "1y", interval: "1wk" },
+  { label: "1Y", range: "1y", interval: "1d" },
   { label: "3Y", range: "3y", interval: "1mo" },
   { label: "5Y", range: "5y", interval: "1mo" },
 ];
