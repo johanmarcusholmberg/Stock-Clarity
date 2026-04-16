@@ -5,6 +5,7 @@ import {
   Inter_700Bold,
   useFonts,
 } from "@expo-google-fonts/inter";
+import { Feather } from "@expo/vector-icons";
 import { ClerkProvider, ClerkLoaded } from "@clerk/expo";
 import { tokenCache } from "@clerk/expo/token-cache";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -60,11 +61,15 @@ function WatchlistProviderWithTier({ children }: { children: React.ReactNode }) 
 }
 
 export default function RootLayout() {
+  // Note: Feather.font is explicitly loaded to ensure icon rendering on Android
+  // preview and dev builds. If icons still fail in Expo web preview, this is a
+  // known limitation — they will render correctly on real devices.
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
+    ...Feather.font,
   });
 
   useEffect(() => {
