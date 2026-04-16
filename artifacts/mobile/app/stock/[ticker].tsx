@@ -631,10 +631,6 @@ export default function StockDetailScreen() {
   const [liveQuote, setLiveQuote] = useState<any>(null);
   // All chart ranges fetched in parallel via TanStack Query
   const chart = useMultiRangeChart(ticker);
-  // Track loading per selected range — not just the default 1D.
-  // This ensures switching to 1Y (or any range) shows a spinner until its data arrives.
-  const chartLoading = chart.isLoading(selectedRange);
-  const chartError = chart.isError(selectedRange);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState(false);
   const [chartMode, setChartMode] = useState<ChartMode>("price");
@@ -642,6 +638,10 @@ export default function StockDetailScreen() {
   const [eventsLoading, setEventsLoading] = useState(true);
   const [selectedPeriod, setSelectedPeriod] = useState<EventPeriod>("week");
   const [selectedRange, setSelectedRange] = useState(0); // 1D default — always reset on open
+  // Track loading per selected range — not just the default 1D.
+  // This ensures switching to 1Y (or any range) shows a spinner until its data arrives.
+  const chartLoading = chart.isLoading(selectedRange);
+  const chartError = chart.isError(selectedRange);
   const [stockViewable, setStockViewable] = useState(true);
   const [paywallReason, setPaywallReason] = useState<"ai_stock_limit" | "stock_daily_limit">("ai_stock_limit");
   const [showPaywall, setShowPaywall] = useState(false);
