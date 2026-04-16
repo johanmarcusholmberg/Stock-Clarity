@@ -43,6 +43,13 @@ export function useMiniCharts(tickers: string[]): MiniChartMap {
       queryKey: ["chart", ticker, MINI_CHART_RANGE, MINI_CHART_INTERVAL] as const,
       queryFn: async () => {
         const chart = await getChart(ticker, MINI_CHART_RANGE, MINI_CHART_INTERVAL);
+        // Guard: treat empty API responses as errors so TanStack Query
+        // preserves the previously cached mini-chart instead of replacing
+        // good data with nothing. This prevents sparklines from vanishing
+        // after "Refresh Stock" triggers a cache invalidation.
+        if (!chart.prices?.length) {
+          throw new Error(`Empty 1Y chart data for ${ticker}`);
+        }
         return chart.prices;
       },
       staleTime: STALE_TIME,
