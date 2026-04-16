@@ -588,13 +588,15 @@ export default function AccountScreen() {
             <Text style={s.sectionTitle}>Watchlist Notifications</Text>
             <View style={s.card}>
               {/* Master toggle */}
-              <View style={[s.row]}>
-                <View style={s.rowIcon}><Feather name="bell" size={18} color={colors.primary} /></View>
+              <View style={[s.row, !notifPrefs.enabled && s.rowLast]}>
+                <View style={s.rowIcon}>
+                  <Feather name="bell" size={18} color={notifPrefs.enabled ? colors.primary : colors.mutedForeground} />
+                </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[s.rowLabel, { marginBottom: 0 }]}>Notifications</Text>
-                  {notifPrefs.enabled && (
-                    <Text style={[s.rowValue, { fontSize: 11, marginTop: 2 }]}>{describeSchedule(notifPrefs)}</Text>
-                  )}
+                  <Text style={[s.rowValue, { fontSize: 11, marginTop: 2 }]}>
+                    {notifPrefs.enabled ? describeSchedule(notifPrefs) : "Off"}
+                  </Text>
                 </View>
                 {notifSaving ? (
                   <ActivityIndicator size="small" color={colors.primary} />
@@ -611,11 +613,11 @@ export default function AccountScreen() {
               {notifPrefs.enabled && (
                 <>
                   {/* Frequency */}
-                  <View style={[s.row]}>
+                  <View style={[s.row, { borderBottomWidth: 0, paddingBottom: 8 }]}>
                     <View style={s.rowIcon}><Feather name="calendar" size={18} color={colors.primary} /></View>
                     <Text style={[s.rowLabel]}>Frequency</Text>
                   </View>
-                  <View style={{ flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingBottom: 14 }}>
+                  <View style={{ flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingBottom: 16 }}>
                     {(["daily", "weekly", "monthly"] as NotificationFrequency[]).map((f) => (
                       <TouchableOpacity
                         key={f}
@@ -647,11 +649,11 @@ export default function AccountScreen() {
                   </TouchableOpacity>
 
                   {/* Delivery method */}
-                  <View style={[s.row]}>
+                  <View style={[s.row, { borderBottomWidth: 0, paddingBottom: 8 }]}>
                     <View style={s.rowIcon}><Feather name="send" size={18} color={colors.primary} /></View>
                     <Text style={[s.rowLabel]}>Delivery</Text>
                   </View>
-                  <View style={{ flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingBottom: 14 }}>
+                  <View style={{ flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingBottom: 16 }}>
                     {([
                       { value: "push", label: "Push", icon: "smartphone" },
                       { value: "email", label: "Email", icon: "mail" },
@@ -689,11 +691,11 @@ export default function AccountScreen() {
                   {/* Alert types — shown when push delivery is selected */}
                   {(notifPrefs.method === "push" || notifPrefs.method === "both") && (
                     <>
-                      <View style={[s.row]}>
+                      <View style={[s.row, { borderBottomWidth: 0, paddingBottom: 8 }]}>
                         <View style={s.rowIcon}><Feather name="sliders" size={18} color={colors.primary} /></View>
                         <Text style={[s.rowLabel]}>Alert Types</Text>
                       </View>
-                      <View style={{ paddingHorizontal: 16, paddingBottom: 14, gap: 8 }}>
+                      <View style={{ paddingHorizontal: 16, paddingBottom: 16, gap: 8 }}>
                         {ALERT_TYPE_OPTIONS.map((opt) => {
                           const active = notifPrefs.alertTypes?.includes(opt.key) ?? false;
                           return (
