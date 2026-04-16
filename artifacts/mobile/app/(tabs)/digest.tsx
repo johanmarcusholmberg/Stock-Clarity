@@ -212,7 +212,7 @@ const fp = StyleSheet.create({
 export default function DigestScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { stocks, folders } = useWatchlist();
+  const { stocks, folders, activeFolderId } = useWatchlist();
   const [activeTab, setActiveTab] = useState<Tab>("daily");
   const [filterVisible, setFilterVisible] = useState(false);
   const [filterState, setFilterState] = useState<FilterState>({ folderIds: new Set(), tickers: new Set() });
@@ -225,6 +225,11 @@ export default function DigestScreen() {
       return { ...prev, folderIds: prunedFolderIds };
     });
   }, [folders]);
+
+  // Reset filters when the active portfolio changes
+  useEffect(() => {
+    setFilterState({ folderIds: new Set(), tickers: new Set() });
+  }, [activeFolderId]);
 
   const [dailyEntries, setDailyEntries] = useState<DigestEntry[]>([]);
   const [weeklyEntries, setWeeklyEntries] = useState<DigestEntry[]>([]);
@@ -243,6 +248,14 @@ export default function DigestScreen() {
   const allWatchlistTickers = useMemo(() => {
     return Array.from(new Set(folders.flatMap((f) => f.tickers)));
   }, [folders]);
+
+  const activeFolder = folders.find((f) => f.id === activeFolderId);
+  const isDefaultFolder = activeFolderId === "default";
+
+  const portfolioTickers = useMemo(() => {
+    if (isDefaultFolder) return allWatchlistTickers;
+    return activeFolder?.tickers || [];
+  }, [isDefaultFolder, allWatchlistTickers, activeFolder]);
 
   const fetchForPeriod = useCallback(async (period: EventPeriod): Promise<DigestEntry[]> => {
     const currentTickers = Object.keys(stocks);
@@ -355,6 +368,7 @@ export default function DigestScreen() {
   };
 
   const isEmpty = tickers.length === 0;
+  const portfolioEmpty = !isDefaultFolder && (activeFolder?.tickers.length ?? 0) === 0;
 
   const activeFilterCount = filterState.folderIds.size + filterState.tickers.size;
 
@@ -373,8 +387,14 @@ export default function DigestScreen() {
     return entries.filter((e) => allowedTickers.has(e.ticker));
   }, [filterState, folders]);
 
-  const filteredDaily = useMemo(() => getFilteredEntries(dailyEntries), [dailyEntries, getFilteredEntries]);
-  const filteredWeekly = useMemo(() => getFilteredEntries(weeklyEntries), [weeklyEntries, getFilteredEntries]);
+  const getPortfolioEntries = useCallback((entries: DigestEntry[]): DigestEntry[] => {
+    if (isDefaultFolder) return entries;
+    const tickerSet = new Set(activeFolder?.tickers || []);
+    return entries.filter((e) => tickerSet.has(e.ticker));
+  }, [isDefaultFolder, activeFolder]);
+
+  const filteredDaily = useMemo(() => getFilteredEntries(getPortfolioEntries(dailyEntries)), [dailyEntries, getFilteredEntries, getPortfolioEntries]);
+  const filteredWeekly = useMemo(() => getFilteredEntries(getPortfolioEntries(weeklyEntries)), [weeklyEntries, getFilteredEntries, getPortfolioEntries]);
 
   return (
     <>
@@ -399,7 +419,7 @@ export default function DigestScreen() {
             <Text style={[styles.screenTitle, { color: colors.foreground }]}>Market Digest</Text>
             <Text style={[styles.date, { color: colors.mutedForeground }]}>{today}</Text>
           </View>
-          {!isEmpty && (
+          {!isEmpty && !portfolioEmpty && (
             <TouchableOpacity
               style={[
                 styles.filterButton,
@@ -429,6 +449,14 @@ export default function DigestScreen() {
             <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Nothing to digest</Text>
             <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
               Add stocks to your watchlist to see daily summaries and weekly highlights here.
+            </Text>
+          </View>
+        ) : portfolioEmpty ? (
+          <View style={[styles.emptyContainer, { borderColor: colors.border }]}>
+            <Feather name="folder" size={32} color={colors.mutedForeground} />
+            <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Empty portfolio</Text>
+            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
+              {`Add stocks to "${activeFolder?.name}" to see briefs here.`}
             </Text>
           </View>
         ) : (
@@ -501,7 +529,9 @@ export default function DigestScreen() {
                 <View style={[styles.infoBanner, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]}>
                   <Feather name="sun" size={14} color={colors.primary} />
                   <Text style={[styles.infoText, { color: colors.primary }]}>
-                    Today's most relevant news for your watchlist — refreshed daily.
+                    {isDefaultFolder
+                      ? "Today's most relevant news for your watchlist — refreshed daily."
+                      : `Today's most relevant news for portfolio ${activeFolder?.name}.`}
                   </Text>
                 </View>
 
@@ -509,7 +539,9 @@ export default function DigestScreen() {
                   <View style={styles.loadingContainer}>
                     <ActivityIndicator color={colors.primary} size="small" />
                     <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>
-                      Fetching today's news for your watchlist…
+                      {isDefaultFolder
+                        ? "Fetching today's news for your watchlist…"
+                        : `Fetching today's news for ${activeFolder?.name}…`}
                     </Text>
                   </View>
                 ) : filteredDaily.length === 0 ? (
@@ -535,7 +567,9 @@ export default function DigestScreen() {
                 <View style={[styles.infoBanner, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]}>
                   <Feather name="calendar" size={14} color={colors.primary} />
                   <Text style={[styles.infoText, { color: colors.primary }]}>
-                    The most important highlights from the past 7 days across your watchlist.
+                    {isDefaultFolder
+                      ? "The most important highlights from the past 7 days across your watchlist."
+                      : `The most important highlights from the past 7 days for portfolio ${activeFolder?.name}.`}
                   </Text>
                 </View>
 
@@ -543,7 +577,9 @@ export default function DigestScreen() {
                   <View style={styles.loadingContainer}>
                     <ActivityIndicator color={colors.primary} size="small" />
                     <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>
-                      Fetching this week's highlights for your watchlist…
+                      {isDefaultFolder
+                        ? "Fetching this week's highlights for your watchlist…"
+                        : `Fetching this week's highlights for ${activeFolder?.name}…`}
                     </Text>
                   </View>
                 ) : filteredWeekly.length === 0 ? (
@@ -569,8 +605,8 @@ export default function DigestScreen() {
       <FilterPanel
         visible={filterVisible}
         onClose={() => setFilterVisible(false)}
-        folders={folders}
-        allTickers={allWatchlistTickers}
+        folders={isDefaultFolder ? folders : []}
+        allTickers={portfolioTickers}
         stocks={stocks}
         filterState={filterState}
         onChange={setFilterState}

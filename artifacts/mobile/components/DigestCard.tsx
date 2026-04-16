@@ -72,6 +72,21 @@ export default function DigestCard({ entry }: Props) {
         {entry.summary}
       </Text>
 
+      {/* Compact source link — visible when collapsed */}
+      {!expanded && entry.sourceUrl && (
+        <TouchableOpacity
+          style={styles.compactSource}
+          onPress={handleOpenSource}
+          activeOpacity={0.7}
+        >
+          <Feather name="external-link" size={11} color={colors.mutedForeground} />
+          <Text style={[styles.compactSourceText, { color: colors.mutedForeground }]} numberOfLines={1}>
+            {entry.sourceName || "Source"}
+          </Text>
+          <Text style={[styles.compactReadText, { color: colors.primary }]}>Read article</Text>
+        </TouchableOpacity>
+      )}
+
       {/* Expanded details */}
       {expanded && (
         <View style={styles.details}>
@@ -226,6 +241,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: "Inter_400Regular",
     lineHeight: 19,
+  },
+  compactSource: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  compactSourceText: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    flex: 1,
+  },
+  compactReadText: {
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
   },
   sourceRow: {
     flexDirection: "row",
