@@ -42,6 +42,7 @@ export interface QuoteResult {
   trailingPE?: number;
   dividendYield?: number;
   regularMarketOpen?: number;
+  regularMarketPreviousClose?: number;
   regularMarketDayHigh?: number;
   regularMarketDayLow?: number;
 }
