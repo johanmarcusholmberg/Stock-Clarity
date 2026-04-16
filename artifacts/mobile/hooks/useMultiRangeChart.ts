@@ -54,12 +54,15 @@ export function useMultiRangeChart(ticker: string | undefined) {
     return map;
   }, [queries]);
 
-  /** True while the default 1D range (index 0) has never loaded. */
-  const isInitialLoading = queries[0]?.isLoading ?? true;
-
   /** Check if a specific range is still in its first fetch. */
   const isLoading = useCallback(
     (rangeIndex: number) => queries[rangeIndex]?.isLoading ?? true,
+    [queries],
+  );
+
+  /** Check if a specific range's fetch failed. */
+  const isError = useCallback(
+    (rangeIndex: number) => queries[rangeIndex]?.isError ?? false,
     [queries],
   );
 
@@ -69,5 +72,5 @@ export function useMultiRangeChart(ticker: string | undefined) {
     queryClient.invalidateQueries({ queryKey: ["chart", ticker] });
   }, [queryClient, ticker]);
 
-  return { data, isLoading, isInitialLoading, invalidateAll };
+  return { data, isLoading, isError, invalidateAll };
 }

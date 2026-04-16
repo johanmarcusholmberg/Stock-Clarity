@@ -318,6 +318,10 @@ export function WatchlistProvider({
   // Only updates quote data (price, change, etc.).  Mini-chart 1Y data is
   // fetched separately by the useMiniCharts hook via TanStack Query so that
   // chart loading is grouped, cached, and not limited to a subset of tickers.
+  //
+  // IMPORTANT: The backend quote endpoint returns 1D change (via a 2-day chart).
+  // Watchlist cards intentionally display this 1D change/percent alongside the
+  // 1Y mini-chart — these are independent data sources by design.
   const refreshQuotes = useCallback(async () => {
     if (!allTickers.length) return;
     try {

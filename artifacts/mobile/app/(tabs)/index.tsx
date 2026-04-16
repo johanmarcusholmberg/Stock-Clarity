@@ -210,7 +210,8 @@ export default function WatchlistScreen() {
   const allWatched = watchlist.map((ticker) => stocks[ticker]).filter(Boolean);
 
   // Fetch real 1Y chart data for all visible tickers via TanStack Query.
-  // This replaces the old per-ticker sequential fetch in WatchlistContext.
+  // Mini-charts display 1Y history; the progress number on each card uses
+  // the 1D change from stock.changePercent (sourced from refreshQuotes).
   const { charts: miniCharts } = useMiniCharts(watchlist);
   const gainers = allWatched.filter((s) => s.changePercent >= 0);
   const losers = allWatched.filter((s) => s.changePercent < 0);
