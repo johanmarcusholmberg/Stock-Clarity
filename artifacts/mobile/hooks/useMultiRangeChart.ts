@@ -8,7 +8,15 @@ export interface RangeChartData {
   timestamps: number[];
 }
 
-/** Stale-time per range index (milliseconds). */
+/** Stale-time per range index (milliseconds).
+ * Controls how long TanStack Query considers data "fresh" before triggering
+ * a background refetch. Shorter ranges = shorter stale times because intraday
+ * data changes more frequently. These don't block the UI — stale data is shown
+ * while the refetch runs in the background.
+ *
+ * Manual refresh (Pro/Premium button) calls invalidateAll() which bypasses
+ * stale times and forces an immediate refetch of every range.
+ */
 const STALE_TIMES: number[] = [
   30_000,       // 0 — 1D:  30 s
   5 * 60_000,   // 1 — 5D:  5 min

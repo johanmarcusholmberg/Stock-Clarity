@@ -9,6 +9,7 @@ import {
   Modal,
   PanResponder,
   Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -645,6 +646,7 @@ export default function StockDetailScreen() {
   const [paywallReason, setPaywallReason] = useState<"ai_stock_limit" | "stock_daily_limit">("ai_stock_limit");
   const [showPaywall, setShowPaywall] = useState(false);
   const [lastManualRefresh, setLastManualRefresh] = useState<number | null>(null);
+  const [pullRefreshing, setPullRefreshing] = useState(false);
   // 10-second tick for cooldown — avoids per-second re-renders
   const [tickMs, setTickMs] = useState(Date.now());
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -693,6 +695,14 @@ export default function StockDetailScreen() {
   // Quote refresh — chart data is handled by useMultiRangeChart (TanStack Query).
   // We still need to keep liveQuote fresh: fetch on mount and on every range
   // switch so the hero price never shows a stale value.
+  //
+  // Refresh triggers for this screen:
+  //   1. On mount (ticker change) — this effect
+  //   2. On range tab switch — this effect (selectedRange dep)
+  //   3. Pull-to-refresh — handlePullRefresh (quote only, all tiers)
+  //   4. Manual refresh button — handleManualRefresh (quote + all chart
+  //      ranges invalidated, Pro/Premium only, with cooldown)
+  //   5. TanStack Query stale-time — background chart refetch per range
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!ticker) return;
@@ -701,8 +711,10 @@ export default function StockDetailScreen() {
     }).catch(() => {});
   }, [selectedRange, ticker]);
 
-  // Manual refresh: invalidate all chart queries (TanStack Query refetches in
-  // background) + fetch fresh quote.
+  // Manual refresh (Pro/Premium only): invalidates all chart queries so
+  // TanStack Query refetches every range in the background, plus fetches a
+  // fresh quote. Cooldown: 5 min (Pro) / 1 min (Premium). On error the
+  // cooldown timestamp is rolled back so the user can retry immediately.
   const handleManualRefresh = useCallback(async () => {
     if (isOnCooldown || refreshing || !ticker) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -729,7 +741,22 @@ export default function StockDetailScreen() {
     }
   }, [isOnCooldown, refreshing, ticker, chart]);
 
-  // Load events
+  // Pull-to-refresh: fetches a fresh quote so the hero price updates.
+  // Does NOT invalidate chart queries or trigger the cooldown — that's
+  // reserved for the manual refresh button (Pro/Premium).
+  const handlePullRefresh = useCallback(async () => {
+    if (!ticker) return;
+    setPullRefreshing(true);
+    try {
+      const quotes = await getQuotes([ticker]);
+      if (quotes[0]) setLiveQuote(quotes[0]);
+    } catch {}
+    setPullRefreshing(false);
+  }, [ticker]);
+
+  // Load events (news with AI summaries).
+  // Cache: AsyncStorage with TTL matching the backend (day=20min, week=4h,
+  // month/year=12h — see EVENT_CACHE_TTL_MS in stockApi.ts).
   // On ticker change: clear stale events from the previous stock immediately.
   // On period switch: keep current events visible while the new period loads —
   // this avoids a blank list flash when the backend cache is warm.
@@ -849,6 +876,9 @@ export default function StockDetailScreen() {
         style={[styles.container, { backgroundColor: colors.background }]}
         contentContainerStyle={{ paddingBottom: Platform.OS === "web" ? 54 : insets.bottom + 20 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={pullRefreshing} onRefresh={handlePullRefresh} tintColor={colors.primary} colors={[colors.primary]} />
+        }
       >
         {/* ── Header ── */}
         <View style={[styles.header, { paddingTop: topPadding + 8 }]}>
