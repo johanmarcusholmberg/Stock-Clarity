@@ -637,7 +637,7 @@ export default function StockDetailScreen() {
   const [events, setEvents] = useState<StockEvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(true);
   const [selectedPeriod, setSelectedPeriod] = useState<EventPeriod>("week");
-  const [selectedRange, setSelectedRange] = useState(0); // 1D default — always reset on open
+  const [selectedRange, setSelectedRange] = useState(4); // 1Y default
   // Track loading per selected range — not just the default 1D.
   // This ensures switching to 1Y (or any range) shows a spinner until its data arrives.
   const chartLoading = chart.isLoading(selectedRange);
@@ -817,13 +817,18 @@ export default function StockDetailScreen() {
     return patched;
   }, [chartPrices, livePrice, marketOpen]);
 
-  // Change relative to the start of the selected chart window
-  const periodChangePoints = (periodStart != null && periodEnd != null)
-    ? periodEnd - periodStart
-    : (liveQuote?.regularMarketChange ?? cachedStock?.change ?? 0);
-  const periodChangePct = (periodStart != null && Math.abs(periodStart) > 0 && periodEnd != null)
-    ? ((periodEnd - periodStart) / Math.abs(periodStart)) * 100
-    : (liveQuote?.regularMarketChangePercent ?? cachedStock?.changePercent ?? 0);
+  // 1D change: use the quote API's regularMarketChange/Percent (based on previous close)
+  // so the Stock page matches the Watchlist. For all other ranges: compute from chart endpoints.
+  const periodChangePoints = is1D
+    ? (liveQuote?.regularMarketChange ?? cachedStock?.change ?? 0)
+    : (periodStart != null && periodEnd != null)
+      ? periodEnd - periodStart
+      : (liveQuote?.regularMarketChange ?? cachedStock?.change ?? 0);
+  const periodChangePct = is1D
+    ? (liveQuote?.regularMarketChangePercent ?? cachedStock?.changePercent ?? 0)
+    : (periodStart != null && Math.abs(periodStart) > 0 && periodEnd != null)
+      ? ((periodEnd - periodStart) / Math.abs(periodStart)) * 100
+      : (liveQuote?.regularMarketChangePercent ?? cachedStock?.changePercent ?? 0);
 
   // Label for the change row: "today" only for 1D, otherwise "this {range}"
   const periodLabel = is1D ? "today" : `this ${CHART_RANGES[selectedRange].label}`;
@@ -944,14 +949,20 @@ export default function StockDetailScreen() {
               <View style={styles.openCloseItem}>
                 <Text style={[styles.openCloseLabel, { color: colors.mutedForeground }]}>{stripStartLabel}</Text>
                 <Text style={[styles.openCloseValue, { color: colors.foreground }]}>
-                  {currSym}{formatPrice(stripStartPrice, currency)}
+                  {formatPrice(stripStartPrice, currency)}
+                </Text>
+                <Text style={[styles.openCloseSubValue, { color: colors.mutedForeground }]}>
+                  {is1D ? "Previous close" : CHART_RANGES[selectedRange].label + " ago"}
                 </Text>
               </View>
               <View style={[styles.openCloseDivider, { backgroundColor: colors.border }]} />
               <View style={styles.openCloseItem}>
                 <Text style={[styles.openCloseLabel, { color: colors.mutedForeground }]}>{stripEndLabel}</Text>
                 <Text style={[styles.openCloseValue, { color: colors.foreground }]}>
-                  {currSym}{formatPrice(periodEnd, currency)}
+                  {formatPrice(periodEnd, currency)}
+                </Text>
+                <Text style={[styles.openCloseSubValue, { color: colors.mutedForeground }]}>
+                  {marketOpen ? "Live price" : "Last trade"}
                 </Text>
               </View>
               <View style={[styles.openCloseDivider, { backgroundColor: colors.border }]} />
@@ -961,7 +972,7 @@ export default function StockDetailScreen() {
                   {periodChangePoints >= 0 ? "+" : ""}{periodChangePct.toFixed(2)}%
                 </Text>
                 <Text style={[styles.openCloseSubValue, { color: changeColor }]}>
-                  {periodChangePoints >= 0 ? "+" : ""}{currSym}{Math.abs(periodChangePoints).toFixed(2)}
+                  {periodChangePoints >= 0 ? "+" : ""}{Math.abs(periodChangePoints).toFixed(2)}
                 </Text>
               </View>
             </View>
@@ -1014,7 +1025,7 @@ export default function StockDetailScreen() {
                 onPress={() => setChartMode("price")}
               >
                 <Text style={[styles.modeBtnText, { color: chartMode === "price" ? colors.primaryForeground : colors.mutedForeground }]}>
-                  {currSym}
+                  $
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -1110,8 +1121,8 @@ export default function StockDetailScreen() {
         <View style={[styles.statsGrid, { paddingHorizontal: 16, marginBottom: 16 }]}>
           {[
             { label: "Market Cap", value: marketCap },
-            { label: "52W High", value: fiftyTwoHigh ? `${currSym}${fiftyTwoHigh.toFixed(2)}` : "—" },
-            { label: "52W Low", value: fiftyTwoLow ? `${currSym}${fiftyTwoLow.toFixed(2)}` : "—" },
+            { label: "52W High", value: fiftyTwoHigh ? fiftyTwoHigh.toFixed(2) : "—" },
+            { label: "52W Low", value: fiftyTwoLow ? fiftyTwoLow.toFixed(2) : "—" },
             { label: "P/E Ratio", value: pe ? pe.toFixed(1) : "—" },
             { label: "Volume", value: volume ? (volume >= 1e6 ? `${(volume / 1e6).toFixed(1)}M` : `${(volume / 1e3).toFixed(0)}K`) : "—" },
             { label: "Currency", value: `${currency}  (${currSym})` },
@@ -1400,7 +1411,7 @@ const styles = StyleSheet.create({
   tierChipText: { fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
 
   openCloseRow: { flexDirection: "row", alignItems: "stretch", marginTop: 14, borderRadius: 14, borderWidth: 1, overflow: "hidden" },
-  openCloseItem: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 12, paddingHorizontal: 6, gap: 4 },
+  openCloseItem: { flex: 1, alignItems: "center", justifyContent: "flex-start", paddingVertical: 12, paddingHorizontal: 4, gap: 3 },
   openCloseLabel: { fontSize: 10, fontFamily: "Inter_400Regular", textTransform: "uppercase", letterSpacing: 0.5 },
   openCloseValue: { fontSize: 13, fontFamily: "Inter_700Bold", textAlign: "center" },
   openCloseSubValue: { fontSize: 11, fontFamily: "Inter_400Regular", textAlign: "center", opacity: 0.8 },
