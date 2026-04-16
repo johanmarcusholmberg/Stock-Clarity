@@ -81,6 +81,8 @@ interface WatchlistContextType {
   isInWatchlist: (ticker: string) => boolean;
   isInFolder: (ticker: string, folderId: string) => boolean;
   stocks: Record<string, Stock>;
+  /** Write a fresh quote back to the shared store so all views stay in sync. */
+  updateStockQuote: (ticker: string, quote: Partial<Stock>) => void;
   alerts: Alert[];
   events: Alert[];
   digest: DigestEntry[];
@@ -362,6 +364,19 @@ export function WatchlistProvider({
     } catch {}
   }, [allTickers.join(",")]);
 
+  // ── Single-ticker quote update ─────────────────────────────────
+  // Called by the stock detail page after it fetches a fresh quote,
+  // so the shared store (and therefore watchlist cards) stay in sync.
+  const updateStockQuote = useCallback((ticker: string, quote: Partial<Stock>) => {
+    setStockData((prev) => {
+      const existing = prev[ticker];
+      if (!existing) return prev;
+      const next = { ...prev, [ticker]: { ...existing, ...quote } };
+      AsyncStorage.setItem(STOCKS_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     if (initialized) refreshQuotes();
   }, [allTickers.join(","), initialized]);
@@ -571,6 +586,7 @@ export function WatchlistProvider({
       isInWatchlist,
       isInFolder,
       stocks: stockData,
+      updateStockQuote,
       alerts,
       events: alerts,
       digest,

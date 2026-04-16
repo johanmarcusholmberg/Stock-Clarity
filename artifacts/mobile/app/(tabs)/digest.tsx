@@ -14,9 +14,9 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
-import { useWatchlist, DigestEntry } from "@/context/WatchlistContext";
-import { getEvents, type EventPeriod } from "@/services/stockApi";
-import DigestCard from "@/components/DigestCard";
+import { useWatchlist } from "@/context/WatchlistContext";
+import { getEvents, type EventPeriod, type StockEvent } from "@/services/stockApi";
+import ExpandableEventCard from "@/components/ExpandableEventCard";
 import { TabHintPopup } from "@/components/TabHintPopup";
 
 type Colors = ReturnType<typeof useColors>;
@@ -231,8 +231,8 @@ export default function DigestScreen() {
     setFilterState({ folderIds: new Set(), tickers: new Set() });
   }, [activeFolderId]);
 
-  const [dailyEntries, setDailyEntries] = useState<DigestEntry[]>([]);
-  const [weeklyEntries, setWeeklyEntries] = useState<DigestEntry[]>([]);
+  const [dailyEntries, setDailyEntries] = useState<StockEvent[]>([]);
+  const [weeklyEntries, setWeeklyEntries] = useState<StockEvent[]>([]);
   const [dailyLoading, setDailyLoading] = useState(false);
   const [weeklyLoading, setWeeklyLoading] = useState(false);
   const [dailyRefreshing, setDailyRefreshing] = useState(false);
@@ -257,26 +257,14 @@ export default function DigestScreen() {
     return activeFolder?.tickers || [];
   }, [isDefaultFolder, allWatchlistTickers, activeFolder]);
 
-  const fetchForPeriod = useCallback(async (period: EventPeriod): Promise<DigestEntry[]> => {
+  const fetchForPeriod = useCallback(async (period: EventPeriod): Promise<StockEvent[]> => {
     const currentTickers = Object.keys(stocks);
     if (!currentTickers.length) return [];
 
     const results = await Promise.allSettled(
       currentTickers.map(async (ticker) => {
         const evts = await getEvents(ticker, period);
-        return evts.slice(0, 3).map((e) => ({
-          id: `${ticker}-${e.id}`,
-          ticker,
-          stockName: stocks[ticker]?.name ?? ticker,
-          summary: e.title,
-          what: e.what ?? "",
-          why: e.why ?? "",
-          unusual: e.unusual ?? "",
-          sentiment: e.sentiment,
-          timestamp: e.timestamp,
-          sourceUrl: e.url || undefined,
-          sourceName: e.publisher || undefined,
-        } as DigestEntry));
+        return evts.slice(0, 3);
       })
     );
 
@@ -291,7 +279,7 @@ export default function DigestScreen() {
 
     if (!force && cached && cachedDate === todayString()) {
       try {
-        const parsed = JSON.parse(cached) as DigestEntry[];
+        const parsed = JSON.parse(cached) as StockEvent[];
         if (parsed.length > 0) {
           setDailyEntries(parsed);
           return;
@@ -320,7 +308,7 @@ export default function DigestScreen() {
 
     if (!force && cached && cachedDate === weekString()) {
       try {
-        const parsed = JSON.parse(cached) as DigestEntry[];
+        const parsed = JSON.parse(cached) as StockEvent[];
         if (parsed.length > 0) {
           setWeeklyEntries(parsed);
           return;
@@ -372,7 +360,7 @@ export default function DigestScreen() {
 
   const activeFilterCount = filterState.folderIds.size + filterState.tickers.size;
 
-  const getFilteredEntries = useCallback((entries: DigestEntry[]): DigestEntry[] => {
+  const getFilteredEntries = useCallback((entries: StockEvent[]): StockEvent[] => {
     if (filterState.folderIds.size === 0 && filterState.tickers.size === 0) return entries;
 
     const allowedTickers = new Set<string>();
@@ -387,7 +375,7 @@ export default function DigestScreen() {
     return entries.filter((e) => allowedTickers.has(e.ticker));
   }, [filterState, folders]);
 
-  const getPortfolioEntries = useCallback((entries: DigestEntry[]): DigestEntry[] => {
+  const getPortfolioEntries = useCallback((entries: StockEvent[]): StockEvent[] => {
     if (isDefaultFolder) return entries;
     const tickerSet = new Set(activeFolder?.tickers || []);
     return entries.filter((e) => tickerSet.has(e.ticker));
@@ -554,8 +542,13 @@ export default function DigestScreen() {
                     </Text>
                   </View>
                 ) : (
-                  filteredDaily.map((entry) => (
-                    <DigestCard key={entry.id} entry={entry} />
+                  filteredDaily.map((event) => (
+                    <ExpandableEventCard
+                      key={event.id}
+                      event={event}
+                      showTicker
+                      stockName={stocks[event.ticker]?.name ?? event.ticker}
+                    />
                   ))
                 )}
               </View>
@@ -592,8 +585,13 @@ export default function DigestScreen() {
                     </Text>
                   </View>
                 ) : (
-                  filteredWeekly.map((entry) => (
-                    <DigestCard key={entry.id} entry={entry} />
+                  filteredWeekly.map((event) => (
+                    <ExpandableEventCard
+                      key={event.id}
+                      event={event}
+                      showTicker
+                      stockName={stocks[event.ticker]?.name ?? event.ticker}
+                    />
                   ))
                 )}
               </View>

@@ -33,6 +33,7 @@ import { useSubscription } from "@/context/SubscriptionContext";
 import { PaywallSheet } from "@/components/PaywallSheet";
 import { getQuotes, getEvents, CHART_RANGES, EVENT_PERIODS, formatPrice, formatMarketCap, exchangeToFlag, type StockEvent, type EventPeriod } from "@/services/stockApi";
 import { isMarketOpen } from "@/utils/marketHours";
+import ExpandableEventCard from "@/components/ExpandableEventCard";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const CHART_HEIGHT = 185;
@@ -481,139 +482,12 @@ const chartStyles = StyleSheet.create({
   xLabel: { fontSize: 10, fontFamily: "Inter_400Regular" },
 });
 
-// ── Expandable Event Card (stock page version) ────────────────────
-interface ExpandableEventCardProps {
-  event: StockEvent;
-  colors: ReturnType<typeof import("@/hooks/useColors").useColors>;
-  canExpand: boolean;
-  summaryCount: number;
-  summaryLimit: number;
-  onNeedUpgrade: () => void;
-  onExpand: () => void;
-}
-
-function ExpandableEventCard({
-  event, colors, canExpand, summaryCount, summaryLimit, onNeedUpgrade, onExpand,
-}: ExpandableEventCardProps) {
-  const [expanded, setExpanded] = useState(false);
-  const hasAI = !!(event.what || event.why || event.unusual);
-  const date = new Date(event.timestamp).toLocaleDateString("en-US", {
-    month: "short", day: "numeric", year: "numeric",
-  });
-  const sentColor =
-    event.sentiment === "positive"
-      ? colors.positive
-      : event.sentiment === "negative"
-      ? colors.negative
-      : colors.mutedForeground;
-
-  const handlePress = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (!expanded && hasAI) {
-      if (!canExpand) {
-        onNeedUpgrade();
-        return;
-      }
-      onExpand();
-    }
-    setExpanded((v) => !v);
-  };
-
-  return (
-    <TouchableOpacity
-      style={[es.card, { backgroundColor: colors.card, borderColor: colors.border }]}
-      onPress={handlePress}
-      activeOpacity={0.8}
-    >
-      <View style={es.header}>
-        <View style={[es.sentDot, { backgroundColor: sentColor }]} />
-        <View style={es.headerText}>
-          <Text style={[es.title, { color: colors.foreground }]} numberOfLines={expanded ? undefined : 2}>
-            {event.title}
-          </Text>
-          <Text style={[es.meta, { color: colors.mutedForeground }]}>
-            {event.publisher ? `${event.publisher} · ` : ""}{date}
-          </Text>
-        </View>
-        <View style={{ alignItems: "flex-end", gap: 4 }}>
-          {hasAI && !canExpand && !expanded && (
-            <View style={[es.lockBadge, { backgroundColor: colors.warning + "22" }]}>
-              <Feather name="lock" size={10} color={colors.warning} />
-              <Text style={[es.lockText, { color: colors.warning }]}>PRO</Text>
-            </View>
-          )}
-          <Feather name={expanded ? "chevron-up" : "chevron-down"} size={16} color={colors.mutedForeground} />
-        </View>
-      </View>
-
-      {/* AI usage hint when not expanded */}
-      {!expanded && hasAI && canExpand && summaryLimit < 9999 && (
-        <Text style={[es.hint, { color: colors.mutedForeground }]}>
-          Tap for AI analysis · {Math.max(0, summaryLimit - summaryCount)} summary{summaryLimit - summaryCount !== 1 ? "s" : ""} left for this stock
-        </Text>
-      )}
-
-      {expanded && (
-        <View style={es.body}>
-          <View style={[es.divider, { backgroundColor: colors.border }]} />
-          {event.what ? (
-            <View style={es.section}>
-              <Text style={[es.sectionLabel, { color: colors.primary }]}>WHAT HAPPENED</Text>
-              <Text style={[es.sectionText, { color: colors.foreground }]}>{event.what}</Text>
-            </View>
-          ) : null}
-          {event.why ? (
-            <View style={es.section}>
-              <Text style={[es.sectionLabel, { color: "#F59E0B" }]}>WHY IT MATTERS</Text>
-              <Text style={[es.sectionText, { color: colors.foreground }]}>{event.why}</Text>
-            </View>
-          ) : null}
-          {event.unusual ? (
-            <View style={es.section}>
-              <Text style={[es.sectionLabel, { color: colors.mutedForeground }]}>UNUSUAL</Text>
-              <Text style={[es.sectionText, { color: colors.foreground }]}>{event.unusual}</Text>
-            </View>
-          ) : null}
-          {event.url ? (
-            <TouchableOpacity
-              style={[es.readMore, { borderColor: colors.border }]}
-              onPress={() => Linking.openURL(event.url)}
-            >
-              <Feather name="external-link" size={12} color={colors.primary} />
-              <Text style={[es.readMoreText, { color: colors.primary }]}>Read full article</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-      )}
-    </TouchableOpacity>
-  );
-}
-
-const es = StyleSheet.create({
-  card: { borderRadius: 14, borderWidth: 1, marginBottom: 8, overflow: "hidden" },
-  header: { flexDirection: "row", alignItems: "flex-start", padding: 14, gap: 10 },
-  sentDot: { width: 8, height: 8, borderRadius: 4, marginTop: 5, flexShrink: 0 },
-  headerText: { flex: 1 },
-  title: { fontSize: 14, fontFamily: "Inter_600SemiBold", lineHeight: 20, marginBottom: 4 },
-  meta: { fontSize: 11, fontFamily: "Inter_400Regular" },
-  lockBadge: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, paddingVertical: 3, borderRadius: 5 },
-  lockText: { fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
-  hint: { fontSize: 11, fontFamily: "Inter_400Regular", paddingHorizontal: 14, paddingBottom: 10, marginTop: -4 },
-  body: { paddingHorizontal: 14, paddingBottom: 14 },
-  divider: { height: 1, marginBottom: 12 },
-  section: { marginBottom: 12 },
-  sectionLabel: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.8, marginBottom: 4 },
-  sectionText: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 19 },
-  readMore: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, borderTopWidth: 1, marginTop: 4 },
-  readMoreText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
-});
-
 // ── Main Screen ───────────────────────────────────────────────────
 export default function StockDetailScreen() {
   const { ticker } = useLocalSearchParams<{ ticker: string }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { stocks, addToWatchlist, isInWatchlist, isInFolder, folders, addToFolder, removeFromFolder } = useWatchlist();
+  const { stocks, updateStockQuote, addToWatchlist, isInWatchlist, isInFolder, folders, addToFolder, removeFromFolder } = useWatchlist();
   const [folderSheetVisible, setFolderSheetVisible] = useState(false);
   const {
     tier,
@@ -712,12 +586,36 @@ export default function StockDetailScreen() {
   //      ranges invalidated, Pro/Premium only, with cooldown)
   //   5. TanStack Query stale-time — background chart refetch per range
   // ─────────────────────────────────────────────────────────────────────────
+  // Helper: update local liveQuote AND push to shared WatchlistContext store
+  const applyQuote = useCallback((q: any) => {
+    setLiveQuote(q);
+    if (ticker) {
+      // Derive previousClose-based change so watchlist cards are consistent
+      const prevClose = q.regularMarketPreviousClose;
+      const price = q.regularMarketPrice;
+      const change = prevClose != null && price != null ? price - prevClose : q.regularMarketChange;
+      const changePct = prevClose != null && Math.abs(prevClose) > 0 && price != null
+        ? ((price - prevClose) / Math.abs(prevClose)) * 100
+        : q.regularMarketChangePercent;
+      updateStockQuote(ticker, {
+        price: price ?? undefined,
+        currency: q.currency ?? undefined,
+        change: change ?? undefined,
+        changePercent: changePct ?? undefined,
+        name: q.longName || q.shortName || undefined,
+        exchange: q.fullExchangeName || undefined,
+        sector: q.sector || undefined,
+        pe: q.trailingPE ?? undefined,
+      });
+    }
+  }, [ticker, updateStockQuote]);
+
   useEffect(() => {
     if (!ticker) return;
     getQuotes([ticker]).then((quotes) => {
-      if (quotes[0]) setLiveQuote(quotes[0]);
+      if (quotes[0]) applyQuote(quotes[0]);
     }).catch(() => {});
-  }, [selectedRange, ticker]);
+  }, [selectedRange, ticker, applyQuote]);
 
   // Manual refresh (Pro/Premium only): invalidates all chart queries so
   // TanStack Query refetches every range in the background, plus fetches a
@@ -735,9 +633,9 @@ export default function StockDetailScreen() {
     try {
       // Invalidate all chart queries — TanStack Query refetches them in parallel
       chart.invalidateAll();
-      // Refresh quote
+      // Refresh quote and push to shared store
       const quotes = await getQuotes([ticker]);
-      if (quotes[0]) setLiveQuote(quotes[0]);
+      if (quotes[0]) applyQuote(quotes[0]);
     } catch {
       // Full rollback: revert timestamp so the cooldown doesn't linger on error
       setLastManualRefresh(null);
@@ -747,7 +645,7 @@ export default function StockDetailScreen() {
     } finally {
       setRefreshing(false);
     }
-  }, [isOnCooldown, refreshing, ticker, chart]);
+  }, [isOnCooldown, refreshing, ticker, chart, applyQuote]);
 
   // Pull-to-refresh: fetches a fresh quote so the hero price updates.
   // Does NOT invalidate chart queries or trigger the cooldown — that's
@@ -757,10 +655,10 @@ export default function StockDetailScreen() {
     setPullRefreshing(true);
     try {
       const quotes = await getQuotes([ticker]);
-      if (quotes[0]) setLiveQuote(quotes[0]);
+      if (quotes[0]) applyQuote(quotes[0]);
     } catch {}
     setPullRefreshing(false);
-  }, [ticker]);
+  }, [ticker, applyQuote]);
 
   // Load events (news with AI summaries).
   // Cache: AsyncStorage with TTL matching the backend (day=20min, week=4h,
@@ -825,15 +723,23 @@ export default function StockDetailScreen() {
     return patched;
   }, [chartPrices, livePrice, marketOpen]);
 
-  // 1D change: use the quote API's regularMarketChange/Percent (based on previous close)
-  // so the Stock page matches the Watchlist. For all other ranges: compute from chart endpoints.
+  // 1D previous close: the actual last regular-session close price.
+  // Used as the reference for 1D change and the strip's first column.
+  const previousClose: number | null = liveQuote?.regularMarketPreviousClose ?? null;
+
+  // 1D change: derive from previousClose + currentPrice so everything is
+  // mathematically consistent.  For other ranges: compute from chart endpoints.
   const periodChangePoints = is1D
-    ? (liveQuote?.regularMarketChange ?? cachedStock?.change ?? 0)
+    ? (previousClose != null && livePrice != null
+        ? livePrice - previousClose
+        : (liveQuote?.regularMarketChange ?? cachedStock?.change ?? 0))
     : (periodStart != null && periodEnd != null)
       ? periodEnd - periodStart
       : (liveQuote?.regularMarketChange ?? cachedStock?.change ?? 0);
   const periodChangePct = is1D
-    ? (liveQuote?.regularMarketChangePercent ?? cachedStock?.changePercent ?? 0)
+    ? (previousClose != null && Math.abs(previousClose) > 0 && livePrice != null
+        ? ((livePrice - previousClose) / Math.abs(previousClose)) * 100
+        : (liveQuote?.regularMarketChangePercent ?? cachedStock?.changePercent ?? 0))
     : (periodStart != null && Math.abs(periodStart) > 0 && periodEnd != null)
       ? ((periodEnd - periodStart) / Math.abs(periodStart)) * 100
       : (liveQuote?.regularMarketChangePercent ?? cachedStock?.changePercent ?? 0);
@@ -841,11 +747,12 @@ export default function StockDetailScreen() {
   // Label for the change row: "today" only for 1D, otherwise "this {range}"
   const periodLabel = is1D ? "today" : `this ${CHART_RANGES[selectedRange].label}`;
 
-  // Open/Start strip: 1D uses today's open from the quote, all other ranges use chart first bar
+  // Open/Start strip: 1D uses previous close (the reference price for change
+  // calculations), all other ranges use chart first bar.
   const stripStartPrice: number | null = is1D
-    ? (liveQuote?.regularMarketOpen ?? chartFirst)
+    ? (previousClose ?? chartFirst)
     : chartFirst;
-  const stripStartLabel = is1D ? "Open" : "Start";
+  const stripStartLabel = is1D ? "Prev Close" : "Start";
   // "Current" whenever market is open (live price exists), regardless of range
   const stripEndLabel = marketOpen ? "Current" : (is1D ? "Close" : "End");
 
@@ -960,7 +867,7 @@ export default function StockDetailScreen() {
                   {formatPrice(stripStartPrice, currency)}
                 </Text>
                 <Text style={[styles.openCloseSubValue, { color: colors.mutedForeground }]}>
-                  {is1D ? "Previous close" : CHART_RANGES[selectedRange].label + " ago"}
+                  {is1D ? "Yesterday" : CHART_RANGES[selectedRange].label + " ago"}
                 </Text>
               </View>
               <View style={[styles.openCloseDivider, { backgroundColor: colors.border }]} />
@@ -1224,7 +1131,6 @@ export default function StockDetailScreen() {
               <ExpandableEventCard
                 key={event.id}
                 event={event}
-                colors={colors}
                 canExpand={stockViewable && canViewAI}
                 summaryCount={summaryCount}
                 summaryLimit={summaryLimit(tier)}

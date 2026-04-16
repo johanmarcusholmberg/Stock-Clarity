@@ -136,6 +136,8 @@ async function fetchQuoteViaChart(symbol: string): Promise<any | null> {
       regularMarketPrice: currentPrice,
       regularMarketChange: change,
       regularMarketChangePercent: changePercent,
+      regularMarketPreviousClose: prevClose ?? null,
+      regularMarketOpen: meta.regularMarketOpen ?? null,
       currency: meta.currency ?? "USD",
       fullExchangeName: meta.fullExchangeName || meta.exchangeName || "",
       marketCap: null,
@@ -192,9 +194,12 @@ async function fetchGoogleNewsRSS(query: string): Promise<NewsItem[]> {
         .replace(/&#39;/g, "'")
         .replace(/&quot;/g, '"')
         .trim();
+      // Extract link: try <link>URL</link>, then any bare https URL after <link,
+      // then <guid> as last resort.
       const link =
-        itemText.match(/<link>(.*?)<\/link>/)?.[1]?.trim() ||
-        itemText.match(/<guid[^>]*>(.*?)<\/guid>/)?.[1]?.trim() || "";
+        itemText.match(/<link>(https?:\/\/[^<]+)<\/link>/)?.[1]?.trim() ||
+        itemText.match(/<link[^>]*\/>\s*(https?:\/\/\S+)/)?.[1]?.trim() ||
+        itemText.match(/<guid[^>]*>(https?:\/\/[^<]+)<\/guid>/)?.[1]?.trim() || "";
       const pubDate = itemText.match(/<pubDate>(.*?)<\/pubDate>/)?.[1]?.trim() || "";
       const source =
         itemText.match(/<source[^>]*>([\s\S]*?)<\/source>/)?.[1]
@@ -415,16 +420,43 @@ If fewer than 2 headlines are genuinely relevant to ${symbol}, return an empty a
     }
 
     const events = parsed.slice(0, 5).map((e: any, idx: number) => {
-      const primaryIdx = (e.primarySource ?? 1) - 1;
-      const source = allArticles[primaryIdx] ?? allArticles[0];
-      const combinedCount = Array.isArray(e.combinedFrom) ? e.combinedFrom.length : 1;
+      // Resolve the best article source for this event.  The AI returns
+      // 1-based `primarySource` and `combinedFrom` indices.  We validate
+      // bounds and prefer the first source with a valid HTTP(S) URL.
+      const combinedIndices: number[] = Array.isArray(e.combinedFrom)
+        ? e.combinedFrom.map((i: number) => i - 1).filter((i: number) => i >= 0 && i < allArticles.length)
+        : [];
+      const primaryIdx = typeof e.primarySource === "number"
+        ? e.primarySource - 1
+        : -1;
+
+      // Candidate sources in priority order: primary, then combined, then first article
+      const candidateIndices = [
+        ...(primaryIdx >= 0 && primaryIdx < allArticles.length ? [primaryIdx] : []),
+        ...combinedIndices,
+        0,
+      ];
+
+      // Pick the first candidate with a valid URL
+      let source = allArticles[candidateIndices[0]] ?? allArticles[0];
+      let resolvedUrl = "";
+      for (const ci of candidateIndices) {
+        const candidate = allArticles[ci];
+        if (candidate?.url && /^https?:\/\//.test(candidate.url)) {
+          source = candidate;
+          resolvedUrl = candidate.url;
+          break;
+        }
+      }
+
+      const combinedCount = combinedIndices.length || 1;
       return {
         id: `event-${symbol}-${idx}-${Date.now()}`,
         ticker: symbol,
         type: e.type || "news",
         title: e.title || source?.title || "Market Update",
         publisher: combinedCount > 1 ? `${combinedCount} sources` : (source?.publisher || "News"),
-        url: source?.url || "",
+        url: resolvedUrl,
         what: e.what || "",
         why: e.why || "",
         unusual: e.unusual || "",
