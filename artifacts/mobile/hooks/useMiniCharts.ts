@@ -18,7 +18,7 @@ import { getChart } from "../services/stockApi";
  */
 
 const MINI_CHART_RANGE = "1y";
-const MINI_CHART_INTERVAL = "1wk";
+const MINI_CHART_INTERVAL = "1d";
 const STALE_TIME = 30 * 60_000; // 30 minutes — matches the 1Y stale time in useMultiRangeChart
 
 export interface MiniChartMap {

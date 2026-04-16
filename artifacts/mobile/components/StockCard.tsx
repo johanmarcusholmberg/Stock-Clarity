@@ -104,11 +104,16 @@ function StockCardInner({ stock, chartData, showPercent = true, editMode = false
           </View>
         )}
 
-        {/* Right: price + change */}
+        {/* Right: price + currency + change */}
         <View style={styles.right}>
-          <Text style={[styles.price, { color: colors.foreground }]}>
-            {stock.currency === "GBp" ? "p" : ""}{formatPrice(stock.price)}
-          </Text>
+          <View style={styles.priceRow}>
+            <Text style={[styles.price, { color: colors.foreground }]}>
+              {formatPrice(stock.price)}
+            </Text>
+            <Text style={[styles.currencyLabel, { color: colors.mutedForeground }]}>
+              {stock.currency}
+            </Text>
+          </View>
           <Text style={[styles.change, { color: changeColor }]}>
             {changeLabel}
           </Text>
@@ -170,11 +175,21 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     minWidth: 74,
   },
+  priceRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 4,
+  },
   price: {
     fontSize: 14,
     fontFamily: "Inter_700Bold",
     fontVariant: ["tabular-nums"],
     marginBottom: 2,
+  },
+  currencyLabel: {
+    fontSize: 10,
+    fontFamily: "Inter_500Medium",
+    letterSpacing: 0.3,
   },
   change: {
     fontSize: 11,

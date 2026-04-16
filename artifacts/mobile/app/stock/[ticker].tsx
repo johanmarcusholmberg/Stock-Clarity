@@ -51,24 +51,22 @@ function getCurrencySymbol(currency: string): string {
   return map[currency] ?? currency;
 }
 
-function formatYLabel(value: number, mode: ChartMode, currency: string): string {
+function formatYLabel(value: number, mode: ChartMode, _currency: string): string {
   if (mode === "percent") {
     return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
   }
-  const sym = getCurrencySymbol(currency);
-  if (Math.abs(value) >= 10000) return `${sym}${(value / 1000).toFixed(0)}k`;
-  if (Math.abs(value) >= 1000) return `${sym}${(value / 1000).toFixed(1)}k`;
-  if (Math.abs(value) >= 100) return `${sym}${value.toFixed(1)}`;
-  if (Math.abs(value) >= 10) return `${sym}${value.toFixed(2)}`;
-  return `${sym}${value.toFixed(2)}`;
+  if (Math.abs(value) >= 10000) return `${(value / 1000).toFixed(0)}k`;
+  if (Math.abs(value) >= 1000) return `${(value / 1000).toFixed(1)}k`;
+  if (Math.abs(value) >= 100) return `${value.toFixed(1)}`;
+  if (Math.abs(value) >= 10) return `${value.toFixed(2)}`;
+  return `${value.toFixed(2)}`;
 }
 
-function formatTooltipValue(value: number, mode: ChartMode, currency: string): string {
+function formatTooltipValue(value: number, mode: ChartMode, _currency: string): string {
   if (mode === "percent") {
     return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
   }
-  const sym = getCurrencySymbol(currency);
-  return `${sym}${value.toFixed(2)}`;
+  return value.toFixed(2);
 }
 
 // ── X-axis label helpers ───────────────────────────────────────────
@@ -637,7 +635,17 @@ export default function StockDetailScreen() {
   const [events, setEvents] = useState<StockEvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(true);
   const [selectedPeriod, setSelectedPeriod] = useState<EventPeriod>("week");
-  const [selectedRange, setSelectedRange] = useState(4); // 1Y default
+  const [selectedRange, setSelectedRange] = useState(0); // 1D default
+
+  // Reset view state when navigating to a different stock.
+  // useState(0) only runs on mount — React Navigation reuses this component
+  // for the same route with different params, so we must reset explicitly.
+  useEffect(() => {
+    setSelectedRange(0);       // Always open on 1D
+    setChartMode("price");     // Reset chart mode to price (not %)
+    setLiveQuote(null);        // Clear stale quote from previous stock
+  }, [ticker]);
+
   // Track loading per selected range — not just the default 1D.
   // This ensures switching to 1Y (or any range) shows a spinner until its data arrives.
   const chartLoading = chart.isLoading(selectedRange);
@@ -925,8 +933,8 @@ export default function StockDetailScreen() {
             {exchange ? <Text style={[styles.exchangeLabel, { color: colors.mutedForeground }]}>{flag} {exchange}</Text> : null}
             {sector ? <Text style={[styles.sectorLabel, { color: colors.mutedForeground }]}>· {sector}</Text> : null}
             {currency ? (
-              <View style={[styles.currencyBadge, { backgroundColor: colors.secondary }]}>
-                <Text style={[styles.currencyText, { color: colors.mutedForeground }]}>{currency}</Text>
+              <View style={[styles.currencyBadge, { backgroundColor: `${colors.primary}18`, borderWidth: 1, borderColor: `${colors.primary}44` }]}>
+                <Text style={[styles.currencyText, { color: colors.primary }]}>{currency}</Text>
               </View>
             ) : null}
           </View>
@@ -934,7 +942,7 @@ export default function StockDetailScreen() {
 
           <View style={styles.priceRow}>
             <Text style={[styles.priceText, { color: colors.foreground }]}>
-              {currSym}{formatPrice(displayPrice, currency)}
+              {formatPrice(displayPrice, currency)}
             </Text>
             <View style={[styles.changePill, { backgroundColor: `${changeColor}22` }]}>
               <Feather name={isPositive ? "trending-up" : "trending-down"} size={13} color={changeColor} />
@@ -1355,8 +1363,8 @@ const styles = StyleSheet.create({
   tickerBadgeText: { fontSize: 13, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
   exchangeLabel: { fontSize: 12, fontFamily: "Inter_400Regular" },
   sectorLabel: { fontSize: 12, fontFamily: "Inter_400Regular" },
-  currencyBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  currencyText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  currencyBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  currencyText: { fontSize: 12, fontFamily: "Inter_700Bold", letterSpacing: 0.3 },
   stockName: { fontSize: 24, fontFamily: "Inter_700Bold", letterSpacing: -0.5, marginBottom: 10 },
   priceRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   priceText: { fontSize: 36, fontFamily: "Inter_700Bold", letterSpacing: -1 },

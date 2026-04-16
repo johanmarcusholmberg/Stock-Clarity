@@ -2,6 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Haptics from "expo-haptics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useQueryClient } from "@tanstack/react-query";
 import React, { useState, useMemo, useEffect, useCallback } from "react";
 import {
   Alert,
@@ -141,6 +142,7 @@ export default function WatchlistScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user } = useUser();
+  const queryClient = useQueryClient();
   const {
     watchlist,
     stocks,
@@ -257,14 +259,15 @@ export default function WatchlistScreen() {
     });
   }, []);
 
-  // Pull-to-refresh: re-fetches live quotes for all watched tickers.
-  // Mini-chart data (1Y weekly) is managed by TanStack Query with its own
-  // 30-min stale time and doesn't need manual invalidation here.
   const handlePullRefresh = useCallback(async () => {
     setPullRefreshing(true);
-    try { await refreshQuotes(); } catch {}
+    try {
+      // Invalidate all chart queries so mini-chart sparklines refresh too
+      queryClient.invalidateQueries({ queryKey: ["chart"] });
+      await refreshQuotes();
+    } catch {}
     setPullRefreshing(false);
-  }, [refreshQuotes]);
+  }, [refreshQuotes, queryClient]);
 
   const handleDeleteFolder = useCallback(() => {
     if (!activeFolder || isDefaultFolder) return;
