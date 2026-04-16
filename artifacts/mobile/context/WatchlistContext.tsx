@@ -318,6 +318,12 @@ export function WatchlistProvider({
   // Only updates quote data (price, change, etc.).  Mini-chart 1Y data is
   // fetched separately by the useMiniCharts hook via TanStack Query so that
   // chart loading is grouped, cached, and not limited to a subset of tickers.
+  //
+  // Triggers:
+  //   1. On init — when watchlist data finishes loading (initialized === true)
+  //   2. When tickers change — adding/removing a stock re-fetches all quotes
+  //   3. Every 15 min — auto-refresh interval (market-hours only, see below)
+  //   4. Pull-to-refresh — the Home screen calls refreshQuotes() directly
   const refreshQuotes = useCallback(async () => {
     if (!allTickers.length) return;
     try {
@@ -358,6 +364,11 @@ export function WatchlistProvider({
   }, [allTickers.join(","), initialized]);
 
   // ── 15-minute auto-refresh during market hours ────────────────
+  // Interval: 15 minutes (900 000 ms).
+  // Guard: skips the fetch if no watched stock's exchange is currently open
+  // (weekday + within trading hours per marketHours.ts schedule).
+  // Cleanup: interval is cleared and re-created when the ticker list or
+  // refreshQuotes identity changes, preventing stale closures.
   useEffect(() => {
     if (!initialized) return;
     const FIFTEEN_MIN = 15 * 60 * 1000;

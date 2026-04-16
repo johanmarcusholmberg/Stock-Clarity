@@ -98,6 +98,8 @@ export async function searchStocks(query: string): Promise<SearchResult[]> {
   return data.quotes ?? [];
 }
 
+// Fetches live quotes for one or more tickers. No client-side caching —
+// callers (WatchlistContext, stock detail) control when to call this.
 export async function getQuotes(symbols: string[]): Promise<QuoteResult[]> {
   if (!symbols.length) return [];
   const res = await fetch(`${API_BASE}/stocks/quote?symbols=${encodeURIComponent(symbols.join(","))}`);
@@ -105,11 +107,18 @@ export async function getQuotes(symbols: string[]): Promise<QuoteResult[]> {
   return data.result ?? [];
 }
 
+// Fetches OHLC chart data for a single ticker+range+interval combo.
+// Not cached here — TanStack Query in useMiniCharts / useMultiRangeChart
+// handles caching with per-range stale times (see those hooks).
 export async function getChart(symbol: string, range: string, interval: string): Promise<ChartData> {
   const res = await fetch(`${API_BASE}/stocks/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}`);
   return res.json();
 }
 
+// Fetches AI-generated news events for a ticker+period.
+// Client-side cache: AsyncStorage with TTL matching the backend cache
+// (see EVENT_CACHE_TTL_MS above). This avoids redundant network round-trips
+// when the user re-opens a stock page or switches period tabs.
 export async function getEvents(symbol: string, period: EventPeriod = "week"): Promise<StockEvent[]> {
   const cacheKey = `@sc_events:${symbol}:${period}`;
 

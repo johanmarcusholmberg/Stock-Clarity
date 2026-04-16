@@ -7,6 +7,7 @@ import {
   Alert,
   Modal,
   Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -144,6 +145,7 @@ export default function WatchlistScreen() {
     watchlist,
     stocks,
     unreadAlertCount,
+    refreshQuotes,
     folders,
     activeFolderId,
     setActiveFolderId,
@@ -165,6 +167,8 @@ export default function WatchlistScreen() {
   const [creatingPortfolio, setCreatingPortfolio] = useState(false);
   const [newPortfolioName, setNewPortfolioName] = useState("");
   const [pickerDeletePending, setPickerDeletePending] = useState(false);
+  // Pull-to-refresh state — triggers refreshQuotes() from WatchlistContext
+  const [pullRefreshing, setPullRefreshing] = useState(false);
   const params = useLocalSearchParams<{ pendingTimezone?: string }>();
 
   useEffect(() => {
@@ -251,6 +255,15 @@ export default function WatchlistScreen() {
       return next;
     });
   }, []);
+
+  // Pull-to-refresh: re-fetches live quotes for all watched tickers.
+  // Mini-chart data (1Y weekly) is managed by TanStack Query with its own
+  // 30-min stale time and doesn't need manual invalidation here.
+  const handlePullRefresh = useCallback(async () => {
+    setPullRefreshing(true);
+    try { await refreshQuotes(); } catch {}
+    setPullRefreshing(false);
+  }, [refreshQuotes]);
 
   const handleDeleteFolder = useCallback(() => {
     if (!activeFolder || isDefaultFolder) return;
@@ -532,6 +545,9 @@ export default function WatchlistScreen() {
           style={styles.fill}
           contentContainerStyle={{ paddingBottom: bottomPadding, paddingHorizontal: 16 }}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={pullRefreshing} onRefresh={handlePullRefresh} tintColor={colors.primary} colors={[colors.primary]} />
+          }
         >
           {allWatched.length === 0 ? (
             <View style={[styles.empty, { borderColor: colors.border }]}>
@@ -592,6 +608,9 @@ export default function WatchlistScreen() {
           contentContainerStyle={{ paddingBottom: bottomPadding, paddingHorizontal: 16 }}
           showsVerticalScrollIndicator={false}
           activationDistance={dragEnabled ? 0 : 99999}
+          refreshControl={
+            <RefreshControl refreshing={pullRefreshing} onRefresh={handlePullRefresh} tintColor={colors.primary} colors={[colors.primary]} />
+          }
         />
       )}
 
