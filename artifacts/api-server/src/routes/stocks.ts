@@ -113,7 +113,10 @@ async function fetchQuoteViaChart(symbol: string): Promise<any | null> {
   if (cached) return cached;
 
   try {
-    const url = `${YF2}/v8/finance/chart/${encodeURIComponent(symbol)}?range=2d&interval=1d&includePrePost=false`;
+    // range=5d guarantees we always have at least two completed daily bars
+    // even after long holidays, so the penultimate-bar lookup below is
+    // reliable. range=2d could return a single bar in edge cases.
+    const url = `${YF2}/v8/finance/chart/${encodeURIComponent(symbol)}?range=5d&interval=1d&includePrePost=false`;
     const data = await yfFetch(url);
     const result = data?.chart?.result?.[0];
     if (!result) return null;
@@ -121,7 +124,15 @@ async function fetchQuoteViaChart(symbol: string): Promise<any | null> {
     const meta = result.meta;
     const closes: number[] = result.indicators?.quote?.[0]?.close ?? [];
     const validCloses = closes.filter((c: any) => c != null && !isNaN(c)) as number[];
-    const prevClose = meta.chartPreviousClose ?? (validCloses.length > 1 ? validCloses[validCloses.length - 2] : null);
+    // Yahoo's `chartPreviousClose` is the close BEFORE the range start — for a
+    // multi-day range that returns [...older days, yesterday, today], it points
+    // to the day before the range, not yesterday. Using it as the 1D reference
+    // produces a multi-day change. Prefer the last completed daily close from
+    // the bars array (penultimate bar), fall back to chartPreviousClose only
+    // in the degenerate single-bar case.
+    const prevClose = validCloses.length >= 2
+      ? validCloses[validCloses.length - 2]
+      : meta.chartPreviousClose ?? null;
     const currentPrice = meta.regularMarketPrice ?? validCloses.at(-1) ?? null;
 
     if (!currentPrice) return null;
