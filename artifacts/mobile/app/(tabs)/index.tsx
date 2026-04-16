@@ -496,24 +496,29 @@ export default function WatchlistScreen() {
 
         {/* Toolbar row 1: section title + action buttons */}
         {editMode ? (
-          <View style={[styles.toolbarRow, { paddingHorizontal: 16, marginBottom: 10 }]}>
-            {!isDefaultFolder ? (
+          <View style={{ paddingHorizontal: 16, marginBottom: 10 }}>
+            <Text style={[styles.sectionTitle, { color: colors.foreground, marginBottom: 8 }]}>
+              {activeFolder?.name ?? "Watchlist"}
+            </Text>
+            <View style={styles.toolbarRow}>
+              {!isDefaultFolder ? (
+                <TouchableOpacity
+                  style={[styles.deleteButton, { backgroundColor: colors.negative + "18", borderColor: colors.negative + "44" }]}
+                  onPress={handleDeleteFolder}
+                >
+                  <Feather name="trash-2" size={13} color={colors.negative} />
+                  <Text style={[styles.deleteButtonText, { color: colors.negative }]}>Delete Portfolio</Text>
+                </TouchableOpacity>
+              ) : (
+                <View />
+              )}
               <TouchableOpacity
-                style={[styles.deleteButton, { backgroundColor: colors.negative + "18", borderColor: colors.negative + "44" }]}
-                onPress={handleDeleteFolder}
+                style={[styles.doneButton, { backgroundColor: colors.primary }]}
+                onPress={handleDoneEdit}
               >
-                <Feather name="trash-2" size={13} color={colors.negative} />
-                <Text style={[styles.deleteButtonText, { color: colors.negative }]}>Delete Portfolio</Text>
+                <Text style={[styles.doneButtonText, { color: colors.primaryForeground }]}>Done</Text>
               </TouchableOpacity>
-            ) : (
-              <View />
-            )}
-            <TouchableOpacity
-              style={[styles.doneButton, { backgroundColor: colors.primary }]}
-              onPress={handleDoneEdit}
-            >
-              <Text style={[styles.doneButtonText, { color: colors.primaryForeground }]}>Done</Text>
-            </TouchableOpacity>
+            </View>
           </View>
         ) : (
           <View style={[styles.toolbarRow, { paddingHorizontal: 16, marginBottom: 10 }]}>
@@ -724,15 +729,19 @@ export default function WatchlistScreen() {
                           {folder.tickers.length} {folder.tickers.length === 1 ? "stock" : "stocks"}
                         </Text>
                       </View>
-                      {isSelected && <Feather name="check" size={16} color={colors.primary} />}
-                      <TouchableOpacity
-                        onPress={() => handlePickerDelete(folder)}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                        style={pickerStyles.trashBtn}
-                        accessibilityLabel="Delete portfolio"
-                      >
-                        <Feather name="trash-2" size={16} color={colors.mutedForeground} />
-                      </TouchableOpacity>
+                      <View style={pickerStyles.rowRight}>
+                        <View style={{ width: 24, alignItems: "center" }}>
+                          {isSelected && <Feather name="check" size={16} color={colors.primary} />}
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => handlePickerDelete(folder)}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                          style={pickerStyles.trashBtn}
+                          accessibilityLabel="Delete portfolio"
+                        >
+                          <Feather name="trash-2" size={16} color={colors.mutedForeground} />
+                        </TouchableOpacity>
+                      </View>
                     </TouchableOpacity>
                   );
                 })}
@@ -819,7 +828,8 @@ const pickerStyles = StyleSheet.create({
   emptyText: { fontSize: 14, fontFamily: "Inter_400Regular" },
   row: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 14, borderRadius: 12, borderWidth: 1, marginBottom: 8 },
   rowLeft: { flex: 1, gap: 2 },
+  rowRight: { flexDirection: "row", alignItems: "center", gap: 4 },
   rowName: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   rowCount: { fontSize: 12, fontFamily: "Inter_400Regular" },
-  trashBtn: { padding: 6, marginLeft: 8 },
+  trashBtn: { padding: 6 },
 });
