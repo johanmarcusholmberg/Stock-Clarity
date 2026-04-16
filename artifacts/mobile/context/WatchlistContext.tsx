@@ -324,6 +324,9 @@ export function WatchlistProvider({
   //   2. When tickers change — adding/removing a stock re-fetches all quotes
   //   3. Every 15 min — auto-refresh interval (market-hours only, see below)
   //   4. Pull-to-refresh — the Home screen calls refreshQuotes() directly
+  // IMPORTANT: The backend quote endpoint returns 1D change (via a 2-day chart).
+  // Watchlist cards intentionally display this 1D change/percent alongside the
+  // 1Y mini-chart — these are independent data sources by design.
   const refreshQuotes = useCallback(async () => {
     if (!allTickers.length) return;
     try {

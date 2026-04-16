@@ -10,6 +10,11 @@ interface Props {
   stock: Stock;
   /** Real 1Y chart data from useMiniCharts (separate from quote data on stock object). */
   chartData?: number[];
+  /**
+   * Toggle between % and $ display for the change label.
+   * The underlying stock.change and stock.changePercent always reflect 1D change
+   * (sourced from refreshQuotes), not the mini-chart's 1Y range.
+   */
   showPercent?: boolean;
   editMode?: boolean;
   onRemove?: () => void;
@@ -92,7 +97,7 @@ function StockCardInner({ stock, chartData, showPercent = true, editMode = false
           </Text>
         </View>
 
-        {/* Center: sparkline */}
+        {/* Center: sparkline — uses 1Y chart data; color is based on 1D change */}
         {!editMode && (
           <View style={styles.chartContainer}>
             <MiniChart data={chartData} color={changeColor} width={56} height={28} />
