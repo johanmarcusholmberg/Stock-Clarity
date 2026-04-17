@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
+import { useMiniCharts } from "@/hooks/useMiniCharts";
 import { useWatchlist, Stock } from "@/context/WatchlistContext";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { PaywallSheet } from "@/components/PaywallSheet";
@@ -19,9 +20,10 @@ import { TabHintPopup } from "@/components/TabHintPopup";
 type FeatherIconName = React.ComponentProps<typeof Feather>["name"];
 type PerfPeriod = "today" | "1w" | "1m";
 
-function getPerformance(stock: Stock, period: PerfPeriod): number {
+// History arrays come from useMiniCharts (1Y daily closes). Stock.priceHistory
+// is intentionally empty in WatchlistContext — don't read it here.
+function getPerformance(stock: Stock, history: number[], period: PerfPeriod): number {
   if (period === "today") return stock.changePercent;
-  const history = stock.priceHistory;
   if (!history || history.length < 2) return stock.changePercent;
   const current = history[history.length - 1];
   const daysBack = period === "1w" ? 5 : 20;
@@ -30,22 +32,20 @@ function getPerformance(stock: Stock, period: PerfPeriod): number {
   return ((current - past) / past) * 100;
 }
 
-function getVolatility(stock: Stock): number {
-  const h = stock.priceHistory;
-  if (!h || h.length < 2) return 0;
+function getVolatility(history: number[]): number {
+  if (!history || history.length < 2) return 0;
   const changes: number[] = [];
-  for (let i = 1; i < h.length; i++) {
-    if (h[i - 1] !== 0) changes.push(Math.abs((h[i] - h[i - 1]) / h[i - 1]) * 100);
+  for (let i = 1; i < history.length; i++) {
+    if (history[i - 1] !== 0) changes.push(Math.abs((history[i] - history[i - 1]) / history[i - 1]) * 100);
   }
   if (!changes.length) return 0;
   return changes.reduce((a, b) => a + b, 0) / changes.length;
 }
 
-function get52wProximity(stock: Stock): { pctFromHigh: number; pctFromLow: number } {
-  const h = stock.priceHistory;
-  if (!h || !h.length) return { pctFromHigh: 0, pctFromLow: 0 };
-  const high = Math.max(...h);
-  const low = Math.min(...h);
+function get52wProximity(stock: Stock, history: number[]): { pctFromHigh: number; pctFromLow: number } {
+  if (!history || !history.length) return { pctFromHigh: 0, pctFromLow: 0 };
+  const high = Math.max(...history);
+  const low = Math.min(...history);
   const current = stock.price;
   const pctFromHigh = high > 0 ? ((current - high) / high) * 100 : 0;
   const pctFromLow = low > 0 ? ((current - low) / low) * 100 : 0;
@@ -111,6 +111,10 @@ export default function InsightsScreen() {
     [watchlist, stocks]
   );
 
+  // Shares the ["chart", ticker, "1y", "1d"] TanStack cache with the Home
+  // screen — no extra fetch when the user switches tabs.
+  const { charts } = useMiniCharts(watchlist);
+
   const activePortfolioName = activeFolderId === "default"
     ? "Watchlist"
     : folders.find((f) => f.id === activeFolderId)?.name ?? "Watchlist";
@@ -127,8 +131,12 @@ export default function InsightsScreen() {
     : 0;
 
   const sortedByPerf = useMemo(() =>
-    [...watchedStocks].sort((a, b) => getPerformance(b, period) - getPerformance(a, period)),
-    [watchedStocks, period]
+    [...watchedStocks].sort(
+      (a, b) =>
+        getPerformance(b, charts[b.ticker] ?? [], period) -
+        getPerformance(a, charts[a.ticker] ?? [], period)
+    ),
+    [watchedStocks, charts, period]
   );
   const bestPerformers = sortedByPerf.slice(0, 3);
   const worstPerformers = [...sortedByPerf].reverse().slice(0, 3);
@@ -157,8 +165,11 @@ export default function InsightsScreen() {
 
   const avgVolatility = useMemo(() => {
     if (!watchedStocks.length) return 0;
-    return watchedStocks.reduce((sum, s) => sum + getVolatility(s), 0) / watchedStocks.length;
-  }, [watchedStocks]);
+    return (
+      watchedStocks.reduce((sum, s) => sum + getVolatility(charts[s.ticker] ?? []), 0) /
+      watchedStocks.length
+    );
+  }, [watchedStocks, charts]);
 
   // Weighted average P/E — price-weighted across stocks that have P/E data.
   // Yahoo Finance returns trailingPE on live quotes; seed data has static values.
@@ -311,7 +322,7 @@ export default function InsightsScreen() {
                 <Text style={{ color: colors.primary, fontFamily: "Inter_700Bold", fontSize: 13, width: 20 }}>#{i + 1}</Text>
                 <Text style={{ color: colors.foreground, fontFamily: "Inter_600SemiBold", fontSize: 14, flex: 1 }}>{stock.ticker}</Text>
                 <Text style={{ color: colors.mutedForeground, fontSize: 12, fontFamily: "Inter_400Regular", flex: 1 }} numberOfLines={1}>{stock.name}</Text>
-                <ColoredPct value={getPerformance(stock, period)} />
+                <ColoredPct value={getPerformance(stock, charts[stock.ticker] ?? [], period)} />
               </View>
             ))}
 
@@ -321,7 +332,7 @@ export default function InsightsScreen() {
                 <Text style={{ color: colors.negative, fontFamily: "Inter_700Bold", fontSize: 13, width: 20 }}>#{i + 1}</Text>
                 <Text style={{ color: colors.foreground, fontFamily: "Inter_600SemiBold", fontSize: 14, flex: 1 }}>{stock.ticker}</Text>
                 <Text style={{ color: colors.mutedForeground, fontSize: 12, fontFamily: "Inter_400Regular", flex: 1 }} numberOfLines={1}>{stock.name}</Text>
-                <ColoredPct value={getPerformance(stock, period)} />
+                <ColoredPct value={getPerformance(stock, charts[stock.ticker] ?? [], period)} />
               </View>
             ))}
 
@@ -355,7 +366,7 @@ export default function InsightsScreen() {
           <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border, marginTop: 14, overflow: "hidden" }]}>
             <SectionHeader title="52-Week Range Proximity" icon="maximize-2" />
             {watchedStocks.map((stock) => {
-              const { pctFromHigh, pctFromLow } = get52wProximity(stock);
+              const { pctFromHigh, pctFromLow } = get52wProximity(stock, charts[stock.ticker] ?? []);
               const range = pctFromLow - pctFromHigh;
               const progress = range !== 0 ? pctFromLow / range : 0.5;
               return (
