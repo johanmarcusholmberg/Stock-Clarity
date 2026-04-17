@@ -1,5 +1,14 @@
+// @ts-nocheck — Node stdlib imports (node:test, node:assert/strict) don't
+// resolve without @types/node, which the mobile workspace doesn't install.
+// The file is excluded from tsconfig.json, so this pragma only matters for
+// ad-hoc transpile steps.
+//
 // Run with Node 22+:
 //   node --test --experimental-strip-types artifacts/mobile/utils/chartSeries.test.ts
+// Run with Node <22:
+//   pnpm exec tsc --target es2022 --module nodenext --moduleResolution nodenext \
+//     --outDir /tmp/cs-test utils/chartSeries.ts utils/chartSeries.test.ts &&
+//   node --test /tmp/cs-test/utils/chartSeries.test.js
 //
 // Uses only Node's built-in test runner + assert so no test framework
 // dependency is added to the project.
