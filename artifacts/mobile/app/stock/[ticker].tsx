@@ -120,12 +120,19 @@ function computeXLabels(
   timestamps: number[],
   rangeKey: string,
   plotLeft: number,
-  plotRight: number
+  plotRight: number,
+  // When the 1D series is prefixed with a virtual prev-close point, all
+  // intraday indices are shifted by 1. indexOffset accounts for that so
+  // x-axis labels still align with the correct bar positions.
+  indexOffset: number = 0,
+  totalPoints?: number,
 ): { label: string; x: number }[] {
   if (!timestamps.length) return [];
   const n = timestamps.length;
+  const total = totalPoints ?? n + indexOffset;
   const plotWidth = plotRight - plotLeft;
-  const px = (idx: number) => plotLeft + (idx / Math.max(n - 1, 1)) * plotWidth;
+  const px = (idx: number) =>
+    plotLeft + ((idx + indexOffset) / Math.max(total - 1, 1)) * plotWidth;
 
   // ── 1D: adaptive interval — 30-min early in day, 1-hour once past midday ─
   if (rangeKey === "1d") {
@@ -242,10 +249,15 @@ interface ChartProps {
   currency: string;
   mode: ChartMode;
   yPadding: number;
+  // 1D-only reference price: yesterday's close. When provided, it's prepended
+  // as the leftmost path point, included in the y-axis domain, and used as
+  // the base for percent mode — so the chart's visual delta matches the
+  // header "today's change" (which is computed against previousClose).
+  previousClose?: number | null;
   onHoverChange?: (index: number | null) => void;
 }
 
-function InteractiveChart({ prices, timestamps, rangeKey, color, positiveColor, negativeColor, borderColor, mutedColor, width, currency, mode, yPadding, onHoverChange }: ChartProps) {
+function InteractiveChart({ prices, timestamps, rangeKey, color, positiveColor, negativeColor, borderColor, mutedColor, width, currency, mode, yPadding, previousClose, onHoverChange }: ChartProps) {
   const [touchIndex, setTouchIndex] = useState<number | null>(null);
 
   const plotLeft = Y_AXIS_WIDTH;
@@ -255,14 +267,21 @@ function InteractiveChart({ prices, timestamps, rangeKey, color, positiveColor, 
   const plotBottom = CHART_HEIGHT - CHART_PADDING.bottom;
   const plotAreaHeight = plotBottom - plotTop;
 
+  // Anchor the 1D chart to yesterday's close when provided. For price mode
+  // we prepend the close as a virtual first point; for percent mode we use
+  // it as the base so "0%" sits at yesterday's close, making the graph
+  // tell the same story as the header ±% number.
+  const hasAnchor = rangeKey === "1d" && previousClose != null && prices.length > 0;
+
   const displayValues = useMemo(() => {
     if (!prices.length) return [];
     if (mode === "percent") {
-      const base = prices[0] || 1;
-      return prices.map((p) => ((p - base) / base) * 100);
+      const base = hasAnchor ? (previousClose as number) : (prices[0] || 1);
+      const pct = prices.map((p) => ((p - base) / base) * 100);
+      return hasAnchor ? [0, ...pct] : pct;
     }
-    return prices;
-  }, [prices, mode]);
+    return hasAnchor ? [previousClose as number, ...prices] : prices;
+  }, [prices, mode, hasAnchor, previousClose]);
 
   // Anchor to actual data min/max within the selected range, then apply padding
   const dataMin = displayValues.length ? Math.min(...displayValues) : 0;
@@ -430,10 +449,19 @@ function InteractiveChart({ prices, timestamps, rangeKey, color, positiveColor, 
         </Svg>
       </View>
 
-      {/* X-axis time labels */}
+      {/* X-axis time labels — when the chart is anchored to prev close, the
+          first path point is the anchor, not a real timestamp, so shift the
+          intraday labels one slot to the right. */}
       {timestamps.length > 0 ? (
         <View style={{ position: "relative", height: 18, marginTop: 2 }}>
-          {computeXLabels(timestamps, rangeKey, plotLeft, plotRight).map((lbl, i) => (
+          {computeXLabels(
+            timestamps,
+            rangeKey,
+            plotLeft,
+            plotRight,
+            hasAnchor ? 1 : 0,
+            displayValues.length,
+          ).map((lbl, i) => (
             <Text
               key={i}
               style={[
@@ -979,6 +1007,7 @@ export default function StockDetailScreen() {
               currency={currency}
               mode={chartMode}
               yPadding={chartYPadding}
+              previousClose={is1D ? previousClose : null}
             />
           )}
 

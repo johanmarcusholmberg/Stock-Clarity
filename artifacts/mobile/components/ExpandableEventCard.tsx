@@ -5,6 +5,7 @@ import React, { useState } from "react";
 import { Linking, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useColors } from "@/hooks/useColors";
 import type { StockEvent } from "@/services/stockApi";
+import TruncatedSummary from "./TruncatedSummary";
 
 /** Helper: returns true when the string looks like a valid HTTP(S) URL. */
 function isValidUrl(url?: string): boolean {
@@ -113,14 +114,13 @@ export default function ExpandableEventCard({
       </View>
 
       {/* Short summary preview (collapsed state) — a 2-line teaser of the AI
-          'what happened' text so readers can gauge the story without expanding. */}
+          'what happened' text so readers can gauge the story without expanding.
+          TruncatedSummary hard-caps at lineHeight*2 so the text can never
+          overflow into the "Tap for AI analysis" hint below. */}
       {!expanded && event.what ? (
-        <Text
-          style={[s.summary, { color: colors.mutedForeground }]}
-          numberOfLines={2}
-        >
-          {event.what}
-        </Text>
+        <View style={s.summaryWrap}>
+          <TruncatedSummary text={event.what} color={colors.mutedForeground} />
+        </View>
       ) : null}
 
       {/* AI usage hint when not expanded */}
@@ -201,8 +201,8 @@ const s = StyleSheet.create({
   meta: { fontSize: 11, fontFamily: "Inter_400Regular" },
   lockBadge: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, paddingVertical: 3, borderRadius: 5 },
   lockText: { fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
-  summary: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 19, paddingHorizontal: 14, paddingBottom: 12, marginTop: -6 },
-  hint: { fontSize: 11, fontFamily: "Inter_400Regular", paddingHorizontal: 14, paddingBottom: 10, marginTop: -4 },
+  summaryWrap: { paddingHorizontal: 14, paddingBottom: 10, marginTop: -2 },
+  hint: { fontSize: 11, fontFamily: "Inter_400Regular", paddingHorizontal: 14, paddingBottom: 12 },
   body: { paddingHorizontal: 14, paddingBottom: 14 },
   divider: { height: 1, marginBottom: 12 },
   section: { marginBottom: 12 },

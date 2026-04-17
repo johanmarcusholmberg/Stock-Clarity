@@ -5,6 +5,7 @@ import React, { useState } from "react";
 import { Linking, StyleSheet, Text, TouchableOpacity, View, Animated } from "react-native";
 import { useColors } from "@/hooks/useColors";
 import { DigestEntry } from "@/context/WatchlistContext";
+import TruncatedSummary from "./TruncatedSummary";
 
 interface Props {
   entry: DigestEntry;
@@ -67,10 +68,15 @@ export default function DigestCard({ entry }: Props) {
         </View>
       </View>
 
-      {/* Summary — always visible */}
-      <Text style={[styles.summary, { color: colors.foreground }]} numberOfLines={expanded ? undefined : 2}>
-        {entry.summary}
-      </Text>
+      {/* Summary — always visible. Collapsed: shared 2-line truncation.
+          Expanded: full text via regular Text. */}
+      {expanded ? (
+        <Text style={[styles.summary, { color: colors.foreground }]}>
+          {entry.summary}
+        </Text>
+      ) : (
+        <TruncatedSummary text={entry.summary} color={colors.foreground} />
+      )}
 
       {/* Compact source link — visible when collapsed */}
       {!expanded && entry.sourceUrl && (

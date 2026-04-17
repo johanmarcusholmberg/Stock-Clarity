@@ -113,10 +113,12 @@ async function fetchQuoteViaChart(symbol: string): Promise<any | null> {
   if (cached) return cached;
 
   try {
-    // range=5d guarantees we always have at least two completed daily bars
-    // even after long holidays, so the penultimate-bar lookup below is
-    // reliable. range=2d could return a single bar in edge cases.
-    const url = `${YF2}/v8/finance/chart/${encodeURIComponent(symbol)}?range=5d&interval=1d&includePrePost=false`;
+    // range=1d gives Yahoo's canonical `chartPreviousClose` for the current
+    // session context: it stays frozen across the session and rolls at the
+    // next market open — correctly handling weekends and holidays via
+    // Yahoo's internal market calendar. This is the source of truth for the
+    // "Prev Close" displayed in the header and used as the 1D chart anchor.
+    const url = `${YF2}/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=5m&includePrePost=false`;
     const data = await yfFetch(url);
     const result = data?.chart?.result?.[0];
     if (!result) return null;
@@ -124,15 +126,12 @@ async function fetchQuoteViaChart(symbol: string): Promise<any | null> {
     const meta = result.meta;
     const closes: number[] = result.indicators?.quote?.[0]?.close ?? [];
     const validCloses = closes.filter((c: any) => c != null && !isNaN(c)) as number[];
-    // Yahoo's `chartPreviousClose` is the close BEFORE the range start — for a
-    // multi-day range that returns [...older days, yesterday, today], it points
-    // to the day before the range, not yesterday. Using it as the 1D reference
-    // produces a multi-day change. Prefer the last completed daily close from
-    // the bars array (penultimate bar), fall back to chartPreviousClose only
-    // in the degenerate single-bar case.
-    const prevClose = validCloses.length >= 2
-      ? validCloses[validCloses.length - 2]
-      : meta.chartPreviousClose ?? null;
+    // Yahoo's session-aware previous close. For range=1d this is the close
+    // of the trading session before the current one — it stays fixed across
+    // the whole session and only advances at the next market open. That
+    // matches the cadence we want in the header "Prev Close" field and
+    // as the 1D chart's left-edge anchor.
+    const prevClose = meta.chartPreviousClose ?? null;
     const currentPrice = meta.regularMarketPrice ?? validCloses.at(-1) ?? null;
 
     if (!currentPrice) return null;
