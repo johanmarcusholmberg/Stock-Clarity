@@ -1,11 +1,15 @@
 import { useCallback, useMemo } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { CHART_RANGES, getChart } from "../services/stockApi";
+import { buildChartSeries } from "../utils/chartSeries";
 
-/** Cached shape per range — matches what the component already consumes. */
+/** Cached shape per range — prices/timestamps have the prev-close anchor
+ * already prepended so the chart component doesn't repeat the shaping. */
 export interface RangeChartData {
   prices: number[];
   timestamps: number[];
+  previousClose: number | null;
+  hasAnchor: boolean;
 }
 
 /** Stale-time per range index (milliseconds).
@@ -41,7 +45,16 @@ export function useMultiRangeChart(ticker: string | undefined) {
       queryKey: ["chart", ticker, r.range, r.interval] as const,
       queryFn: async (): Promise<RangeChartData> => {
         const chart = await getChart(ticker!, r.range, r.interval);
-        return { prices: chart.prices, timestamps: chart.timestamps };
+        const prevClose = chart.meta?.chartPreviousClose ?? null;
+        // Prepend the opening anchor (= previous period's close) so every
+        // range renders the same way: the first plotted point is the open.
+        const shaped = buildChartSeries(chart.prices, chart.timestamps, prevClose);
+        return {
+          prices: shaped.prices,
+          timestamps: shaped.timestamps,
+          previousClose: prevClose,
+          hasAnchor: shaped.hasAnchor,
+        };
       },
       enabled: !!ticker,
       staleTime: STALE_TIMES[idx],

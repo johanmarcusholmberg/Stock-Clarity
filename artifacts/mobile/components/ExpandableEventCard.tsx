@@ -2,10 +2,37 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useState } from "react";
-import { Linking, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  LayoutAnimation,
+  Linking,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  UIManager,
+  View,
+} from "react-native";
 import { useColors } from "@/hooks/useColors";
 import type { StockEvent } from "@/services/stockApi";
 import TruncatedSummary from "./TruncatedSummary";
+
+// LayoutAnimation needs one-time opt-in on Android.
+if (
+  Platform.OS === "android" &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+// ~220ms ease-out expansion — fast enough to feel responsive, slow enough to
+// make the height change legible so neighbouring cards don't appear to jump.
+const EXPAND_ANIM = LayoutAnimation.create(
+  220,
+  LayoutAnimation.Types.easeOut,
+  LayoutAnimation.Properties.opacity,
+);
+
+const SUMMARY_LINES = 3;
 
 /** Helper: returns true when the string looks like a valid HTTP(S) URL. */
 function isValidUrl(url?: string): boolean {
@@ -64,10 +91,13 @@ export default function ExpandableEventCard({
       }
       onExpand?.();
     }
+    LayoutAnimation.configureNext(EXPAND_ANIM);
     setExpanded((v) => !v);
   };
 
   const validUrl = isValidUrl(event.url);
+  const summariesLeft = Math.max(0, summaryLimit - summaryCount);
+  const showFooter = !expanded && hasAI && canExpand && summaryLimit < 9999;
 
   return (
     <TouchableOpacity
@@ -75,7 +105,7 @@ export default function ExpandableEventCard({
       onPress={handlePress}
       activeOpacity={0.8}
     >
-      {/* Optional ticker badge row (Digest context) */}
+      {/* ── Optional ticker badge row (Digest context) ── */}
       {showTicker && (
         <View style={s.tickerRow}>
           <View style={[s.tickerBadge, { backgroundColor: sentColor + "20" }]}>
@@ -87,10 +117,14 @@ export default function ExpandableEventCard({
         </View>
       )}
 
+      {/* ── Header: sentiment dot · title/meta · chevron ── */}
       <View style={s.header}>
         <View style={[s.sentDot, { backgroundColor: sentColor }]} />
         <View style={s.headerText}>
-          <Text style={[s.title, { color: colors.foreground }]} numberOfLines={expanded ? undefined : 2}>
+          <Text
+            style={[s.title, { color: colors.foreground }]}
+            numberOfLines={expanded ? undefined : 2}
+          >
             {event.title}
           </Text>
           <Text style={[s.meta, { color: colors.mutedForeground }]}>
@@ -98,7 +132,7 @@ export default function ExpandableEventCard({
             {date}
           </Text>
         </View>
-        <View style={{ alignItems: "flex-end", gap: 4 }}>
+        <View style={s.headerRight}>
           {hasAI && !canExpand && !expanded && (
             <View style={[s.lockBadge, { backgroundColor: colors.warning + "22" }]}>
               <Feather name="lock" size={10} color={colors.warning} />
@@ -113,26 +147,19 @@ export default function ExpandableEventCard({
         </View>
       </View>
 
-      {/* Short summary preview (collapsed state) — a 2-line teaser of the AI
-          'what happened' text so readers can gauge the story without expanding.
-          TruncatedSummary hard-caps at lineHeight*2 so the text can never
-          overflow into the "Tap for AI analysis" hint below. */}
+      {/* ── Body: 3-line clamped summary (collapsed) or full AI sections (expanded) ── */}
       {!expanded && event.what ? (
-        <View style={s.summaryWrap}>
-          <TruncatedSummary text={event.what} color={colors.mutedForeground} />
+        <View style={s.body}>
+          <TruncatedSummary
+            text={event.what}
+            lines={SUMMARY_LINES}
+            color={colors.mutedForeground}
+          />
         </View>
       ) : null}
 
-      {/* AI usage hint when not expanded */}
-      {!expanded && hasAI && canExpand && summaryLimit < 9999 && (
-        <Text style={[s.hint, { color: colors.mutedForeground }]}>
-          Tap for AI analysis · {Math.max(0, summaryLimit - summaryCount)} summary
-          {summaryLimit - summaryCount !== 1 ? "s" : ""} left for this stock
-        </Text>
-      )}
-
       {expanded && (
-        <View style={s.body}>
+        <View style={s.bodyExpanded}>
           <View style={[s.divider, { backgroundColor: colors.border }]} />
           {event.what ? (
             <View style={s.section}>
@@ -166,7 +193,6 @@ export default function ExpandableEventCard({
               <Text style={[s.readMoreText, { color: colors.mutedForeground }]}>Article unavailable</Text>
             </View>
           )}
-          {/* View stock CTA (only in digest context) */}
           {showTicker && (
             <TouchableOpacity
               style={[s.viewStockBtn, { backgroundColor: colors.primary }]}
@@ -184,32 +210,100 @@ export default function ExpandableEventCard({
           )}
         </View>
       )}
+
+      {/* ── Footer: CTA + counter on its own row with a subtle top border.
+             Separate row means the 3-line summary above can never overlap
+             with this text. ── */}
+      {showFooter && (
+        <View style={[s.footer, { borderTopColor: colors.border }]}>
+          <Text style={[s.footerText, { color: colors.mutedForeground }]} numberOfLines={1}>
+            Tap for AI analysis · {summariesLeft} summary
+            {summariesLeft !== 1 ? "s" : ""} left for this stock
+          </Text>
+        </View>
+      )}
     </TouchableOpacity>
   );
 }
 
 const s = StyleSheet.create({
-  card: { borderRadius: 14, borderWidth: 1, marginBottom: 8, overflow: "hidden" },
-  tickerRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, paddingTop: 12 },
+  card: {
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 8,
+    overflow: "hidden",
+    // Explicit column flow so the header/body/footer stack vertically with
+    // no risk of overlap from absolute positioning.
+    flexDirection: "column",
+  },
+  tickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+  },
   tickerBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 5 },
   tickerText: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
   stockNameText: { fontSize: 12, fontFamily: "Inter_400Regular" },
-  header: { flexDirection: "row", alignItems: "flex-start", padding: 14, gap: 10 },
+  header: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 10,
+    gap: 10,
+  },
   sentDot: { width: 8, height: 8, borderRadius: 4, marginTop: 5, flexShrink: 0 },
   headerText: { flex: 1 },
+  headerRight: { alignItems: "flex-end", gap: 4 },
   title: { fontSize: 14, fontFamily: "Inter_600SemiBold", lineHeight: 20, marginBottom: 4 },
   meta: { fontSize: 11, fontFamily: "Inter_400Regular" },
-  lockBadge: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, paddingVertical: 3, borderRadius: 5 },
+  lockBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 5,
+  },
   lockText: { fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
-  summaryWrap: { paddingHorizontal: 14, paddingBottom: 10, marginTop: -2 },
-  hint: { fontSize: 11, fontFamily: "Inter_400Regular", paddingHorizontal: 14, paddingBottom: 12 },
-  body: { paddingHorizontal: 14, paddingBottom: 14 },
+  body: {
+    paddingHorizontal: 14,
+    paddingBottom: 12,
+  },
+  bodyExpanded: {
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+  },
+  footer: {
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  footerText: { fontSize: 11, fontFamily: "Inter_400Regular" },
   divider: { height: 1, marginBottom: 12 },
   section: { marginBottom: 12 },
   sectionLabel: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.8, marginBottom: 4 },
   sectionText: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 19 },
-  readMore: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, borderTopWidth: 1, marginTop: 4 },
+  readMore: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    marginTop: 4,
+  },
   readMoreText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
-  viewStockBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingVertical: 12, borderRadius: 11, marginTop: 8 },
+  viewStockBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    paddingVertical: 12,
+    borderRadius: 11,
+    marginTop: 8,
+  },
   viewStockText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
 });

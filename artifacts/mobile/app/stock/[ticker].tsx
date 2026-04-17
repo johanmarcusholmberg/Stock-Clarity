@@ -63,11 +63,11 @@ function formatYLabel(value: number, mode: ChartMode, _currency: string): string
   return `${value.toFixed(2)}`;
 }
 
-function formatTooltipValue(value: number, mode: ChartMode, _currency: string): string {
-  if (mode === "percent") {
-    return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
-  }
-  return value.toFixed(2);
+function formatTooltipValue(value: number, mode: ChartMode, _currency: string, isAnchor = false): string {
+  const formatted = mode === "percent"
+    ? `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`
+    : value.toFixed(2);
+  return isAnchor ? `Open ${formatted}` : formatted;
 }
 
 // ── X-axis label helpers ───────────────────────────────────────────
@@ -249,15 +249,14 @@ interface ChartProps {
   currency: string;
   mode: ChartMode;
   yPadding: number;
-  // 1D-only reference price: yesterday's close. When provided, it's prepended
-  // as the leftmost path point, included in the y-axis domain, and used as
-  // the base for percent mode — so the chart's visual delta matches the
-  // header "today's change" (which is computed against previousClose).
-  previousClose?: number | null;
+  // True when index 0 of `prices`/`timestamps` is the synthetic "open" anchor
+  // (prior period's close). The hook prepends this — the chart just needs to
+  // know so it can label the point correctly and skip it in the X-axis.
+  hasAnchor?: boolean;
   onHoverChange?: (index: number | null) => void;
 }
 
-function InteractiveChart({ prices, timestamps, rangeKey, color, positiveColor, negativeColor, borderColor, mutedColor, width, currency, mode, yPadding, previousClose, onHoverChange }: ChartProps) {
+function InteractiveChart({ prices, timestamps, rangeKey, color, positiveColor, negativeColor, borderColor, mutedColor, width, currency, mode, yPadding, hasAnchor = false, onHoverChange }: ChartProps) {
   const [touchIndex, setTouchIndex] = useState<number | null>(null);
 
   const plotLeft = Y_AXIS_WIDTH;
@@ -267,21 +266,17 @@ function InteractiveChart({ prices, timestamps, rangeKey, color, positiveColor, 
   const plotBottom = CHART_HEIGHT - CHART_PADDING.bottom;
   const plotAreaHeight = plotBottom - plotTop;
 
-  // Anchor the 1D chart to yesterday's close when provided. For price mode
-  // we prepend the close as a virtual first point; for percent mode we use
-  // it as the base so "0%" sits at yesterday's close, making the graph
-  // tell the same story as the header ±% number.
-  const hasAnchor = rangeKey === "1d" && previousClose != null && prices.length > 0;
-
   const displayValues = useMemo(() => {
     if (!prices.length) return [];
     if (mode === "percent") {
-      const base = hasAnchor ? (previousClose as number) : (prices[0] || 1);
-      const pct = prices.map((p) => ((p - base) / base) * 100);
-      return hasAnchor ? [0, ...pct] : pct;
+      // prices[0] is the period's opening anchor (prev close) when hasAnchor
+      // is true, so "0%" naturally sits at the opening — the header ±% and
+      // the chart's visual delta tell the same story.
+      const base = prices[0] || 1;
+      return prices.map((p) => ((p - base) / base) * 100);
     }
-    return hasAnchor ? [previousClose as number, ...prices] : prices;
-  }, [prices, mode, hasAnchor, previousClose]);
+    return prices;
+  }, [prices, mode]);
 
   // Anchor to actual data min/max within the selected range, then apply padding
   const dataMin = displayValues.length ? Math.min(...displayValues) : 0;
@@ -351,8 +346,9 @@ function InteractiveChart({ prices, timestamps, rangeKey, color, positiveColor, 
 
   if (!prices.length) return null;
 
-  // Clamp tooltip so it stays within chart bounds
-  const tooltipWidth = 80;
+  // Clamp tooltip so it stays within chart bounds. Widen when hovering the
+  // anchor so the "Open" prefix fits without wrapping.
+  const tooltipWidth = hasAnchor && touchIndex === 0 ? 104 : 80;
   const tooltipLeft =
     crosshairX !== null
       ? Math.min(Math.max(crosshairX - tooltipWidth / 2, plotLeft), plotRight - tooltipWidth)
@@ -372,8 +368,8 @@ function InteractiveChart({ prices, timestamps, rangeKey, color, positiveColor, 
             },
           ]}
         >
-          <Text style={chartStyles.tooltipText}>
-            {formatTooltipValue(crosshairVal, mode, currency)}
+          <Text style={chartStyles.tooltipText} numberOfLines={1}>
+            {formatTooltipValue(crosshairVal, mode, currency, hasAnchor && touchIndex === 0)}
           </Text>
         </View>
       )}
@@ -449,13 +445,13 @@ function InteractiveChart({ prices, timestamps, rangeKey, color, positiveColor, 
         </Svg>
       </View>
 
-      {/* X-axis time labels — when the chart is anchored to prev close, the
-          first path point is the anchor, not a real timestamp, so shift the
-          intraday labels one slot to the right. */}
+      {/* X-axis time labels — the anchor at index 0 is a synthetic "open"
+          point, not a real bar, so pass only the real timestamps and shift
+          all label positions one slot right so they align with the bars. */}
       {timestamps.length > 0 ? (
         <View style={{ position: "relative", height: 18, marginTop: 2 }}>
           {computeXLabels(
-            timestamps,
+            hasAnchor ? timestamps.slice(1) : timestamps,
             rangeKey,
             plotLeft,
             plotRight,
@@ -1007,7 +1003,7 @@ export default function StockDetailScreen() {
               currency={currency}
               mode={chartMode}
               yPadding={chartYPadding}
-              previousClose={is1D ? previousClose : null}
+              hasAnchor={chart.data[selectedRange]?.hasAnchor ?? false}
             />
           )}
 
