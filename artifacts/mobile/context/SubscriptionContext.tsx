@@ -1,7 +1,9 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { Linking } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@clerk/expo";
 import { useUser } from "@clerk/expo";
+import { applyEventExpansion } from "@/utils/aiQuota";
 
 const API_BASE = (() => {
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
@@ -24,31 +26,54 @@ export interface Plan {
   }>;
 }
 
-// Per-tier limits for the stock detail page
-export const TIER_LIMITS: Record<Tier, { stocksPerDay: number; summariesPerStock: number }> = {
-  free:    { stocksPerDay: 3,        summariesPerStock: 1 },
-  pro:     { stocksPerDay: 10,       summariesPerStock: 3 },
-  premium: { stocksPerDay: Infinity, summariesPerStock: 5 },
+// Per-tier limits.
+// `aiSummariesPerDay` is a single shared daily pool that every AI summary
+// expansion in the app deducts from (Digest briefs + Stock-page Recent News).
+// `summariesPerStock` is kept for legacy/account display only.
+export const TIER_LIMITS: Record<Tier, {
+  stocksPerDay: number;
+  aiSummariesPerDay: number;
+  summariesPerStock: number;
+}> = {
+  free:    { stocksPerDay: 3,        aiSummariesPerDay: 5,        summariesPerStock: 1 },
+  pro:     { stocksPerDay: 10,       aiSummariesPerDay: 30,       summariesPerStock: 3 },
+  premium: { stocksPerDay: Infinity, aiSummariesPerDay: Infinity, summariesPerStock: 5 },
 };
+
+export interface EventExpansionResult {
+  recorded: boolean;
+  cached?: boolean;
+  outOfQuota?: boolean;
+}
 
 interface SubscriptionState {
   tier: Tier;
   isLoading: boolean;
   isAdmin: boolean;
-  // Per-stock tracking (stock detail page)
+  // Stock views/day (separate concept from AI summaries).
   stocksSeenToday: string[];
   stocksLimit: number;
   summariesPerStockLimit: number;
   canViewStock: (ticker: string) => boolean;
-  canUseAIForStock: (ticker: string) => boolean;
   recordStockView: (ticker: string) => void;
-  recordAIUsageForStock: (ticker: string) => void;
-  aiUsageForStock: (ticker: string) => number;
-  // Legacy global AI tracking (EventCard in digest/insights)
+  // Shared global AI summary quota.
   aiSummariesUsedToday: number;
   aiSummariesLimit: number;
   aiSummariesRemaining: number;
   canUseAI: boolean;
+  /** True if this event's AI summary has been generated before (cached). */
+  hasExpandedEvent: (eventId: string) => boolean;
+  /**
+   * Idempotent quota gate for expanding an AI summary.
+   *   - Already expanded before → `{ recorded: false, cached: true }`, no quota change.
+   *   - Quota available         → decrements, caches, returns `{ recorded: true }`.
+   *   - Out of quota             → `{ recorded: false, outOfQuota: true }`, no cache change.
+   */
+  recordEventExpansion: (eventId: string) => EventExpansionResult;
+  // Legacy per-stock wrappers (now back the global pool for back-compat).
+  canUseAIForStock: (ticker: string) => boolean;
+  recordAIUsageForStock: (ticker: string) => void;
+  aiUsageForStock: (ticker: string) => number;
   recordAIUsage: () => void;
   // Plans / checkout
   plans: Plan[];
@@ -70,14 +95,16 @@ const SubscriptionContext = createContext<SubscriptionState>({
   stocksLimit: 3,
   summariesPerStockLimit: 1,
   canViewStock: () => true,
-  canUseAIForStock: () => true,
   recordStockView: () => {},
+  aiSummariesUsedToday: 0,
+  aiSummariesLimit: 5,
+  aiSummariesRemaining: 5,
+  canUseAI: true,
+  hasExpandedEvent: () => false,
+  recordEventExpansion: () => ({ recorded: false }),
+  canUseAIForStock: () => true,
   recordAIUsageForStock: () => {},
   aiUsageForStock: () => 0,
-  aiSummariesUsedToday: 0,
-  aiSummariesLimit: 1,
-  aiSummariesRemaining: 1,
-  canUseAI: true,
   recordAIUsage: () => {},
   plans: [],
   plansLoading: false,
@@ -97,12 +124,18 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const [isLoading, setIsLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
 
-  // Per-stock tracking
+  // Stock views/day (unrelated to AI quota).
   const [stocksSeen, setStocksSeen] = useState<string[]>([]);
-  const [aiUsageByStock, setAiUsageByStock] = useState<Record<string, number>>({});
 
-  // Legacy global AI count (for EventCard in digest/insights)
+  // Shared global AI counter — every AI summary expansion in the app deducts
+  // from this single pool.  Reset daily at midnight.
   const [aiUsedGlobal, setAiUsedGlobal] = useState(0);
+
+  // Persistent cache of event IDs whose AI summary has already been
+  // generated/viewed by this user.  Re-opening a cached item is free —
+  // the summary is displayed without another quota deduction.
+  // Persisted to AsyncStorage per-user so it survives app restarts.
+  const [expandedEventIds, setExpandedEventIds] = useState<Set<string>>(new Set());
 
   const [plans, setPlans] = useState<Plan[]>([]);
   const [plansLoading, setPlansLoading] = useState(false);
@@ -114,21 +147,58 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const tierLimits = TIER_LIMITS[tier];
   const stocksLimit = tierLimits.stocksPerDay;
   const summariesPerStockLimit = tierLimits.summariesPerStock;
+  const aiSummariesLimit = tierLimits.aiSummariesPerDay;
 
-  // Legacy global limit (5 for free, effectively unlimited for paid)
-  const globalAiLimit = tier === "free" ? 5 : 9999;
-  const aiSummariesRemaining = Math.max(0, globalAiLimit - aiUsedGlobal);
-  const canUseAI = aiSummariesRemaining > 0;
+  // For "unlimited" tiers we surface a large finite number so callers that
+  // render this value directly don't have to special-case Infinity.
+  // Callers that need the capability check use `canUseAI` or compare
+  // `aiSummariesLimit === Infinity`.
+  const aiSummariesRemaining = aiSummariesLimit === Infinity
+    ? 9999
+    : Math.max(0, aiSummariesLimit - aiUsedGlobal);
+  const canUseAI = aiSummariesLimit === Infinity || aiSummariesRemaining > 0;
+
+  const expandedKey = userId ? `@stockclarify_expanded_events_v1:${userId}` : null;
+
+  // Refs mirror the two pieces of quota state.  Reading through refs in
+  // `recordEventExpansion` avoids stale-closure races: a second tap that
+  // lands in the same React tick as a first tap sees the incremented
+  // counter and fresh expanded-id set, rather than the pre-tap snapshot.
+  const aiUsedRef = useRef(0);
+  const expandedIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => { aiUsedRef.current = aiUsedGlobal; }, [aiUsedGlobal]);
+  useEffect(() => { expandedIdsRef.current = expandedEventIds; }, [expandedEventIds]);
+
+  // Hydrate expanded-events cache on user change.
+  useEffect(() => {
+    if (!expandedKey) {
+      setExpandedEventIds(new Set());
+      expandedIdsRef.current = new Set();
+      return;
+    }
+    AsyncStorage.getItem(expandedKey).then((raw) => {
+      if (!raw) return;
+      try {
+        const arr = JSON.parse(raw) as string[];
+        if (Array.isArray(arr)) {
+          const hydrated = new Set(arr);
+          setExpandedEventIds(hydrated);
+          expandedIdsRef.current = hydrated;
+        }
+      } catch {}
+    }).catch(() => {});
+  }, [expandedKey]);
+
+  const persistExpanded = useCallback((next: Set<string>) => {
+    if (!expandedKey) return;
+    AsyncStorage.setItem(expandedKey, JSON.stringify(Array.from(next))).catch(() => {});
+  }, [expandedKey]);
 
   const canViewStock = useCallback((ticker: string): boolean => {
     if (stocksLimit === Infinity) return true;
     if (stocksSeen.includes(ticker)) return true;
     return stocksSeen.length < stocksLimit;
   }, [stocksSeen, stocksLimit]);
-
-  const canUseAIForStock = useCallback((ticker: string): boolean => {
-    return (aiUsageByStock[ticker] ?? 0) < summariesPerStockLimit;
-  }, [aiUsageByStock, summariesPerStockLimit]);
 
   const recordStockView = useCallback((ticker: string) => {
     setStocksSeen((prev) => {
@@ -137,36 +207,46 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     });
   }, []);
 
+  const hasExpandedEvent = useCallback((eventId: string): boolean => {
+    return expandedEventIds.has(eventId);
+  }, [expandedEventIds]);
+
+  // Core quota+cache primitive.  Delegates the decision to `applyEventExpansion`
+  // (pure function in utils/aiQuota.ts) — this component just commits the
+  // resulting state, persists the cache, and updates the refs so rapid
+  // successive calls see the latest values.
+  const recordEventExpansion = useCallback((eventId: string): EventExpansionResult => {
+    const { state: next, result } = applyEventExpansion(
+      { used: aiUsedRef.current, limit: aiSummariesLimit, expandedIds: expandedIdsRef.current },
+      eventId,
+    );
+    if (result.recorded) {
+      aiUsedRef.current = next.used;
+      expandedIdsRef.current = next.expandedIds;
+      setAiUsedGlobal(next.used);
+      setExpandedEventIds(next.expandedIds);
+      persistExpanded(next.expandedIds);
+      if (userId) {
+        fetch(`${API_BASE}/analytics/track`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId, eventType: "ai_summary_viewed", metadata: { eventId } }),
+        }).catch(() => {});
+      }
+    }
+    return result;
+  }, [aiSummariesLimit, persistExpanded, userId]);
+
+  // Legacy per-stock wrappers — now back the global pool for back-compat.
+  // Call sites should migrate to `canUseAI` / `recordEventExpansion`.
+  const canUseAIForStock = useCallback((_ticker: string): boolean => canUseAI, [canUseAI]);
   const recordAIUsageForStock = useCallback((ticker: string) => {
-    setAiUsageByStock((prev) => ({
-      ...prev,
-      [ticker]: (prev[ticker] ?? 0) + 1,
-    }));
-    // Also track globally for analytics
-    if (userId) {
-      fetch(`${API_BASE}/analytics/track`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, eventType: "ai_summary_viewed", metadata: { ticker } }),
-      }).catch(() => {});
-    }
-  }, [userId]);
-
-  const aiUsageForStock = useCallback((ticker: string): number => {
-    return aiUsageByStock[ticker] ?? 0;
-  }, [aiUsageByStock]);
-
-  // Legacy global record (EventCard in digest/insights)
+    recordEventExpansion(`legacy:${ticker}:${Date.now()}`);
+  }, [recordEventExpansion]);
+  const aiUsageForStock = useCallback((_ticker: string): number => aiUsedGlobal, [aiUsedGlobal]);
   const recordAIUsage = useCallback(() => {
-    setAiUsedGlobal((prev) => prev + 1);
-    if (userId) {
-      fetch(`${API_BASE}/analytics/track`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, eventType: "ai_summary_viewed" }),
-      }).catch(() => {});
-    }
-  }, [userId]);
+    recordEventExpansion(`legacy:global:${Date.now()}`);
+  }, [recordEventExpansion]);
 
   const fetchSubscription = useCallback(async () => {
     if (!userId || !isSignedIn) {
@@ -272,14 +352,17 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     return false;
   }, [userId, email]);
 
-  // Reset daily counters at midnight
+  // Reset daily counters at midnight.  Note: `expandedEventIds` is NOT
+  // reset — it persists forever so that re-opening a previously viewed
+  // summary stays free across days (per the "one AI gen per item, ever"
+  // contract).
   useEffect(() => {
     const today = new Date().toISOString().split("T")[0];
     if (lastResetDate.current !== today) {
       lastResetDate.current = today;
       setAiUsedGlobal(0);
+      aiUsedRef.current = 0;
       setStocksSeen([]);
-      setAiUsageByStock({});
     }
   }, []);
 
@@ -316,8 +399,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     };
   }, [fetchSubscription]);
 
-  const aiSummariesUsedToday = Object.values(aiUsageByStock).reduce((a, b) => a + b, 0) + aiUsedGlobal;
-
   return (
     <SubscriptionContext.Provider
       value={{
@@ -328,14 +409,16 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         stocksLimit,
         summariesPerStockLimit,
         canViewStock,
-        canUseAIForStock,
         recordStockView,
-        recordAIUsageForStock,
-        aiUsageForStock,
-        aiSummariesUsedToday,
-        aiSummariesLimit: summariesPerStockLimit,
+        aiSummariesUsedToday: aiUsedGlobal,
+        aiSummariesLimit,
         aiSummariesRemaining,
         canUseAI,
+        hasExpandedEvent,
+        recordEventExpansion,
+        canUseAIForStock,
+        recordAIUsageForStock,
+        aiUsageForStock,
         recordAIUsage,
         plans,
         plansLoading,

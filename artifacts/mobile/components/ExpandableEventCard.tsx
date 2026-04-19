@@ -13,6 +13,7 @@ import {
   View,
 } from "react-native";
 import { useColors } from "@/hooks/useColors";
+import { useSubscription } from "@/context/SubscriptionContext";
 import type { StockEvent } from "@/services/stockApi";
 import TruncatedSummary from "./TruncatedSummary";
 
@@ -45,16 +46,23 @@ function isValidUrl(url?: string): boolean {
   }
 }
 
+export type UpgradeReason = "stock_daily_limit" | "ai_limit";
+
 interface Props {
   event: StockEvent;
   /** Show ticker badge + stock name above the title (used by Digest page). */
   showTicker?: boolean;
   stockName?: string;
+  /**
+   * External gate unrelated to AI quota — e.g. the Stock page's "3 stocks/day"
+   * limit.  If false, tapping shows the paywall with `stock_daily_limit`.
+   */
   canExpand?: boolean;
-  summaryCount?: number;
-  summaryLimit?: number;
-  onNeedUpgrade?: () => void;
-  onExpand?: () => void;
+  /**
+   * Called when the tap cannot proceed.  `stock_daily_limit` from the
+   * external gate, `ai_limit` when the shared AI quota is exhausted.
+   */
+  onNeedUpgrade?: (reason: UpgradeReason) => void;
 }
 
 export default function ExpandableEventCard({
@@ -62,14 +70,21 @@ export default function ExpandableEventCard({
   showTicker = false,
   stockName,
   canExpand = true,
-  summaryCount = 0,
-  summaryLimit = 9999,
   onNeedUpgrade,
-  onExpand,
 }: Props) {
   const colors = useColors();
+  const {
+    tier,
+    aiSummariesRemaining,
+    aiSummariesLimit,
+    hasExpandedEvent,
+    recordEventExpansion,
+  } = useSubscription();
   const [expanded, setExpanded] = useState(false);
   const hasAI = !!(event.what || event.why || event.unusual);
+  const alreadyExpanded = hasExpandedEvent(event.id);
+  const isUnlimited = aiSummariesLimit === Infinity;
+  const remainingDisplay = isUnlimited ? null : aiSummariesRemaining;
   const date = new Date(event.timestamp).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -86,18 +101,31 @@ export default function ExpandableEventCard({
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (!expanded && hasAI) {
       if (!canExpand) {
-        onNeedUpgrade?.();
+        onNeedUpgrade?.("stock_daily_limit");
         return;
       }
-      onExpand?.();
+      // Cached items are always free to reopen, regardless of quota state.
+      if (!alreadyExpanded) {
+        const result = recordEventExpansion(event.id);
+        if (result.outOfQuota) {
+          onNeedUpgrade?.("ai_limit");
+          return;
+        }
+      }
     }
     LayoutAnimation.configureNext(EXPAND_ANIM);
     setExpanded((v) => !v);
   };
 
   const validUrl = isValidUrl(event.url);
-  const summariesLeft = Math.max(0, summaryLimit - summaryCount);
-  const showFooter = !expanded && hasAI && canExpand && summaryLimit < 9999;
+
+  // Footer: hidden for unlimited tier; otherwise shows one of three states.
+  const showFooter = !expanded && hasAI && !isUnlimited;
+  const footerState: "cached" | "available" | "used_up" = alreadyExpanded
+    ? "cached"
+    : (remainingDisplay ?? 0) > 0
+    ? "available"
+    : "used_up";
 
   return (
     <TouchableOpacity
@@ -133,10 +161,12 @@ export default function ExpandableEventCard({
           </Text>
         </View>
         <View style={s.headerRight}>
-          {hasAI && !canExpand && !expanded && (
+          {hasAI && !expanded && (!canExpand || footerState === "used_up") && !alreadyExpanded && (
             <View style={[s.lockBadge, { backgroundColor: colors.warning + "22" }]}>
               <Feather name="lock" size={10} color={colors.warning} />
-              <Text style={[s.lockText, { color: colors.warning }]}>PRO</Text>
+              <Text style={[s.lockText, { color: colors.warning }]}>
+                {tier === "free" ? "PRO" : "LIMIT"}
+              </Text>
             </View>
           )}
           <Feather
@@ -211,15 +241,23 @@ export default function ExpandableEventCard({
         </View>
       )}
 
-      {/* ── Footer: CTA + counter on its own row with a subtle top border.
-             Separate row means the 3-line summary above can never overlap
-             with this text. ── */}
+      {/* ── Footer: one of three states ── */}
       {showFooter && (
         <View style={[s.footer, { borderTopColor: colors.border }]}>
-          <Text style={[s.footerText, { color: colors.mutedForeground }]} numberOfLines={1}>
-            Tap for AI analysis · {summariesLeft} summary
-            {summariesLeft !== 1 ? "s" : ""} left for this stock
-          </Text>
+          {footerState === "cached" ? (
+            <Text style={[s.footerText, { color: colors.positive }]} numberOfLines={1}>
+              Generated · tap to view
+            </Text>
+          ) : footerState === "available" ? (
+            <Text style={[s.footerText, { color: colors.mutedForeground }]} numberOfLines={1}>
+              Tap for AI analysis · {remainingDisplay} summary
+              {remainingDisplay !== 1 ? "s" : ""} left today
+            </Text>
+          ) : (
+            <Text style={[s.footerText, { color: colors.warning }]} numberOfLines={1}>
+              Daily AI summaries used up — resets tomorrow
+            </Text>
+          )}
         </View>
       )}
     </TouchableOpacity>

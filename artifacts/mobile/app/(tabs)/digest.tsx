@@ -1,6 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import * as Haptics from "expo-haptics";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -15,8 +16,10 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { useWatchlist } from "@/context/WatchlistContext";
+import { useSubscription } from "@/context/SubscriptionContext";
 import { getEvents, type EventPeriod, type StockEvent } from "@/services/stockApi";
 import ExpandableEventCard from "@/components/ExpandableEventCard";
+import { PaywallSheet } from "@/components/PaywallSheet";
 import { TabHintPopup } from "@/components/TabHintPopup";
 
 type Colors = ReturnType<typeof useColors>;
@@ -42,14 +45,17 @@ function weekString() {
 }
 
 interface FilterState {
-  folderIds: Set<string>;
   tickers: Set<string>;
 }
 
+/**
+ * Stock-level filter for the Digest.  Narrows the events shown to a subset
+ * of the active portfolio's tickers.  Portfolio *switching* is handled by
+ * the portfolio pill + PortfolioSheet — this sheet is ticker-only.
+ */
 function FilterPanel({
   visible,
   onClose,
-  folders,
   allTickers,
   stocks,
   filterState,
@@ -58,31 +64,19 @@ function FilterPanel({
 }: {
   visible: boolean;
   onClose: () => void;
-  folders: { id: string; name: string; tickers: string[] }[];
   allTickers: string[];
   stocks: Record<string, { name: string }>;
   filterState: FilterState;
   onChange: (f: FilterState) => void;
   colors: Colors;
 }) {
-  const [localFolders, setLocalFolders] = useState<Set<string>>(new Set(filterState.folderIds));
   const [localTickers, setLocalTickers] = useState<Set<string>>(new Set(filterState.tickers));
 
   useEffect(() => {
     if (visible) {
-      setLocalFolders(new Set(filterState.folderIds));
       setLocalTickers(new Set(filterState.tickers));
     }
   }, [visible]);
-
-  const toggleFolder = (id: string) => {
-    setLocalFolders((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
 
   const toggleTicker = (t: string) => {
     setLocalTickers((prev) => {
@@ -94,16 +88,15 @@ function FilterPanel({
   };
 
   const handleApply = () => {
-    onChange({ folderIds: localFolders, tickers: localTickers });
+    onChange({ tickers: localTickers });
     onClose();
   };
 
   const handleClear = () => {
-    setLocalFolders(new Set());
     setLocalTickers(new Set());
   };
 
-  const hasChanges = localFolders.size > 0 || localTickers.size > 0;
+  const hasChanges = localTickers.size > 0;
 
   return (
     <Modal visible={visible} transparent animationType="slide" presentationStyle="overFullScreen" onRequestClose={onClose}>
@@ -112,7 +105,7 @@ function FilterPanel({
         <View style={[fp.sheet, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={[fp.handle, { backgroundColor: colors.border }]} />
           <View style={fp.header}>
-            <Text style={[fp.title, { color: colors.foreground }]}>Filter Digest</Text>
+            <Text style={[fp.title, { color: colors.foreground }]}>Filter stocks</Text>
             <View style={fp.headerRight}>
               {hasChanges && (
                 <TouchableOpacity onPress={handleClear}>
@@ -129,36 +122,7 @@ function FilterPanel({
           </View>
 
           <ScrollView style={fp.scroll} showsVerticalScrollIndicator={false}>
-            {folders.length > 1 && (
-              <>
-                <Text style={[fp.sectionLabel, { color: colors.mutedForeground }]}>FOLDERS</Text>
-                {folders.map((folder) => {
-                  const selected = localFolders.has(folder.id);
-                  return (
-                    <TouchableOpacity
-                      key={folder.id}
-                      style={[fp.row, {
-                        backgroundColor: selected ? colors.primary + "12" : "transparent",
-                        borderColor: selected ? colors.primary + "44" : colors.border,
-                      }]}
-                      onPress={() => toggleFolder(folder.id)}
-                      activeOpacity={0.7}
-                    >
-                      <Feather name="folder" size={14} color={selected ? colors.primary : colors.mutedForeground} />
-                      <Text style={[fp.rowLabel, { color: colors.foreground }]}>{folder.name}</Text>
-                      <View style={[fp.check, {
-                        backgroundColor: selected ? colors.primary : "transparent",
-                        borderColor: selected ? colors.primary : colors.border,
-                      }]}>
-                        {selected && <Feather name="check" size={11} color={colors.primaryForeground} />}
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
-              </>
-            )}
-
-            <Text style={[fp.sectionLabel, { color: colors.mutedForeground, marginTop: folders.length > 1 ? 16 : 0 }]}>STOCKS</Text>
+            <Text style={[fp.sectionLabel, { color: colors.mutedForeground }]}>STOCKS</Text>
             {allTickers.map((ticker) => {
               const selected = localTickers.has(ticker);
               return (
@@ -192,6 +156,88 @@ function FilterPanel({
   );
 }
 
+/**
+ * Portfolio selector sheet — opened by tapping the pill under the screen
+ * title.  Lets the user switch between "My Watchlist" (the default folder
+ * aka "All stocks" in the user's mental model) and any named portfolios
+ * they've created.  Tapping a row switches the active portfolio and
+ * closes the sheet.
+ */
+function PortfolioSheet({
+  visible,
+  onClose,
+  folders,
+  activeFolderId,
+  onSelect,
+  colors,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  folders: { id: string; name: string; tickers: string[] }[];
+  activeFolderId: string;
+  onSelect: (id: string) => void;
+  colors: Colors;
+}) {
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      presentationStyle="overFullScreen"
+      onRequestClose={onClose}
+    >
+      <View style={ps.overlay}>
+        <TouchableOpacity style={ps.backdrop} activeOpacity={1} onPress={onClose} />
+        <View style={[ps.sheet, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={[ps.handle, { backgroundColor: colors.border }]} />
+          <View style={ps.header}>
+            <Text style={[ps.title, { color: colors.foreground }]}>Switch portfolio</Text>
+          </View>
+          <ScrollView style={ps.scroll} showsVerticalScrollIndicator={false}>
+            {folders.map((folder) => {
+              const selected = folder.id === activeFolderId;
+              const isDefault = folder.id === "default";
+              return (
+                <TouchableOpacity
+                  key={folder.id}
+                  style={[ps.row, {
+                    backgroundColor: selected ? `${colors.primary}15` : "transparent",
+                    borderColor: selected ? `${colors.primary}44` : colors.border,
+                  }]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    onSelect(folder.id);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Feather
+                    name={isDefault ? "eye" : "folder"}
+                    size={14}
+                    color={selected ? colors.primary : colors.mutedForeground}
+                  />
+                  <View style={ps.rowText}>
+                    <Text
+                      style={[ps.rowName, { color: selected ? colors.primary : colors.foreground }]}
+                      numberOfLines={1}
+                    >
+                      {folder.name}
+                    </Text>
+                    <Text style={[ps.rowCount, { color: colors.mutedForeground }]}>
+                      {folder.tickers.length} {folder.tickers.length === 1 ? "stock" : "stocks"}
+                    </Text>
+                  </View>
+                  {selected && <Feather name="check" size={16} color={colors.primary} />}
+                </TouchableOpacity>
+              );
+            })}
+            <View style={{ height: 32 }} />
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 const fp = StyleSheet.create({
   overlay: { flex: 1, justifyContent: "flex-end" },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.55)" },
@@ -212,26 +258,45 @@ const fp = StyleSheet.create({
   check: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
 });
 
+const ps = StyleSheet.create({
+  overlay: { flex: 1, justifyContent: "flex-end" },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.55)" },
+  sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, borderBottomWidth: 0, maxHeight: "70%", minHeight: 260 },
+  handle: { width: 40, height: 4, borderRadius: 2, alignSelf: "center", marginTop: 12, marginBottom: 4 },
+  header: { paddingHorizontal: 20, paddingVertical: 14 },
+  title: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  scroll: { flex: 1, paddingHorizontal: 16 },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 8,
+    gap: 12,
+  },
+  rowText: { flex: 1, minWidth: 0 },
+  rowName: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  rowCount: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
+});
+
 export default function DigestScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { stocks, folders, activeFolderId } = useWatchlist();
+  const { stocks, folders, activeFolderId, setActiveFolderId } = useWatchlist();
+  const { tier } = useSubscription();
   const [activeTab, setActiveTab] = useState<Tab>("daily");
   const [filterVisible, setFilterVisible] = useState(false);
-  const [filterState, setFilterState] = useState<FilterState>({ folderIds: new Set(), tickers: new Set() });
+  const [portfolioSheetVisible, setPortfolioSheetVisible] = useState(false);
+  const [showPaywall, setShowPaywall] = useState(false);
+  const [paywallReason, setPaywallReason] = useState<"ai_limit" | "stock_daily_limit">("ai_limit");
+  const [filterState, setFilterState] = useState<FilterState>({ tickers: new Set() });
 
+  // Reset stock filters when the active portfolio changes — the ticker set
+  // the user was filtering against may no longer be valid.
   useEffect(() => {
-    const folderIds = new Set(folders.map((f) => f.id));
-    setFilterState((prev) => {
-      const prunedFolderIds = new Set(Array.from(prev.folderIds).filter((id) => folderIds.has(id)));
-      if (prunedFolderIds.size === prev.folderIds.size) return prev;
-      return { ...prev, folderIds: prunedFolderIds };
-    });
-  }, [folders]);
-
-  // Reset filters when the active portfolio changes
-  useEffect(() => {
-    setFilterState({ folderIds: new Set(), tickers: new Set() });
+    setFilterState({ tickers: new Set() });
   }, [activeFolderId]);
 
   const [dailyEntries, setDailyEntries] = useState<StockEvent[]>([]);
@@ -359,22 +424,12 @@ export default function DigestScreen() {
   const isEmpty = tickers.length === 0;
   const portfolioEmpty = !isDefaultFolder && (activeFolder?.tickers.length ?? 0) === 0;
 
-  const activeFilterCount = filterState.folderIds.size + filterState.tickers.size;
+  const activeFilterCount = filterState.tickers.size;
 
   const getFilteredEntries = useCallback((entries: StockEvent[]): StockEvent[] => {
-    if (filterState.folderIds.size === 0 && filterState.tickers.size === 0) return entries;
-
-    const allowedTickers = new Set<string>();
-
-    filterState.folderIds.forEach((folderId) => {
-      const folder = folders.find((f) => f.id === folderId);
-      folder?.tickers.forEach((t) => allowedTickers.add(t));
-    });
-
-    filterState.tickers.forEach((t) => allowedTickers.add(t));
-
-    return entries.filter((e) => allowedTickers.has(e.ticker));
-  }, [filterState, folders]);
+    if (filterState.tickers.size === 0) return entries;
+    return entries.filter((e) => filterState.tickers.has(e.ticker));
+  }, [filterState]);
 
   const getPortfolioEntries = useCallback((entries: StockEvent[]): StockEvent[] => {
     if (isDefaultFolder) return entries;
@@ -406,8 +461,8 @@ export default function DigestScreen() {
         <View style={styles.titleRow}>
           <View style={styles.titleBlock}>
             <Text style={[styles.screenTitle, { color: colors.foreground }]}>Market Digest</Text>
-            {!isEmpty && !portfolioEmpty && activeFolder ? (
-              <View
+            {!isEmpty && activeFolder ? (
+              <TouchableOpacity
                 style={[
                   styles.portfolioChip,
                   {
@@ -415,6 +470,12 @@ export default function DigestScreen() {
                     borderColor: `${colors.primary}44`,
                   },
                 ]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setPortfolioSheetVisible(true);
+                }}
+                activeOpacity={0.7}
+                accessibilityLabel={`Switch portfolio. Current: ${activeFolder.name}`}
               >
                 <Feather
                   name={isDefaultFolder ? "eye" : "folder"}
@@ -427,7 +488,8 @@ export default function DigestScreen() {
                 >
                   {activeFolder.name}
                 </Text>
-              </View>
+                <Feather name="chevron-down" size={12} color={colors.primary} />
+              </TouchableOpacity>
             ) : null}
           </View>
           {!isEmpty && !portfolioEmpty && (
@@ -440,7 +502,7 @@ export default function DigestScreen() {
                 },
               ]}
               onPress={() => setFilterVisible(true)}
-              accessibilityLabel="Open filters"
+              accessibilityLabel="Filter stocks"
             >
               <Feather
                 name="filter"
@@ -492,28 +554,9 @@ export default function DigestScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Active filter chips */}
+            {/* Active stock-filter chips */}
             {activeFilterCount > 0 && (
               <View style={styles.activeFiltersRow}>
-                {Array.from(filterState.folderIds).map((fId) => {
-                  const folder = folders.find((f) => f.id === fId);
-                  if (!folder) return null;
-                  return (
-                    <TouchableOpacity
-                      key={`f-${fId}`}
-                      style={[styles.filterChip, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "44" }]}
-                      onPress={() => {
-                        const next = new Set(filterState.folderIds);
-                        next.delete(fId);
-                        setFilterState((p) => ({ ...p, folderIds: next }));
-                      }}
-                    >
-                      <Feather name="folder" size={11} color={colors.primary} />
-                      <Text style={[styles.filterChipText, { color: colors.primary }]}>{folder.name}</Text>
-                      <Feather name="x" size={11} color={colors.primary} />
-                    </TouchableOpacity>
-                  );
-                })}
                 {Array.from(filterState.tickers).map((t) => (
                   <TouchableOpacity
                     key={`t-${t}`}
@@ -521,14 +564,14 @@ export default function DigestScreen() {
                     onPress={() => {
                       const next = new Set(filterState.tickers);
                       next.delete(t);
-                      setFilterState((p) => ({ ...p, tickers: next }));
+                      setFilterState({ tickers: next });
                     }}
                   >
                     <Text style={[styles.filterChipText, { color: colors.primary }]}>{t}</Text>
                     <Feather name="x" size={11} color={colors.primary} />
                   </TouchableOpacity>
                 ))}
-                <TouchableOpacity onPress={() => setFilterState({ folderIds: new Set(), tickers: new Set() })}>
+                <TouchableOpacity onPress={() => setFilterState({ tickers: new Set() })}>
                   <Text style={[styles.clearAllText, { color: colors.mutedForeground }]}>Clear all</Text>
                 </TouchableOpacity>
               </View>
@@ -567,6 +610,10 @@ export default function DigestScreen() {
                       event={event}
                       showTicker
                       stockName={stocks[event.ticker]?.name ?? event.ticker}
+                      onNeedUpgrade={(reason) => {
+                        setPaywallReason(reason);
+                        setShowPaywall(true);
+                      }}
                     />
                   ))
                 )}
@@ -606,6 +653,10 @@ export default function DigestScreen() {
                       event={event}
                       showTicker
                       stockName={stocks[event.ticker]?.name ?? event.ticker}
+                      onNeedUpgrade={(reason) => {
+                        setPaywallReason(reason);
+                        setShowPaywall(true);
+                      }}
                     />
                   ))
                 )}
@@ -618,12 +669,28 @@ export default function DigestScreen() {
       <FilterPanel
         visible={filterVisible}
         onClose={() => setFilterVisible(false)}
-        folders={isDefaultFolder ? folders : []}
         allTickers={portfolioTickers}
         stocks={stocks}
         filterState={filterState}
         onChange={setFilterState}
         colors={colors}
+      />
+      <PortfolioSheet
+        visible={portfolioSheetVisible}
+        onClose={() => setPortfolioSheetVisible(false)}
+        folders={folders}
+        activeFolderId={activeFolderId}
+        onSelect={(id) => {
+          setActiveFolderId(id);
+          setPortfolioSheetVisible(false);
+        }}
+        colors={colors}
+      />
+      <PaywallSheet
+        visible={showPaywall}
+        onClose={() => setShowPaywall(false)}
+        triggerReason={paywallReason}
+        currentTier={tier}
       />
       <TabHintPopup
         tabKey="digest"

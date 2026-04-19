@@ -388,7 +388,14 @@ router.get("/events/:symbol", async (req, res) => {
 
     if (allArticles.length === 0) return void res.json({ events: [] });
 
-    // ONE consolidated AI call: filter + group + summarise
+    // ONE consolidated AI call: filter + group + summarise.
+    //
+    // IMPORTANT: the `what`/`why` fields are displayed *below* the `title`
+    // on the card.  The reader has ALREADY read the title before tapping
+    // to expand, so a summary that paraphrases the title wastes a line.
+    // The prompt below forbids restatement and demands the "so what" —
+    // numbers, named parties, amounts, dates, stated reasons, or likely
+    // impact on the stock.
     const prompt = `You are a senior financial analyst. Analyse these news headlines for stock ticker "${symbol}".
 
 Headlines (numbered):
@@ -399,15 +406,31 @@ Tasks:
 2. GROUP headlines about the same event or topic together.
 3. For each group (up to 5 groups total), produce a JSON object.
 
+CRITICAL SUMMARY RULE:
+Assume the reader has already read the headline. Do NOT restate or paraphrase
+who-did-what from the title. Instead, add the concrete details the headline
+leaves out: numbers, percentages, dollar amounts, dates, named people or
+firms, stated reasons, and the likely impact on ${symbol}'s stock. If the
+underlying article contains no extra detail, make the "what" field a plain-
+language "why it matters" one-liner — never a rewording of the title.
+
+Examples of BAD vs GOOD "what":
+  Title: "V Square Management Makes New Investment in JPMorgan"
+    BAD:  "V Square Quantitative Management LLC has purchased new shares in JPMorgan Chase."
+    GOOD: "New 13F filing shows V Square built a position of ~82K shares (~$16M) — its first disclosed holding in JPM since 2022."
+  Title: "NVIDIA beats Q2 earnings"
+    BAD:  "NVIDIA reported better than expected Q2 earnings."
+    GOOD: "EPS $0.68 vs $0.64 estimate; data-center revenue +154% YoY to $26.3B; guidance raised to $32.5B for Q3."
+
 Return ONLY a JSON array. No markdown, no prose. Format:
 [
   {
     "title": "Concise headline (max 80 chars)",
     "type": "earnings" | "analyst" | "price_move" | "news",
     "sentiment": "positive" | "negative" | "neutral",
-    "what": "1-2 sentences: exactly what happened with ${symbol}. Factual, specific.",
-    "why": "1-2 sentences: why this matters for ${symbol} investors.",
-    "unusual": "1 sentence: what is notable or surprising.",
+    "what": "1-2 sentences of SPECIFIC detail beyond the headline (numbers, names, amounts). Must NOT restate the title.",
+    "why": "1-2 sentences: the consequence or signal for ${symbol} shareholders. Must NOT restate the title or the 'what'.",
+    "unusual": "1 sentence: what is notable, surprising, or inconsistent with the prior trend.",
     "combinedFrom": [1, 3, 7],
     "primarySource": 1
   }

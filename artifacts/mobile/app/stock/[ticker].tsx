@@ -516,12 +516,10 @@ export default function StockDetailScreen() {
   const {
     tier,
     canViewStock,
-    canUseAIForStock,
     recordStockView,
-    recordAIUsageForStock,
-    aiUsageForStock,
-    summariesPerStockLimit,
-    stocksLimit,
+    aiSummariesLimit,
+    aiSummariesUsedToday,
+    canUseAI,
   } = useSubscription();
 
   const [liveQuote, setLiveQuote] = useState<any>(null);
@@ -549,7 +547,7 @@ export default function StockDetailScreen() {
   const chartLoading = chart.isLoading(selectedRange);
   const chartError = chart.isError(selectedRange);
   const [stockViewable, setStockViewable] = useState(true);
-  const [paywallReason, setPaywallReason] = useState<"ai_stock_limit" | "stock_daily_limit">("ai_stock_limit");
+  const [paywallReason, setPaywallReason] = useState<"ai_limit" | "stock_daily_limit">("ai_limit");
   const [showPaywall, setShowPaywall] = useState(false);
   const [lastManualRefresh, setLastManualRefresh] = useState<number | null>(null);
   const [pullRefreshing, setPullRefreshing] = useState(false);
@@ -793,11 +791,12 @@ export default function StockDetailScreen() {
     return padTable[selectedRange] ?? 25;
   }, [selectedRange]);
 
-  // Per-stock AI tracking
-  const summaryCount = ticker ? aiUsageForStock(ticker) : 0;
-  const canViewAI = ticker ? canUseAIForStock(ticker) : false;
+  // Global shared AI quota — same pool as the Digest page.
+  const summaryCount = aiSummariesUsedToday;
+  const canViewAI = canUseAI;
+  const isUnlimitedAI = aiSummariesLimit === Infinity;
 
-  const handleNeedUpgrade = (reason: "ai_stock_limit" | "stock_daily_limit") => {
+  const handleNeedUpgrade = (reason: "ai_limit" | "stock_daily_limit") => {
     setPaywallReason(reason);
     setShowPaywall(true);
   };
@@ -1083,12 +1082,12 @@ export default function StockDetailScreen() {
                 Real events with AI-generated plain-language summaries.
               </Text>
             </View>
-            {/* AI quota indicator */}
-            {tier !== "premium" && (
+            {/* AI quota indicator — shared global pool across the app. */}
+            {!isUnlimitedAI && (
               <View style={[styles.quotaBadge, { backgroundColor: colors.secondary }]}>
                 <Feather name="zap" size={11} color={canViewAI ? colors.primary : colors.warning} />
                 <Text style={[styles.quotaText, { color: canViewAI ? colors.primary : colors.warning }]}>
-                  {summaryCount}/{summaryLimit(tier)}
+                  {summaryCount}/{aiSummariesLimit}
                 </Text>
               </View>
             )}
@@ -1156,11 +1155,8 @@ export default function StockDetailScreen() {
               <ExpandableEventCard
                 key={event.id}
                 event={event}
-                canExpand={stockViewable && canViewAI}
-                summaryCount={summaryCount}
-                summaryLimit={summaryLimit(tier)}
-                onNeedUpgrade={() => handleNeedUpgrade(stockViewable ? "ai_stock_limit" : "stock_daily_limit")}
-                onExpand={() => ticker && recordAIUsageForStock(ticker)}
+                canExpand={stockViewable}
+                onNeedUpgrade={(reason) => handleNeedUpgrade(reason)}
               />
             ))
           )}
@@ -1268,12 +1264,6 @@ export default function StockDetailScreen() {
       />
     </>
   );
-}
-
-function summaryLimit(tier: string): number {
-  if (tier === "pro") return 3;
-  if (tier === "premium") return 5;
-  return 1; // free
 }
 
 const styles = StyleSheet.create({
