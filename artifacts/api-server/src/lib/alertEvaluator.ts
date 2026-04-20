@@ -35,7 +35,7 @@ async function fetchQuote(symbol: string): Promise<Quote | null> {
     const url = `${INTERNAL_BASE}/stocks/quote?symbols=${encodeURIComponent(symbol)}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(8_000) });
     if (!res.ok) return null;
-    const data = await res.json();
+    const data = (await res.json()) as { quotes?: any[] };
     const q = Array.isArray(data?.quotes) ? data.quotes[0] : null;
     if (!q) return null;
     const price = Number(q.regularMarketPrice);

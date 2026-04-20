@@ -34,7 +34,7 @@ export async function sendExpoPush(messages: ExpoPushMessage[]): Promise<any[]> 
       logger.warn({ status: res.status }, "Expo push send returned non-OK");
       return [];
     }
-    const data = await res.json();
+    const data = (await res.json()) as { data?: any[] };
     return Array.isArray(data?.data) ? data.data : [];
   } catch (err: any) {
     logger.warn({ err: err?.message }, "Expo push send failed");

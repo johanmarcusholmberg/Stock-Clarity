@@ -56,7 +56,7 @@ async function fetchRow(ticker: string): Promise<ExportRow> {
     const url = `${YF2}/v8/finance/chart/${encodeURIComponent(ticker)}?range=1d&interval=5m`;
     const res = await fetch(url, { headers: YF_HEADERS, signal: AbortSignal.timeout(6000) });
     if (!res.ok) return empty;
-    const data = await res.json();
+    const data = (await res.json()) as { chart?: { result?: Array<{ meta?: any }> } };
     const meta = data?.chart?.result?.[0]?.meta ?? {};
     const price = Number(meta.regularMarketPrice);
     const prev = Number(meta.chartPreviousClose);
