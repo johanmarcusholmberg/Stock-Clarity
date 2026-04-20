@@ -10,7 +10,9 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
+import { useDisplayMode } from "@/hooks/useDisplayMode";
 import { useMiniCharts } from "@/hooks/useMiniCharts";
 import { useWatchlist, Stock } from "@/context/WatchlistContext";
 import { useSubscription } from "@/context/SubscriptionContext";
@@ -30,6 +32,19 @@ function getPerformance(stock: Stock, history: number[], period: PerfPeriod): nu
   const past = history[Math.max(0, history.length - 1 - daysBack)];
   if (!past || past === 0) return stock.changePercent;
   return ((current - past) / past) * 100;
+}
+
+// Absolute $ change matching the % returned by getPerformance. Falls back to
+// stock.change for "today" because the 1D dollar change is a real quote
+// field — no need to derive it from the 1Y history.
+function getPerformanceAbs(stock: Stock, history: number[], period: PerfPeriod): number {
+  if (period === "today") return stock.change;
+  if (!history || history.length < 2) return stock.change;
+  const current = history[history.length - 1];
+  const daysBack = period === "1w" ? 5 : 20;
+  const past = history[Math.max(0, history.length - 1 - daysBack)];
+  if (!past) return stock.change;
+  return current - past;
 }
 
 function getVolatility(history: number[]): number {
@@ -58,6 +73,43 @@ function ColoredPct({ value, style }: { value: number; style?: object }) {
   return (
     <Text style={[{ color, fontFamily: "Inter_600SemiBold", fontSize: 13 }, style]}>
       {value >= 0 ? "+" : ""}{value.toFixed(2)}%
+    </Text>
+  );
+}
+
+/** Shows either percent or absolute currency based on the shared display-mode.
+ * Falls back to N/A for NaN/Infinity so an empty portfolio doesn't render
+ * "+NaN%". */
+function ColoredChange({
+  pct,
+  abs,
+  currency,
+  showPercent,
+  style,
+}: {
+  pct: number;
+  abs: number;
+  currency?: string;
+  showPercent: boolean;
+  style?: object;
+}) {
+  const colors = useColors();
+  const metric = showPercent ? pct : abs;
+  if (!Number.isFinite(metric)) {
+    return (
+      <Text style={[{ color: colors.mutedForeground, fontFamily: "Inter_400Regular", fontSize: 13 }, style]}>
+        N/A
+      </Text>
+    );
+  }
+  const color = metric >= 0 ? colors.positive : colors.negative;
+  const sign = metric >= 0 ? "+" : "\u2212";
+  const label = showPercent
+    ? `${sign}${Math.abs(pct).toFixed(2)}%`
+    : `${sign}${currency ? currency + " " : ""}${Math.abs(abs).toFixed(2)}`;
+  return (
+    <Text style={[{ color, fontFamily: "Inter_600SemiBold", fontSize: 13 }, style]}>
+      {label}
     </Text>
   );
 }
@@ -100,6 +152,7 @@ export default function InsightsScreen() {
   const insets = useSafeAreaInsets();
   const { watchlist, stocks, folders, activeFolderId } = useWatchlist();
   const { tier } = useSubscription();
+  const { showPercent, toggle: toggleShowPercent } = useDisplayMode();
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [period, setPeriod] = useState<PerfPeriod>("today");
 
@@ -129,6 +182,16 @@ export default function InsightsScreen() {
   const avgChange = watchedStocks.length
     ? watchedStocks.reduce((sum, s) => sum + s.changePercent, 0) / watchedStocks.length
     : 0;
+  const avgChangeAbs = watchedStocks.length
+    ? watchedStocks.reduce((sum, s) => sum + s.change, 0) / watchedStocks.length
+    : 0;
+  // Show currency symbol only when the whole portfolio shares one — avoids
+  // misleading "$" on a mixed USD/SEK watchlist.
+  const portfolioCurrency = watchedStocks.length
+    ? watchedStocks.every((s) => s.currency === watchedStocks[0].currency)
+      ? watchedStocks[0].currency
+      : undefined
+    : undefined;
 
   const sortedByPerf = useMemo(() =>
     [...watchedStocks].sort(
@@ -215,12 +278,32 @@ export default function InsightsScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
-        <Text style={{ color: colors.foreground, fontSize: 28, fontFamily: "Inter_700Bold", letterSpacing: -0.5, marginBottom: 4 }}>
-          Insights
-        </Text>
-        <Text style={{ color: colors.mutedForeground, fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 20 }}>
-          Analytics for your {activePortfolioName}
-        </Text>
+        <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, gap: 12 }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={{ color: colors.foreground, fontSize: 28, fontFamily: "Inter_700Bold", letterSpacing: -0.5, marginBottom: 4 }}>
+              Insights
+            </Text>
+            <Text
+              style={{ color: colors.mutedForeground, fontSize: 13, fontFamily: "Inter_400Regular" }}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
+              Analytics for your portfolio: {activePortfolioName}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={[s.changeToggle, { backgroundColor: colors.secondary, borderColor: colors.border }]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              toggleShowPercent();
+            }}
+            accessibilityLabel="Toggle between percent and dollar display"
+          >
+            <Text style={[s.changeToggleText, { color: showPercent ? colors.primary : colors.mutedForeground }]}>%</Text>
+            <View style={[s.changeToggleDivider, { backgroundColor: colors.border }]} />
+            <Text style={[s.changeToggleText, { color: !showPercent ? colors.primary : colors.mutedForeground }]}>$</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* ── Free Preview Card (visible to all) ───────────────────────────── */}
         <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -236,8 +319,10 @@ export default function InsightsScreen() {
             </View>
             <View style={[s.snapshotCard, { backgroundColor: colors.secondary }]}>
               <Text style={[s.snapshotLabel, { color: colors.mutedForeground }]}>Avg Δ</Text>
-              <Text style={[s.snapshotValue, { color: avgChange >= 0 ? colors.positive : colors.negative }]}>
-                {avgChange >= 0 ? "+" : ""}{avgChange.toFixed(2)}%
+              <Text style={[s.snapshotValue, { color: (showPercent ? avgChange : avgChangeAbs) >= 0 ? colors.positive : colors.negative }]}>
+                {showPercent
+                  ? `${avgChange >= 0 ? "+" : ""}${avgChange.toFixed(2)}%`
+                  : `${avgChangeAbs >= 0 ? "+" : "\u2212"}${portfolioCurrency ? portfolioCurrency + " " : ""}${Math.abs(avgChangeAbs).toFixed(2)}`}
               </Text>
             </View>
           </View>
@@ -322,7 +407,12 @@ export default function InsightsScreen() {
                 <Text style={{ color: colors.primary, fontFamily: "Inter_700Bold", fontSize: 13, width: 20 }}>#{i + 1}</Text>
                 <Text style={{ color: colors.foreground, fontFamily: "Inter_600SemiBold", fontSize: 14, flex: 1 }}>{stock.ticker}</Text>
                 <Text style={{ color: colors.mutedForeground, fontSize: 12, fontFamily: "Inter_400Regular", flex: 1 }} numberOfLines={1}>{stock.name}</Text>
-                <ColoredPct value={getPerformance(stock, charts[stock.ticker] ?? [], period)} />
+                <ColoredChange
+                  pct={getPerformance(stock, charts[stock.ticker] ?? [], period)}
+                  abs={getPerformanceAbs(stock, charts[stock.ticker] ?? [], period)}
+                  currency={stock.currency}
+                  showPercent={showPercent}
+                />
               </View>
             ))}
 
@@ -332,7 +422,12 @@ export default function InsightsScreen() {
                 <Text style={{ color: colors.negative, fontFamily: "Inter_700Bold", fontSize: 13, width: 20 }}>#{i + 1}</Text>
                 <Text style={{ color: colors.foreground, fontFamily: "Inter_600SemiBold", fontSize: 14, flex: 1 }}>{stock.ticker}</Text>
                 <Text style={{ color: colors.mutedForeground, fontSize: 12, fontFamily: "Inter_400Regular", flex: 1 }} numberOfLines={1}>{stock.name}</Text>
-                <ColoredPct value={getPerformance(stock, charts[stock.ticker] ?? [], period)} />
+                <ColoredChange
+                  pct={getPerformance(stock, charts[stock.ticker] ?? [], period)}
+                  abs={getPerformanceAbs(stock, charts[stock.ticker] ?? [], period)}
+                  currency={stock.currency}
+                  showPercent={showPercent}
+                />
               </View>
             ))}
 
@@ -476,6 +571,9 @@ export default function InsightsScreen() {
 const s = StyleSheet.create({
   fill: { flex: 1 },
   card: { borderRadius: 16, borderWidth: 1, padding: 16 },
+  changeToggle: { flexDirection: "row", alignItems: "center", borderRadius: 8, borderWidth: 1, overflow: "hidden", alignSelf: "flex-start" },
+  changeToggleText: { fontSize: 12, fontFamily: "Inter_700Bold", paddingHorizontal: 10, paddingVertical: 6 },
+  changeToggleDivider: { width: 1, height: "100%" },
   snapshotCard: {
     flex: 1,
     paddingVertical: 14,

@@ -18,8 +18,9 @@ export interface RangeChartData {
  * data changes more frequently. These don't block the UI — stale data is shown
  * while the refetch runs in the background.
  *
- * Manual refresh (Pro/Premium button) calls invalidateAll() which bypasses
- * stale times and forces an immediate refetch of every range.
+ * Manual refresh (Pro/Premium button) calls refreshAll() which cancels any
+ * in-flight fetches, bypasses both client stale times AND the server cache
+ * (via fresh=1), and populates the cache with the new data.
  */
 const STALE_TIMES: number[] = [
   30_000,       // 0 — 1D:  30 s
@@ -75,6 +76,16 @@ export function useMultiRangeChart(ticker: string | undefined) {
     return map;
   }, [queries]);
 
+  /** Per-range timestamp of when the currently displayed data was received.
+   * Drives the "Updated <n> ago" label next to the cooldown. */
+  const lastUpdatedAt = useMemo(() => {
+    const map: Record<number, number | null> = {};
+    queries.forEach((q, idx) => {
+      map[idx] = q.dataUpdatedAt || null;
+    });
+    return map;
+  }, [queries]);
+
   /** Check if a specific range is still in its first fetch. */
   const isLoading = useCallback(
     (rangeIndex: number) => queries[rangeIndex]?.isLoading ?? true,
@@ -87,11 +98,46 @@ export function useMultiRangeChart(ticker: string | undefined) {
     [queries],
   );
 
-  /** Invalidate all chart queries for the current ticker (manual refresh). */
-  const invalidateAll = useCallback(() => {
+  /** Force-refresh every range for the current ticker.
+   *
+   * Used by the manual refresh button. Steps:
+   *   1. Cancel any in-flight fetches for this ticker.
+   *   2. Fetch each range with `fresh=1` so the server cache is bypassed
+   *      (the 60s 1D server cache was swallowing refreshes on the 1-min
+   *      Premium cooldown — client-side invalidation alone wasn't enough).
+   *   3. Write the results into the cache via setQueryData so every
+   *      subscribed consumer (chart, mini-charts) re-renders.
+   *
+   * Throws on any range failure — caller shows a "refresh failed" state.
+   */
+  const refreshAll = useCallback(async () => {
     if (!ticker) return;
-    queryClient.invalidateQueries({ queryKey: ["chart", ticker] });
+    console.log(`[chart-refresh] triggered for ${ticker}`);
+    await queryClient.cancelQueries({ queryKey: ["chart", ticker] });
+
+    const results = await Promise.allSettled(
+      CHART_RANGES.map(async (r) => {
+        const chart = await getChart(ticker, r.range, r.interval, { fresh: true });
+        const prevClose = chart.meta?.chartPreviousClose ?? null;
+        const shaped = buildChartSeries(chart.prices, chart.timestamps, prevClose);
+        const next: RangeChartData = {
+          prices: shaped.prices,
+          timestamps: shaped.timestamps,
+          previousClose: prevClose,
+          hasAnchor: shaped.hasAnchor,
+        };
+        queryClient.setQueryData(["chart", ticker, r.range, r.interval], next);
+        return { range: r.range, points: next.prices.length };
+      }),
+    );
+
+    const failed = results.filter((r) => r.status === "rejected").length;
+    if (failed > 0) {
+      console.warn(`[chart-refresh] ${failed}/${results.length} ranges failed for ${ticker}`);
+      throw new Error("One or more ranges failed to refresh");
+    }
+    console.log(`[chart-refresh] all ${results.length} ranges refreshed for ${ticker}`);
   }, [queryClient, ticker]);
 
-  return { data, isLoading, isError, invalidateAll };
+  return { data, lastUpdatedAt, isLoading, isError, refreshAll };
 }

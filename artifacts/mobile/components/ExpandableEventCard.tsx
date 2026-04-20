@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription } from "@/context/SubscriptionContext";
+import { computeEventBadge } from "@/utils/eventBadge";
 import type { StockEvent } from "@/services/stockApi";
 import TruncatedSummary from "./TruncatedSummary";
 
@@ -76,6 +77,7 @@ export default function ExpandableEventCard({
   const {
     tier,
     aiSummariesRemaining,
+    aiSummariesUsedToday,
     aiSummariesLimit,
     hasExpandedEvent,
     recordEventExpansion,
@@ -85,6 +87,20 @@ export default function ExpandableEventCard({
   const alreadyExpanded = hasExpandedEvent(event.id);
   const isUnlimited = aiSummariesLimit === Infinity;
   const remainingDisplay = isUnlimited ? null : aiSummariesRemaining;
+  const badge = computeEventBadge({
+    tier,
+    aiLimit: aiSummariesLimit,
+    aiUsed: aiSummariesUsedToday,
+    hasAI,
+    expanded,
+    alreadyExpanded,
+    canExpand,
+  });
+  // Dim the card upfront when AI is unreachable so users see the state before
+  // tapping. Doesn't apply to cached items or unlimited tiers.
+  const isGatedUpfront =
+    badge.kind === "used_up" ||
+    (badge.kind === "upgrade" && !expanded && !alreadyExpanded);
   const date = new Date(event.timestamp).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -129,7 +145,13 @@ export default function ExpandableEventCard({
 
   return (
     <TouchableOpacity
-      style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}
+      style={[
+        s.card,
+        { backgroundColor: colors.card, borderColor: colors.border },
+        // Dim the card a touch when AI content is unreachable — sets the
+        // expectation before the user taps. Paywall still opens if they do.
+        isGatedUpfront && { opacity: 0.72 },
+      ]}
       onPress={handlePress}
       activeOpacity={0.8}
     >
@@ -161,12 +183,22 @@ export default function ExpandableEventCard({
           </Text>
         </View>
         <View style={s.headerRight}>
-          {hasAI && !expanded && (!canExpand || footerState === "used_up") && !alreadyExpanded && (
+          {badge.kind === "upgrade" && (
             <View style={[s.lockBadge, { backgroundColor: colors.warning + "22" }]}>
               <Feather name="lock" size={10} color={colors.warning} />
-              <Text style={[s.lockText, { color: colors.warning }]}>
-                {tier === "free" ? "PRO" : "LIMIT"}
-              </Text>
+              <Text style={[s.lockText, { color: colors.warning }]}>{badge.label}</Text>
+            </View>
+          )}
+          {badge.kind === "used_up" && (
+            <View style={[s.lockBadge, { backgroundColor: colors.warning + "22" }]}>
+              <Feather name="zap-off" size={10} color={colors.warning} />
+              <Text style={[s.lockText, { color: colors.warning }]}>{badge.label}</Text>
+            </View>
+          )}
+          {badge.kind === "quota_low" && (
+            <View style={[s.lockBadge, { backgroundColor: colors.primary + "18" }]}>
+              <Feather name="zap" size={10} color={colors.primary} />
+              <Text style={[s.lockText, { color: colors.primary }]}>{badge.label}</Text>
             </View>
           )}
           <Feather
