@@ -30,18 +30,6 @@ export interface Stock {
   pe?: number;
 }
 
-export interface Alert {
-  id: string;
-  ticker: string;
-  stockName: string;
-  type: "price_spike" | "volume_surge" | "gap_up" | "gap_down" | "breakout";
-  title: string;
-  explanation: string;
-  magnitude: string;
-  timestamp: string;
-  read: boolean;
-}
-
 export interface DigestEntry {
   id: string;
   ticker: string;
@@ -83,12 +71,7 @@ interface WatchlistContextType {
   stocks: Record<string, Stock>;
   /** Write a fresh quote back to the shared store so all views stay in sync. */
   updateStockQuote: (ticker: string, quote: Partial<Stock>) => void;
-  alerts: Alert[];
-  events: Alert[];
   digest: DigestEntry[];
-  markAlertRead: (id: string) => void;
-  markAllAlertsRead: () => void;
-  unreadAlertCount: number;
   refreshQuotes: () => Promise<void>;
   folders: WatchlistFolder[];
   activeFolderId: string;
@@ -118,12 +101,6 @@ const SEED_STOCKS: Record<string, Stock> = {
   META: { ticker: "META", name: "Meta Platforms Inc.", price: 497.81, currency: "USD", change: 9.3, changePercent: 1.9, marketCap: "$1.27T", sector: "Technology", exchange: "NASDAQ", exchangeFlag: "🇺🇸", description: "Social media: Facebook, Instagram, WhatsApp.", priceHistory: [], pe: 25.6 },
   JPM: { ticker: "JPM", name: "JPMorgan Chase & Co.", price: 194.62, currency: "USD", change: 1.18, changePercent: 0.61, marketCap: "$562B", sector: "Financials", exchange: "NYSE", exchangeFlag: "🇺🇸", description: "Global financial services and investment banking.", priceHistory: [], pe: 12.1 },
 };
-
-const MOCK_ALERTS: Alert[] = [
-  { id: "a1", ticker: "TSLA", stockName: "Tesla", type: "gap_down", title: "TSLA opened 4.1% lower", explanation: "Tesla gapped down at the open following delivery misses. Pre-market volume was 3.2x the 30-day average.", magnitude: "-4.1%", timestamp: "2026-04-10T09:32:00Z", read: false },
-  { id: "a2", ticker: "NVDA", stockName: "NVIDIA", type: "volume_surge", title: "NVDA volume 2.8x above average", explanation: "Following an analyst upgrade, NVIDIA traded at 2.8x its 30-day average volume — suggesting institutional buying.", magnitude: "+2.8x volume", timestamp: "2026-04-09T11:00:00Z", read: false },
-  { id: "a3", ticker: "AAPL", stockName: "Apple", type: "gap_up", title: "AAPL up 2.2% on earnings beat", explanation: "Apple's after-hours earnings beat translated to a pre-market gap-up of 2.2%.", magnitude: "+2.2%", timestamp: "2026-04-11T09:30:00Z", read: true },
-];
 
 const MOCK_DIGEST: DigestEntry[] = [
   {
@@ -176,7 +153,6 @@ const MOCK_DIGEST: DigestEntry[] = [
 const WatchlistContext = createContext<WatchlistContextType | undefined>(undefined);
 
 const STOCKS_KEY = "@stockclarify_stocks_v2";
-const ALERTS_READ_KEY = "@stockclarify_alerts_read";
 const FOLDERS_KEY = "@stockclarify_folders_v1";
 const ACTIVE_FOLDER_KEY = "@stockclarify_active_folder_v1";
 const DISPLAY_NAME_KEY = "@stockclarify_display_name";
@@ -204,7 +180,6 @@ export function WatchlistProvider({
   const [folders, setFolders] = useState<WatchlistFolder[]>([makeDefaultFolder([])]);
   const [activeFolderId, setActiveFolderIdState] = useState<string>(DEFAULT_FOLDER_ID);
   const [stockData, setStockData] = useState<Record<string, Stock>>(SEED_STOCKS);
-  const [readAlerts, setReadAlerts] = useState<Set<string>>(new Set());
   const [initialized, setInitialized] = useState(false);
   const [displayName, setDisplayNameState] = useState<string>("");
 
@@ -244,11 +219,10 @@ export function WatchlistProvider({
 
     Promise.all([
       AsyncStorage.getItem(STOCKS_KEY),
-      AsyncStorage.getItem(ALERTS_READ_KEY),
       AsyncStorage.getItem(FOLDERS_KEY),
       AsyncStorage.getItem(ACTIVE_FOLDER_KEY),
       AsyncStorage.getItem(DISPLAY_NAME_KEY),
-    ]).then(async ([sd, ra, fl, af, dn]) => {
+    ]).then(async ([sd, fl, af, dn]) => {
       // Restore display name from local
       if (dn) setDisplayNameState(dn);
 
@@ -296,9 +270,6 @@ export function WatchlistProvider({
           const parsed = JSON.parse(sd);
           setStockData((prev) => ({ ...SEED_STOCKS, ...prev, ...parsed }));
         } catch {}
-      }
-      if (ra) {
-        try { setReadAlerts(new Set(JSON.parse(ra))); } catch {}
       }
       setInitialized(true);
     });
@@ -554,27 +525,6 @@ export function WatchlistProvider({
     return folders.find((f) => f.id === folderId)?.tickers.includes(ticker) ?? false;
   }, [folders]);
 
-  const markAlertRead = useCallback((id: string) => {
-    setReadAlerts((prev) => {
-      const next = new Set(prev);
-      next.add(id);
-      AsyncStorage.setItem(ALERTS_READ_KEY, JSON.stringify([...next]));
-      return next;
-    });
-  }, []);
-
-  const markAllAlertsRead = useCallback(() => {
-    setReadAlerts((prev) => {
-      const allIds = MOCK_ALERTS.map((a) => a.id);
-      const next = new Set([...prev, ...allIds]);
-      AsyncStorage.setItem(ALERTS_READ_KEY, JSON.stringify([...next]));
-      return next;
-    });
-  }, []);
-
-  const alerts = MOCK_ALERTS.map((a) => ({ ...a, read: readAlerts.has(a.id) }))
-    .filter((a) => allTickers.includes(a.ticker));
-  const unreadAlertCount = alerts.filter((a) => !a.read).length;
   const digest = MOCK_DIGEST.filter((d) => allTickers.includes(d.ticker));
 
   return (
@@ -587,12 +537,7 @@ export function WatchlistProvider({
       isInFolder,
       stocks: stockData,
       updateStockQuote,
-      alerts,
-      events: alerts,
       digest,
-      markAlertRead,
-      markAllAlertsRead,
-      unreadAlertCount,
       refreshQuotes,
       folders,
       activeFolderId,

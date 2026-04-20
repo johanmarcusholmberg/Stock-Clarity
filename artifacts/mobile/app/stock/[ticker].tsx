@@ -30,7 +30,9 @@ import { useColors } from "@/hooks/useColors";
 import { useMultiRangeChart } from "@/hooks/useMultiRangeChart";
 import { useWatchlist } from "@/context/WatchlistContext";
 import { useSubscription } from "@/context/SubscriptionContext";
+import { useAlerts } from "@/context/AlertsContext";
 import { PaywallSheet } from "@/components/PaywallSheet";
+import AlertSetupSheet from "@/components/AlertSetupSheet";
 import { getQuotes, getEvents, CHART_RANGES, EVENT_PERIODS, formatPrice, formatMarketCap, exchangeToFlag, type StockEvent, type EventPeriod } from "@/services/stockApi";
 import { isMarketOpen } from "@/utils/marketHours";
 import { previousTradingDayLabel } from "@/utils/relativeTradingDay";
@@ -529,7 +531,9 @@ export default function StockDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { stocks, updateStockQuote, addToWatchlist, isInWatchlist, isInFolder, folders, addToFolder, removeFromFolder } = useWatchlist();
+  const { enabled: alertsEnabled, getAlertsForSymbol } = useAlerts();
   const [folderSheetVisible, setFolderSheetVisible] = useState(false);
+  const [alertSheetVisible, setAlertSheetVisible] = useState(false);
   const {
     tier,
     canViewStock,
@@ -868,25 +872,54 @@ export default function StockDetailScreen() {
           >
             <Feather name="arrow-left" size={18} color={colors.foreground} />
           </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              setFolderSheetVisible(true);
-            }}
-            style={[styles.watchlistButton, {
-              backgroundColor: inAnyFolder ? `${colors.positive}18` : colors.primary,
-              borderColor: inAnyFolder ? `${colors.positive}44` : colors.primary,
-            }]}
-          >
-            <Feather
-              name={inAnyFolder ? "bookmark" : "bookmark"}
-              size={14}
-              color={inAnyFolder ? colors.positive : colors.primaryForeground}
-            />
-            <Text style={[styles.watchlistButtonText, { color: inAnyFolder ? colors.positive : colors.primaryForeground }]} numberOfLines={1}>
-              {inAnyFolder ? "Saved" : "Save to Watchlist"}
-            </Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            {alertsEnabled && (
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setAlertSheetVisible(true);
+                }}
+                style={[
+                  styles.backButton,
+                  {
+                    backgroundColor: getAlertsForSymbol(ticker ?? "").length > 0
+                      ? `${colors.primary}18`
+                      : colors.secondary,
+                    borderWidth: 1,
+                    borderColor: getAlertsForSymbol(ticker ?? "").length > 0
+                      ? `${colors.primary}44`
+                      : "transparent",
+                  },
+                ]}
+                accessibilityLabel="Manage alerts for this stock"
+              >
+                <Feather
+                  name="bell"
+                  size={16}
+                  color={getAlertsForSymbol(ticker ?? "").length > 0 ? colors.primary : colors.foreground}
+                />
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                setFolderSheetVisible(true);
+              }}
+              style={[styles.watchlistButton, {
+                backgroundColor: inAnyFolder ? `${colors.positive}18` : colors.primary,
+                borderColor: inAnyFolder ? `${colors.positive}44` : colors.primary,
+              }]}
+            >
+              <Feather
+                name={inAnyFolder ? "bookmark" : "bookmark"}
+                size={14}
+                color={inAnyFolder ? colors.positive : colors.primaryForeground}
+              />
+              <Text style={[styles.watchlistButtonText, { color: inAnyFolder ? colors.positive : colors.primaryForeground }]} numberOfLines={1}>
+                {inAnyFolder ? "Saved" : "Save to Watchlist"}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* ── Hero ── */}
@@ -1302,6 +1335,13 @@ export default function StockDetailScreen() {
         onClose={() => setShowPaywall(false)}
         triggerReason={paywallReason}
         currentTier={tier}
+      />
+
+      <AlertSetupSheet
+        visible={alertSheetVisible}
+        onClose={() => setAlertSheetVisible(false)}
+        symbol={(ticker ?? "").toUpperCase()}
+        currentPrice={displayPrice}
       />
     </>
   );

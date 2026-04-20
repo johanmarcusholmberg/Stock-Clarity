@@ -19,6 +19,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { WatchlistProvider, useWatchlist } from "@/context/WatchlistContext";
 import { SubscriptionProvider, useSubscription } from "@/context/SubscriptionContext";
+import { AlertsProvider } from "@/context/AlertsContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { FirstTimeNameModal } from "@/components/FirstTimeNameModal";
 
@@ -89,11 +90,13 @@ export default function RootLayout() {
               <QueryClientProvider client={queryClient}>
                 <SubscriptionProvider>
                   <WatchlistProviderWithTier>
-                    <GestureHandlerRootView>
-                      <KeyboardProvider>
-                        <RootLayoutNav />
-                      </KeyboardProvider>
-                    </GestureHandlerRootView>
+                    <AlertsProvider>
+                      <GestureHandlerRootView>
+                        <KeyboardProvider>
+                          <RootLayoutNav />
+                        </KeyboardProvider>
+                      </GestureHandlerRootView>
+                    </AlertsProvider>
                   </WatchlistProviderWithTier>
                 </SubscriptionProvider>
               </QueryClientProvider>
