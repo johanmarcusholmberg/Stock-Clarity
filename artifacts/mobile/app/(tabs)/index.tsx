@@ -22,6 +22,7 @@ import { useColors } from "@/hooks/useColors";
 import { useDisplayMode } from "@/hooks/useDisplayMode";
 import { useMiniCharts } from "@/hooks/useMiniCharts";
 import { useWatchlist, Stock } from "@/context/WatchlistContext";
+import { useAlerts } from "@/context/AlertsContext";
 import StockCard from "@/components/StockCard";
 
 import { FolderAddSheet } from "@/components/FolderAddSheet";
@@ -146,7 +147,6 @@ export default function WatchlistScreen() {
   const {
     watchlist,
     stocks,
-    unreadAlertCount,
     refreshQuotes,
     folders,
     activeFolderId,
@@ -158,6 +158,14 @@ export default function WatchlistScreen() {
     reorderFolder,
     deleteFolder,
   } = useWatchlist();
+  const { events: alertEvents } = useAlerts();
+  const unreadAlertCount = React.useMemo(() => {
+    // Treat an event as "new" if it fired in the last 24h. Simpler than
+    // tracking a read-state on every fire and maps well to the user's
+    // intuition of "anything happen since I last looked?".
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    return alertEvents.filter((e) => new Date(e.firedAt).getTime() > cutoff).length;
+  }, [alertEvents]);
 
   const [filter, setFilter] = useState<Filter>("all");
   const { showPercent, toggle: toggleShowPercent } = useDisplayMode();

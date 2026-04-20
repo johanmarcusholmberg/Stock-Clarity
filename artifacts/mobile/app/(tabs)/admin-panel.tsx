@@ -43,6 +43,15 @@ interface StatsData {
   eventHistory: Array<{ date: string; count: string }>;
 }
 
+interface PremiumFunnelRow {
+  feature: string;
+  impressions: string;
+  cta_clicks: string;
+  paywall_opens: string;
+  checkouts: string;
+  first_uses: string;
+}
+
 export default function AdminPanelScreen() {
   const colors = useColors();
   const { userId } = useAuth();
@@ -51,11 +60,13 @@ export default function AdminPanelScreen() {
 
   const [users, setUsers] = useState<UserRow[]>([]);
   const [stats, setStats] = useState<StatsData | null>(null);
+  const [funnel, setFunnel] = useState<PremiumFunnelRow[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [statsLoading, setStatsLoading] = useState(false);
+  const [funnelLoading, setFunnelLoading] = useState(false);
   const [settingTier, setSettingTier] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeSection, setActiveSection] = useState<"tiers" | "users" | "stats">("tiers");
+  const [activeSection, setActiveSection] = useState<"tiers" | "users" | "stats" | "funnel">("tiers");
 
   const email = user?.primaryEmailAddress?.emailAddress ?? "";
 
@@ -90,15 +101,32 @@ export default function AdminPanelScreen() {
     }
   }, []);
 
+  const fetchFunnel = useCallback(async () => {
+    if (!email) return;
+    setFunnelLoading(true);
+    try {
+      const res = await fetch(
+        `${API_BASE}/admin/premium-funnel?email=${encodeURIComponent(email)}&days=30`,
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setFunnel(Array.isArray(data.funnel) ? data.funnel : []);
+      }
+    } finally {
+      setFunnelLoading(false);
+    }
+  }, [email]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([fetchUsers(), fetchStats(), refreshSub()]);
+    await Promise.all([fetchUsers(), fetchStats(), fetchFunnel(), refreshSub()]);
     setRefreshing(false);
-  }, [fetchUsers, fetchStats, refreshSub]);
+  }, [fetchUsers, fetchStats, fetchFunnel, refreshSub]);
 
   useEffect(() => {
     fetchUsers();
     fetchStats();
+    fetchFunnel();
   }, []);
 
   const setMyTier = async (newTier: Tier) => {
@@ -248,6 +276,19 @@ export default function AdminPanelScreen() {
       alignItems: "center",
     },
     warningText: { color: "#FF4757", fontSize: 13, fontFamily: "Inter_500Medium", flex: 1 },
+    funnelRow: { flexDirection: "row", alignItems: "center" },
+    funnelCellFeature: {
+      flex: 1.8,
+      fontSize: 12,
+      fontFamily: "Inter_600SemiBold",
+    },
+    funnelCellNum: {
+      flex: 1,
+      fontSize: 12,
+      fontFamily: "Inter_600SemiBold",
+      textAlign: "right",
+      fontVariant: ["tabular-nums"],
+    },
   });
 
   if (!isAdmin) {
@@ -280,14 +321,14 @@ export default function AdminPanelScreen() {
 
       {/* Section tabs */}
       <View style={s.tabs}>
-        {(["tiers", "users", "stats"] as const).map((tab) => (
+        {(["tiers", "users", "stats", "funnel"] as const).map((tab) => (
           <TouchableOpacity
             key={tab}
             style={[s.tabBtn, activeSection === tab && s.tabBtnActive]}
             onPress={() => setActiveSection(tab)}
           >
             <Text style={[s.tabText, activeSection === tab && s.tabTextActive]}>
-              {tab === "tiers" ? "My Tier" : tab === "users" ? "Users" : "Stats"}
+              {tab === "tiers" ? "My Tier" : tab === "users" ? "Users" : tab === "stats" ? "Stats" : "Funnel"}
             </Text>
           </TouchableOpacity>
         ))}
@@ -458,6 +499,52 @@ export default function AdminPanelScreen() {
                 </Text>
               </TouchableOpacity>
             </View>
+          </View>
+        )}
+
+        {/* ── Premium Conversion Funnel ─────────────────────── */}
+        {activeSection === "funnel" && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>Premium Conversion Funnel · Last 30 days</Text>
+            {funnelLoading ? (
+              <ActivityIndicator color={colors.primary} style={{ padding: 32 }} />
+            ) : funnel.length === 0 ? (
+              <View style={s.card}>
+                <Text style={{ color: colors.mutedForeground, fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center" }}>
+                  No data yet. Once users interact with a gated feature, impressions and click-throughs will appear here.
+                </Text>
+              </View>
+            ) : (
+              <View style={s.card}>
+                <View style={[s.funnelRow, { borderBottomColor: colors.border, borderBottomWidth: 1, paddingBottom: 8 }]}>
+                  <Text style={[s.funnelCellFeature, { color: colors.mutedForeground }]}>FEATURE</Text>
+                  <Text style={[s.funnelCellNum, { color: colors.mutedForeground }]}>IMPR</Text>
+                  <Text style={[s.funnelCellNum, { color: colors.mutedForeground }]}>CTA</Text>
+                  <Text style={[s.funnelCellNum, { color: colors.mutedForeground }]}>CHK</Text>
+                  <Text style={[s.funnelCellNum, { color: colors.mutedForeground }]}>CVR</Text>
+                </View>
+                {funnel.map((row) => {
+                  const impr = Number(row.impressions);
+                  const cta = Number(row.cta_clicks);
+                  const chk = Number(row.checkouts);
+                  const cvr = impr > 0 ? (cta / impr) * 100 : 0;
+                  return (
+                    <View key={row.feature} style={[s.funnelRow, { borderBottomColor: colors.border, borderBottomWidth: 1, paddingVertical: 10 }]}>
+                      <Text style={[s.funnelCellFeature, { color: colors.foreground }]} numberOfLines={1}>{row.feature}</Text>
+                      <Text style={[s.funnelCellNum, { color: colors.foreground }]}>{impr}</Text>
+                      <Text style={[s.funnelCellNum, { color: colors.foreground }]}>{cta}</Text>
+                      <Text style={[s.funnelCellNum, { color: colors.primary }]}>{chk}</Text>
+                      <Text style={[s.funnelCellNum, { color: cvr >= 5 ? colors.positive : colors.mutedForeground }]}>
+                        {cvr.toFixed(1)}%
+                      </Text>
+                    </View>
+                  );
+                })}
+                <Text style={{ color: colors.mutedForeground, fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 12, lineHeight: 16 }}>
+                  IMPR = lock impressions · CTA = upgrade clicks · CHK = checkouts started · CVR = CTA / IMPR.
+                </Text>
+              </View>
+            )}
           </View>
         )}
 

@@ -2,6 +2,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { runMigrations } from "stripe-replit-sync";
 import { getStripeSync } from "./stripeClient";
+import { startAlertEvaluator } from "./lib/alertEvaluator";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
@@ -42,4 +43,9 @@ app.listen(port, async (err) => {
 
   // Initialize Stripe in background (non-blocking)
   initStripe().catch((e) => logger.warn(e, "Stripe init error"));
+
+  // Start the alerts evaluator worker (non-blocking). Skips silently if the
+  // DB isn't available — schema creation just fails and the evaluator loop
+  // logs warnings on each tick.
+  startAlertEvaluator().catch((e) => logger.warn(e, "Alert evaluator start error"));
 });

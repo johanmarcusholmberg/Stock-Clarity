@@ -13,8 +13,10 @@ import {
   Platform,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import { useAuth } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription, Plan } from "@/context/SubscriptionContext";
+import { trackPremiumEvent } from "@/lib/premiumTelemetry";
 
 interface Props {
   visible: boolean;
@@ -55,13 +57,17 @@ const PLAN_FEATURES: Record<string, PlanFeature[]> = {
 
 export function PaywallSheet({ visible, onClose, triggerReason = "general", currentTier = "free" }: Props) {
   const colors = useColors();
+  const { userId } = useAuth();
   const { plans, plansLoading, fetchPlans, startCheckout } = useSubscription();
   const [selectedInterval, setSelectedInterval] = useState<"month" | "year">("month");
   const [loadingPriceId, setLoadingPriceId] = useState<string | null>(null);
   const { width } = Dimensions.get("window");
 
   useEffect(() => {
-    if (visible) fetchPlans();
+    if (visible) {
+      fetchPlans();
+      trackPremiumEvent("premium_paywall_opened", userId, { trigger: triggerReason });
+    }
   }, [visible]);
 
   const reasonText: Record<string, string> = {
@@ -83,10 +89,20 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general", curr
   const handleSubscribe = async (plan: Plan) => {
     const price = plan.prices?.find((p) => p.interval === selectedInterval);
     if (!price) return;
+    trackPremiumEvent("premium_paywall_plan_selected", userId, {
+      priceId: price.id,
+      interval: price.interval,
+      tier: plan.metadata?.tier,
+    });
     setLoadingPriceId(price.id);
     try {
       const url = await startCheckout(price.id);
       if (url) {
+        trackPremiumEvent("premium_paywall_checkout_started", userId, {
+          priceId: price.id,
+          interval: price.interval,
+          tier: plan.metadata?.tier,
+        });
         await Linking.openURL(url);
       } else {
         Alert.alert("Checkout unavailable", "Could not start checkout. Please try again in a moment.");

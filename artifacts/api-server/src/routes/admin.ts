@@ -445,4 +445,42 @@ router.patch("/feedback/:id", requireAdmin, async (req, res) => {
   }
 });
 
+// ── Premium Conversion Funnel ────────────────────────────────────────────────
+// Aggregates lock impressions, CTA clicks, and checkouts per feature over the
+// requested window (default 30 days). Powers the Phase 2 conversion dashboard
+// that tells us which Premium features to prioritise in Phase 3.
+//
+// Public (no admin secret required) so the mobile admin panel can read it
+// using the same email-based isAdmin check the rest of the app uses. We still
+// require a valid admin email via the ?email query param.
+router.get("/premium-funnel", async (req, res) => {
+  const email = typeof req.query.email === "string" ? req.query.email : "";
+  if (!email || !isAdminEmail(email)) {
+    return void res.status(403).json({ error: "Admin only" });
+  }
+  const days = Math.max(1, Math.min(Number(req.query.days) || 30, 365));
+  try {
+    const rows = await query(
+      `
+      SELECT
+        payload->>'feature' AS feature,
+        COUNT(*) FILTER (WHERE event_type = 'premium_lock_impression')        AS impressions,
+        COUNT(*) FILTER (WHERE event_type = 'premium_lock_cta_click')          AS cta_clicks,
+        COUNT(*) FILTER (WHERE event_type = 'premium_paywall_opened')          AS paywall_opens,
+        COUNT(*) FILTER (WHERE event_type = 'premium_paywall_checkout_started') AS checkouts,
+        COUNT(*) FILTER (WHERE event_type = 'premium_feature_first_use')       AS first_uses
+      FROM user_events
+      WHERE created_at > NOW() - ($1 || ' days')::interval
+        AND payload->>'feature' IS NOT NULL
+      GROUP BY 1
+      ORDER BY cta_clicks DESC, impressions DESC
+      `,
+      [days],
+    );
+    res.json({ funnel: rows, days });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
