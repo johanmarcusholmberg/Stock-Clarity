@@ -33,6 +33,7 @@ import { useSubscription } from "@/context/SubscriptionContext";
 import { PaywallSheet } from "@/components/PaywallSheet";
 import { getQuotes, getEvents, CHART_RANGES, EVENT_PERIODS, formatPrice, formatMarketCap, exchangeToFlag, type StockEvent, type EventPeriod } from "@/services/stockApi";
 import { isMarketOpen } from "@/utils/marketHours";
+import { previousTradingDayLabel } from "@/utils/relativeTradingDay";
 import ExpandableEventCard from "@/components/ExpandableEventCard";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
@@ -82,6 +83,22 @@ function fmtTime(tsMs: number): string {
 
 function fmtDate(tsMs: number): string {
   return new Date(tsMs).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+// "Updated 12s ago" / "Updated 3m ago" / "Updated at 14:02".  Shown next to
+// the refresh button so stale data is obvious and manual refreshes land
+// visibly — fixes the "1D chart doesn't appear to update" report.
+function fmtUpdatedAt(tsMs: number | null, now: number): string {
+  if (!tsMs) return "";
+  const diffSec = Math.max(0, Math.floor((now - tsMs) / 1000));
+  if (diffSec < 10) return "Updated just now";
+  if (diffSec < 60) return `Updated ${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `Updated ${diffMin}m ago`;
+  const d = new Date(tsMs);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `Updated at ${hh}:${mm}`;
 }
 
 function fmtWeekdayDate(tsMs: number): string {
@@ -639,13 +656,15 @@ export default function StockDetailScreen() {
     }).catch(() => {});
   }, [selectedRange, ticker, applyQuote]);
 
-  // Manual refresh (Pro/Premium only): invalidates all chart queries so
-  // TanStack Query refetches every range in the background, plus fetches a
-  // fresh quote. Cooldown: 5 min (Pro) / 1 min (Premium). On error the
-  // cooldown timestamp is rolled back so the user can retry immediately.
+  // Manual refresh (Pro/Premium only): cancels any in-flight chart fetches,
+  // bypasses the server-side chart cache via fresh=1, and populates the cache
+  // with the new data. Also fetches a fresh quote in parallel. Cooldown:
+  // 5 min (Pro) / 1 min (Premium). On error the cooldown timestamp is rolled
+  // back so the user can retry immediately.
   const handleManualRefresh = useCallback(async () => {
     if (isOnCooldown || refreshing || !ticker) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    console.log(`[stock-detail] manual refresh tapped for ${ticker}`);
     setRefreshing(true);
     setRefreshError(false);
     // Record timestamp immediately so button disables right away
@@ -653,12 +672,16 @@ export default function StockDetailScreen() {
     setLastManualRefresh(now);
     setTickMs(now); // force cooldown to re-derive immediately
     try {
-      // Invalidate all chart queries — TanStack Query refetches them in parallel
-      chart.invalidateAll();
-      // Refresh quote and push to shared store
-      const quotes = await getQuotes([ticker]);
+      // Refetch all ranges AND the quote in parallel. refreshAll throws if
+      // any range fails so we surface an error state to the user.
+      const [, quotes] = await Promise.all([
+        chart.refreshAll(),
+        getQuotes([ticker]),
+      ]);
       if (quotes[0]) applyQuote(quotes[0]);
-    } catch {
+      console.log(`[stock-detail] manual refresh complete for ${ticker}`);
+    } catch (err) {
+      console.warn(`[stock-detail] manual refresh failed for ${ticker}:`, err);
       // Full rollback: revert timestamp so the cooldown doesn't linger on error
       setLastManualRefresh(null);
       setTickMs(Date.now());
@@ -718,6 +741,18 @@ export default function StockDetailScreen() {
     const exch = liveQuote?.exchange ?? liveQuote?.fullExchangeName ?? exchange;
     return exch ? isMarketOpen(exch) : false;
   }, [liveQuote?.exchange, liveQuote?.fullExchangeName, exchange]);
+
+  // Label under the PREV CLOSE card. Maps the previous trading day to a
+  // relative name ("Yesterday", "Friday", "Thursday, 17 Apr") so Monday
+  // no longer falsely reads "Yesterday" for a Friday close.
+  const prevCloseDayLabel = useMemo(() => {
+    const exch = liveQuote?.exchange ?? liveQuote?.fullExchangeName ?? exchange;
+    if (!exch) return "Yesterday";
+    // tickMs is the 10s heartbeat that drives the cooldown — piggyback on it
+    // so the label ticks over naturally if the user leaves the page open
+    // past midnight.
+    return previousTradingDayLabel(exch, new Date(tickMs));
+  }, [liveQuote?.exchange, liveQuote?.fullExchangeName, exchange, tickMs]);
 
   const chartFirst = chartPrices.length > 0 ? chartPrices[0] : null;
   const chartLast  = chartPrices.length > 0 ? chartPrices[chartPrices.length - 1] : null;
@@ -890,7 +925,7 @@ export default function StockDetailScreen() {
                   {formatPrice(stripStartPrice, currency)}
                 </Text>
                 <Text style={[styles.openCloseSubValue, { color: colors.mutedForeground }]}>
-                  {is1D ? "Yesterday" : CHART_RANGES[selectedRange].label + " ago"}
+                  {is1D ? prevCloseDayLabel : CHART_RANGES[selectedRange].label + " ago"}
                 </Text>
               </View>
               <View style={[styles.openCloseDivider, { backgroundColor: colors.border }]} />
@@ -1008,6 +1043,12 @@ export default function StockDetailScreen() {
 
           {/* ── Manual refresh ── */}
           <View style={{ paddingHorizontal: 16, paddingBottom: 14, paddingTop: 4 }}>
+            {/* Freshness label — shows when the currently displayed data was received */}
+            {chart.lastUpdatedAt[selectedRange] ? (
+              <Text style={[styles.updatedAtNote, { color: colors.mutedForeground }]}>
+                {fmtUpdatedAt(chart.lastUpdatedAt[selectedRange], tickMs)}
+              </Text>
+            ) : null}
             {/* Free tier: info text */}
             {tier === "free" && (
               <Text style={[styles.autoUpdateNote, { color: colors.mutedForeground }]}>
@@ -1334,6 +1375,7 @@ const styles = StyleSheet.create({
   marketClosedBadge: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, marginBottom: 8, alignSelf: "flex-start" },
   marketClosedText: { fontSize: 11, fontFamily: "Inter_400Regular" },
   autoUpdateNote: { fontSize: 11, fontFamily: "Inter_400Regular", lineHeight: 15, textAlign: "center" },
+  updatedAtNote: { fontSize: 10, fontFamily: "Inter_400Regular", textAlign: "center", marginBottom: 6 },
   refreshButton: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, borderWidth: 1, alignSelf: "stretch", justifyContent: "center" },
   refreshButtonText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   tierChip: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginLeft: 2 },

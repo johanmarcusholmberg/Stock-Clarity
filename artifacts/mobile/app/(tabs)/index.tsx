@@ -1,7 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Haptics from "expo-haptics";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useQueryClient } from "@tanstack/react-query";
 import React, { useState, useMemo, useEffect, useCallback } from "react";
 import {
@@ -20,6 +19,7 @@ import DraggableFlatList, { RenderItemParams } from "react-native-draggable-flat
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUser } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
+import { useDisplayMode } from "@/hooks/useDisplayMode";
 import { useMiniCharts } from "@/hooks/useMiniCharts";
 import { useWatchlist, Stock } from "@/context/WatchlistContext";
 import StockCard from "@/components/StockCard";
@@ -160,7 +160,7 @@ export default function WatchlistScreen() {
   } = useWatchlist();
 
   const [filter, setFilter] = useState<Filter>("all");
-  const [showPercent, setShowPercent] = useState(true);
+  const { showPercent, toggle: toggleShowPercent } = useDisplayMode();
   const [editMode, setEditMode] = useState(false);
   const [pendingRemovals, setPendingRemovals] = useState<Set<string>>(new Set());
   const [addSheetVisible, setAddSheetVisible] = useState(false);
@@ -173,19 +173,9 @@ export default function WatchlistScreen() {
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const params = useLocalSearchParams<{ pendingTimezone?: string }>();
 
-  useEffect(() => {
-    AsyncStorage.getItem("@stockclarify_show_percent").then((v) => {
-      if (v !== null) setShowPercent(v === "true");
-    });
-  }, []);
-
   const toggleChangeMode = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setShowPercent((prev) => {
-      const next = !prev;
-      AsyncStorage.setItem("@stockclarify_show_percent", String(next));
-      return next;
-    });
+    toggleShowPercent();
   };
 
   useEffect(() => {

@@ -287,10 +287,15 @@ router.get("/chart/:symbol", async (req, res) => {
   const { symbol } = req.params;
   const range = (req.query.range as string) || "1mo";
   const interval = (req.query.interval as string) || "1d";
+  // `fresh=1` bypasses the in-memory cache. Premium users on a 1-min cooldown
+  // would otherwise keep hitting the 60s 1D cache and see identical data.
+  const bypassCache = req.query.fresh === "1";
 
   const cacheKey = `chart:${symbol}:${range}:${interval}`;
-  const cached = getFromCache<any>(cacheKey);
-  if (cached) return void res.json(cached);
+  if (!bypassCache) {
+    const cached = getFromCache<any>(cacheKey);
+    if (cached) return void res.json(cached);
+  }
 
   try {
     const url = `${YF2}/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}&includePrePost=false`;

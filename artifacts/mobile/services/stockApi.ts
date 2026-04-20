@@ -111,8 +111,20 @@ export async function getQuotes(symbols: string[]): Promise<QuoteResult[]> {
 // Fetches OHLC chart data for a single ticker+range+interval combo.
 // Not cached here — TanStack Query in useMiniCharts / useMultiRangeChart
 // handles caching with per-range stale times (see those hooks).
-export async function getChart(symbol: string, range: string, interval: string): Promise<ChartData> {
-  const res = await fetch(`${API_BASE}/stocks/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}`);
+// `fresh: true` bypasses the server-side chart cache — used by the manual
+// refresh button so Premium users (1-min cooldown) don't hit the 60s
+// 1D server cache and receive identical stale data.
+export async function getChart(
+  symbol: string,
+  range: string,
+  interval: string,
+  opts?: { fresh?: boolean },
+): Promise<ChartData> {
+  const freshParam = opts?.fresh ? `&fresh=1&_t=${Date.now()}` : "";
+  const res = await fetch(
+    `${API_BASE}/stocks/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}${freshParam}`,
+    opts?.fresh ? { cache: "no-store" } : undefined,
+  );
   return res.json();
 }
 
