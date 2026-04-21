@@ -3,6 +3,7 @@ import { logger } from "./lib/logger";
 import { runMigrations } from "stripe-replit-sync";
 import { getStripeSync } from "./stripeClient";
 import { startAlertEvaluator } from "./lib/alertEvaluator";
+import { startNewsPreloadWorker } from "./lib/newsPreloadWorker";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
@@ -48,4 +49,7 @@ app.listen(port, async (err) => {
   // DB isn't available — schema creation just fails and the evaluator loop
   // logs warnings on each tick.
   startAlertEvaluator().catch((e) => logger.warn(e, "Alert evaluator start error"));
+
+  // Start the news pre-load worker. No-ops unless NEWS_PRELOAD_ENABLED=true.
+  startNewsPreloadWorker().catch((e) => logger.warn(e, "News preload worker start error"));
 });
