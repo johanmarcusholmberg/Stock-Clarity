@@ -4,6 +4,7 @@ import { runMigrations } from "stripe-replit-sync";
 import { getStripeSync } from "./stripeClient";
 import { startAlertEvaluator } from "./lib/alertEvaluator";
 import { startNewsPreloadWorker } from "./lib/newsPreloadWorker";
+import { startGrantExpiryWorker } from "./lib/grantExpiryWorker";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
@@ -52,4 +53,10 @@ app.listen(port, async (err) => {
 
   // Start the news pre-load worker. No-ops unless NEWS_PRELOAD_ENABLED=true.
   startNewsPreloadWorker().catch((e) => logger.warn(e, "News preload worker start error"));
+
+  // Start the admin-grant expiry worker. First tick runs immediately to
+  // catch grants that expired during downtime; if the DB isn't ready yet
+  // the worker retries every 30s until one tick succeeds, then settles into
+  // the hourly cadence.
+  startGrantExpiryWorker().catch((e) => logger.warn(e, "Grant expiry worker start error"));
 });

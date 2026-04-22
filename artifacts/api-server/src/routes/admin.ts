@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { query } from "../db";
+import { execute, query, queryOne } from "../db";
 import { storage } from "../storage";
-import { writeAdminAudit } from "../lib/tierService";
+import { computeEffectiveTier, writeAdminAudit } from "../lib/tierService";
 
 const router = Router();
 
@@ -421,6 +421,266 @@ router.patch("/users/:userId/tier", requireAdmin, async (req, res) => {
       newState: { tier },
     });
     res.json({ success: true, userId, tier });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Admin Grants API (Phase 3.2 PR 2) ─────────────────────────────────────────
+//
+// Dual auth on every grants route: either a valid `x-admin-key` header (the
+// existing dashboard/curl pattern) OR `requesterEmail` in the body / query
+// matching an admin email (the mobile admin-panel pattern). The first form
+// stamps 'x-admin-key' as admin_email in the audit; the second stamps the
+// real email. Both are accepted from day one so PR 5 (mobile UI) doesn't
+// need a parallel route.
+function resolveAdminEmail(req: any): string | null {
+  const secret = process.env.ADMIN_SECRET_KEY;
+  const key = req.headers["x-admin-key"] ?? req.query.key;
+  if (secret && key === secret) return "x-admin-key";
+  const candidate =
+    (typeof req.body?.requesterEmail === "string" && req.body.requesterEmail) ||
+    (typeof req.query?.requesterEmail === "string" && (req.query.requesterEmail as string)) ||
+    (typeof req.headers["x-admin-email"] === "string" && (req.headers["x-admin-email"] as string)) ||
+    "";
+  const normalised = candidate.toLowerCase().trim();
+  if (normalised && isAdminEmail(normalised)) return normalised;
+  return null;
+}
+
+// Parse positive integer days, cap at a sane ceiling. 3650 = ~10 years;
+// beyond that is almost certainly a typo (365000 instead of 365).
+function parseDays(v: unknown): number | null {
+  const n = typeof v === "string" ? Number(v) : (v as number);
+  if (!Number.isFinite(n) || n <= 0 || n > 3650) return null;
+  return Math.floor(n);
+}
+
+type GrantRow = {
+  id: string;
+  user_id: string;
+  tier: "pro" | "premium";
+  expires_at: Date | string;
+  reason: string;
+  granted_by_admin: string;
+  status: "active" | "revoked" | "expired";
+  revoked_at: Date | string | null;
+  created_at: Date | string;
+};
+
+// POST /api/admin/users/:userId/grants  body: { tier, days, reason, requesterEmail? }
+// Creates an admin_grants row. If the new grant's tier outranks the user's
+// current effective tier, we also bump the users.tier projection so quota
+// checks / gates read correctly immediately. Audit is written with
+// action='grant'.
+router.post("/users/:userId/grants", async (req, res) => {
+  const adminEmail = resolveAdminEmail(req);
+  if (!adminEmail) return void res.status(401).json({ error: "Unauthorized" });
+
+  const { userId } = req.params;
+  const { tier, reason } = req.body ?? {};
+  const days = parseDays(req.body?.days);
+
+  if (!["pro", "premium"].includes(tier)) {
+    return void res.status(400).json({ error: "tier must be pro or premium" });
+  }
+  if (days === null) {
+    return void res.status(400).json({ error: "days must be a positive integer ≤ 3650" });
+  }
+  if (typeof reason !== "string" || reason.trim().length === 0) {
+    return void res.status(400).json({ error: "reason is required" });
+  }
+
+  try {
+    const targetUser = await storage.getUserByClerkId(userId);
+    if (!targetUser) return void res.status(404).json({ error: "User not found" });
+
+    const beforeEffective = await computeEffectiveTier(userId);
+    const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+
+    const inserted = await queryOne<GrantRow>(
+      `INSERT INTO admin_grants (user_id, tier, expires_at, reason, granted_by_admin)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, user_id, tier, expires_at, reason, granted_by_admin, status, revoked_at, created_at`,
+      [userId, tier, expiresAt, reason.trim(), adminEmail],
+    );
+    if (!inserted) return void res.status(500).json({ error: "Failed to create grant" });
+
+    // Projection: update users.tier only if the new effective tier changes.
+    // computeEffectiveTier runs grants through the same priority logic used
+    // at read time, so this is guaranteed consistent with /subscription.
+    const afterEffective = await computeEffectiveTier(userId);
+    if (afterEffective.tier !== beforeEffective.tier) {
+      await storage.updateUserTier(userId, afterEffective.tier);
+    }
+
+    await writeAdminAudit({
+      adminEmail,
+      userId,
+      action: "grant",
+      source: "manual",
+      previousState: { tier: beforeEffective.tier, source: beforeEffective.source },
+      newState: { tier: afterEffective.tier, source: afterEffective.source, grantId: inserted.id },
+      reason: reason.trim(),
+      metadata: { grantId: inserted.id, grantTier: tier, days, expiresAt: expiresAt.toISOString() },
+    });
+
+    res.json({ success: true, grant: inserted, effectiveTier: afterEffective });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/admin/grants/:grantId  body: { extendDays, requesterEmail? }
+// Bumps expires_at by N days on an active grant. Refuses to extend a
+// revoked/expired grant — admins should create a fresh grant instead so the
+// audit log reflects intent clearly.
+router.patch("/grants/:grantId", async (req, res) => {
+  const adminEmail = resolveAdminEmail(req);
+  if (!adminEmail) return void res.status(401).json({ error: "Unauthorized" });
+
+  const { grantId } = req.params;
+  const extendDays = parseDays(req.body?.extendDays);
+  if (extendDays === null) {
+    return void res.status(400).json({ error: "extendDays must be a positive integer ≤ 3650" });
+  }
+
+  try {
+    const current = await queryOne<GrantRow>(
+      `SELECT id, user_id, tier, expires_at, reason, granted_by_admin, status, revoked_at, created_at
+         FROM admin_grants WHERE id = $1`,
+      [grantId],
+    );
+    if (!current) return void res.status(404).json({ error: "Grant not found" });
+    if (current.status !== "active") {
+      return void res
+        .status(409)
+        .json({ error: `Cannot extend a ${current.status} grant — create a new one instead` });
+    }
+
+    const previousExpires =
+      current.expires_at instanceof Date ? current.expires_at : new Date(current.expires_at);
+    const newExpires = new Date(previousExpires.getTime() + extendDays * 24 * 60 * 60 * 1000);
+
+    const updated = await queryOne<GrantRow>(
+      `UPDATE admin_grants SET expires_at = $1
+        WHERE id = $2
+        RETURNING id, user_id, tier, expires_at, reason, granted_by_admin, status, revoked_at, created_at`,
+      [newExpires, grantId],
+    );
+
+    await writeAdminAudit({
+      adminEmail,
+      userId: current.user_id,
+      action: "extend",
+      source: "manual",
+      previousState: { expiresAt: previousExpires.toISOString() },
+      newState: { expiresAt: newExpires.toISOString() },
+      reason: typeof req.body?.reason === "string" ? req.body.reason : undefined,
+      metadata: { grantId, extendDays },
+    });
+
+    res.json({ success: true, grant: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/admin/grants/:grantId  body: { reason?, requesterEmail? }
+// Soft-revoke: status='revoked' + revoked_at=NOW(). Recomputes the user's
+// effective tier and writes the projection if it changed (the user may drop
+// back to Stripe or to free). Audit action='revoke'.
+router.delete("/grants/:grantId", async (req, res) => {
+  const adminEmail = resolveAdminEmail(req);
+  if (!adminEmail) return void res.status(401).json({ error: "Unauthorized" });
+
+  const { grantId } = req.params;
+  const reason =
+    typeof req.body?.reason === "string" && req.body.reason.trim().length > 0
+      ? req.body.reason.trim()
+      : undefined;
+
+  try {
+    const current = await queryOne<GrantRow>(
+      `SELECT id, user_id, tier, expires_at, reason, granted_by_admin, status, revoked_at, created_at
+         FROM admin_grants WHERE id = $1`,
+      [grantId],
+    );
+    if (!current) return void res.status(404).json({ error: "Grant not found" });
+    if (current.status !== "active") {
+      return void res.status(409).json({ error: `Grant already ${current.status}` });
+    }
+
+    const beforeEffective = await computeEffectiveTier(current.user_id);
+
+    // Guard against a race with the expiry worker flipping the same row to
+    // 'expired' between the SELECT above and this UPDATE. The AND clause
+    // makes the transition idempotent; if no row comes back we bail rather
+    // than writing a misleading 'revoke' audit on an already-expired grant.
+    const revokedRow = await queryOne<{ id: string }>(
+      `UPDATE admin_grants SET status = 'revoked', revoked_at = NOW()
+        WHERE id = $1 AND status = 'active'
+        RETURNING id`,
+      [grantId],
+    );
+    if (!revokedRow) {
+      return void res.status(409).json({ error: "Grant is no longer active" });
+    }
+
+    const afterEffective = await computeEffectiveTier(current.user_id);
+    if (afterEffective.tier !== beforeEffective.tier) {
+      await storage.updateUserTier(current.user_id, afterEffective.tier);
+    }
+
+    await writeAdminAudit({
+      adminEmail,
+      userId: current.user_id,
+      action: "revoke",
+      source: "manual",
+      previousState: { tier: beforeEffective.tier, source: beforeEffective.source, grantId },
+      newState: { tier: afterEffective.tier, source: afterEffective.source },
+      reason,
+      metadata: { grantId, grantTier: current.tier },
+    });
+
+    res.json({ success: true, grantId, effectiveTier: afterEffective });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/users/:userId/grants?status=active|all
+// Powers the PR 5 audit panel. Defaults to all statuses, newest first. Kept
+// unpaginated because a single user will realistically have <100 grants
+// ever; revisit if that stops being true.
+router.get("/users/:userId/grants", async (req, res) => {
+  const adminEmail = resolveAdminEmail(req);
+  if (!adminEmail) return void res.status(401).json({ error: "Unauthorized" });
+
+  const { userId } = req.params;
+  const statusFilter =
+    typeof req.query.status === "string" && req.query.status !== "all"
+      ? (req.query.status as string)
+      : null;
+  if (statusFilter !== null && !["active", "revoked", "expired"].includes(statusFilter)) {
+    return void res.status(400).json({ error: "status must be active, revoked, expired, or all" });
+  }
+
+  try {
+    const rows = statusFilter
+      ? await query<GrantRow>(
+          `SELECT id, user_id, tier, expires_at, reason, granted_by_admin, status, revoked_at, created_at
+             FROM admin_grants WHERE user_id = $1 AND status = $2
+            ORDER BY created_at DESC`,
+          [userId, statusFilter],
+        )
+      : await query<GrantRow>(
+          `SELECT id, user_id, tier, expires_at, reason, granted_by_admin, status, revoked_at, created_at
+             FROM admin_grants WHERE user_id = $1
+            ORDER BY created_at DESC`,
+          [userId],
+        );
+    res.json({ grants: rows });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
