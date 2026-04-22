@@ -1,6 +1,13 @@
 import { execute, queryOne } from "../db";
 import { storage } from "../storage";
 import { adminSchemaReady } from "./adminSchema";
+import { logger } from "./logger";
+
+// TEMPORARY — Phase 3.2 PR 1 sanity check. Remove once the system has been
+// verified in staging. Gated on TIER_DEBUG=true to avoid log spam.
+function tierDebug(): boolean {
+  return (process.env.TIER_DEBUG ?? "").toLowerCase() === "true";
+}
 
 export type Tier = "free" | "pro" | "premium";
 
@@ -95,10 +102,42 @@ export async function computeEffectiveTier(userId: string): Promise<EffectiveTie
 
   if (grant && TIER_RANK[grant.tier] > TIER_RANK[baseTier]) {
     const exp = grant.expires_at instanceof Date ? grant.expires_at : new Date(grant.expires_at);
-    return { tier: grant.tier, source: "admin_grant", expiresAt: exp, grantId: grant.id };
+    const result: EffectiveTier = { tier: grant.tier, source: "admin_grant", expiresAt: exp, grantId: grant.id };
+    if (tierDebug()) {
+      logger.info(
+        {
+          userId,
+          stripeCustomerId: user.stripe_customer_id ?? null,
+          baseTier,
+          baseSource,
+          grantTier: grant.tier,
+          grantId: grant.id,
+          tier: result.tier,
+          source: result.source,
+        },
+        "[tier-debug] grant beats base",
+      );
+    }
+    return result;
   }
 
-  return { tier: baseTier, source: baseSource, expiresAt: baseExpiresAt };
+  const result: EffectiveTier = { tier: baseTier, source: baseSource, expiresAt: baseExpiresAt };
+  if (tierDebug()) {
+    logger.info(
+      {
+        userId,
+        stripeCustomerId: user.stripe_customer_id ?? null,
+        baseTier,
+        baseSource,
+        grantChecked: !!grant,
+        grantTier: grant?.tier ?? null,
+        tier: result.tier,
+        source: result.source,
+      },
+      "[tier-debug] base wins (no beating grant)",
+    );
+  }
+  return result;
 }
 
 export type AdminAuditAction =
