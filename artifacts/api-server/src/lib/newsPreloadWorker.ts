@@ -1,15 +1,8 @@
-import { createHash } from "node:crypto";
 import { execute, query } from "../db";
 import { newsSchemaReady } from "./newsSchema";
 import { fetchGoogleNewsRSS, fetchYahooNews, type NewsItem } from "./newsSources";
+import { scoreUnscored, upsertNewsItem, urlHash } from "./newsCache";
 import { logger } from "./logger";
-
-// Local INSERT ... RETURNING helper. We use it for news_cache so we can
-// distinguish "inserted" from "conflicted" — db.ts's execute() is void.
-async function insertAndReport(sql: string, params: any[]): Promise<boolean> {
-  const rows = await query(sql, params);
-  return rows.length > 0;
-}
 
 // ── Cadence & concurrency ────────────────────────────────────────────────────
 const TICK_INTERVAL_MS = 15 * 60 * 1000; // 15 min
@@ -19,26 +12,6 @@ const FETCH_CONCURRENCY = 5;              // per-tick parallel symbols
 // Off by default. Flip NEWS_PRELOAD_ENABLED=true to start the worker.
 function isEnabled(): boolean {
   return (process.env.NEWS_PRELOAD_ENABLED ?? "").toLowerCase() === "true";
-}
-
-// ── url_hash derivation ──────────────────────────────────────────────────────
-// Google News RSS URLs are opaque redirects that don't dedup the underlying
-// story. For Google items we hash publisher+title instead. For everything
-// else we hash the lowercased host+path (strip query string) so trivial
-// tracking-param differences don't cause duplicates.
-function urlHash(item: NewsItem, source: "yahoo" | "google_rss"): string {
-  let key: string;
-  if (source === "google_rss" || !item.url || item.url.includes("news.google.com")) {
-    key = `${item.publisher}|${item.title}`.toLowerCase();
-  } else {
-    try {
-      const u = new URL(item.url);
-      key = `${u.host.toLowerCase()}${u.pathname}`;
-    } catch {
-      key = `${item.publisher}|${item.title}`.toLowerCase();
-    }
-  }
-  return createHash("sha1").update(key).digest("hex");
 }
 
 // ── Active-stocks set ────────────────────────────────────────────────────────
@@ -83,20 +56,13 @@ async function ingestSymbol(symbol: string): Promise<{ inserted: number; duplica
   let duplicates = 0;
   let failed = 0;
   for (const { item, source } of entries) {
-    const hash = urlHash(item, source);
     try {
-      const wasInserted = await insertAndReport(
-        `INSERT INTO news_cache (symbol, url_hash, url, title, publisher, published_at, source)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (symbol, url_hash) DO NOTHING
-         RETURNING id`,
-        [symbol, hash, item.url, item.title, item.publisher, new Date(item.timestampMs).toISOString(), source],
-      );
+      const wasInserted = await upsertNewsItem(symbol, item, source);
       if (wasInserted) inserted++;
       else duplicates++;
     } catch (err: any) {
       failed++;
-      logger.warn({ err: err?.message, symbol, hash }, "news_cache insert failed");
+      logger.warn({ err: err?.message, symbol }, "news_cache insert failed");
     }
   }
   return { inserted, duplicates, failed };
@@ -119,6 +85,8 @@ async function runWithConcurrency<T>(items: T[], limit: number, fn: (item: T) =>
 }
 
 // ── Single tick ──────────────────────────────────────────────────────────────
+// Phases are independent and each idempotent, so a crashed tick mid-run is
+// safe to retry: ingest upserts on UNIQUE, scoring only targets NULL rows.
 async function tick(): Promise<void> {
   const started = Date.now();
   const symbols = await globalActiveStocks();
@@ -128,6 +96,7 @@ async function tick(): Promise<void> {
     return;
   }
 
+  // Phase 1 — ingest.
   const totals = { inserted: 0, duplicates: 0, failed: 0 };
   await runWithConcurrency(symbols, FETCH_CONCURRENCY, async (symbol) => {
     const r = await ingestSymbol(symbol);
@@ -136,8 +105,19 @@ async function tick(): Promise<void> {
     totals.failed += r.failed;
   });
 
+  // Phase 2 — impact scoring. Runs after ingest so newly-inserted rows are
+  // scored in the same tick. The upsert path also writes an initial score,
+  // so this mainly backfills rows inserted before scoring was wired up and
+  // any rescores if we ever clear impact_score manually.
+  let scored = 0;
+  try {
+    scored = await scoreUnscored(started);
+  } catch (err: any) {
+    logger.warn({ err: err?.message }, "news impact scoring failed");
+  }
+
   const ms = Date.now() - started;
-  logger.info({ symbols: symbols.length, ...totals, ms }, "news preload tick done");
+  logger.info({ symbols: symbols.length, ...totals, scored, ms }, "news preload tick done");
   await touchHeartbeat();
 }
 
@@ -181,5 +161,6 @@ export function stopNewsPreloadWorker(): void {
   timer = null;
 }
 
-// Exposed for unit testing the pure bits.
+// Exposed for unit testing the pure bits. urlHash is re-exported from
+// newsCache; the existing tests import via this module.
 export const __test__ = { urlHash };

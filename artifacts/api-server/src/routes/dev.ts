@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { storage } from "../storage";
+import { writeAdminAudit } from "../lib/tierService";
 
 const router = Router();
 
@@ -38,7 +39,17 @@ router.patch("/tier", optionalAdminKey, async (req, res) => {
     // Verify user exists before modifying (prevents blind writes)
     const user = await storage.getUserByClerkId(userId);
     if (!user) return void res.status(404).json({ error: "User not found" });
+    const previousTier = user.tier ?? "free";
     await storage.updateUserTier(userId, tier as "free" | "pro" | "premium");
+    await writeAdminAudit({
+      adminEmail: "dev-tools",
+      userId,
+      action: "tier_flip",
+      source: "manual",
+      previousState: { tier: previousTier },
+      newState: { tier },
+      reason: "dev-tools endpoint",
+    });
     res.json({ success: true, userId, tier });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

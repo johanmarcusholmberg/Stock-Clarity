@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { query } from "../db";
 import { storage } from "../storage";
+import { writeAdminAudit } from "../lib/tierService";
 
 const router = Router();
 
@@ -57,11 +58,20 @@ router.post("/override-tier", async (req, res) => {
     // Upsert requester so they're in our DB
     await storage.upsertUser(requesterId, requesterEmail);
     // If setting own tier, upsert is enough; otherwise ensure target exists
-    if (target !== requesterId) {
-      const targetUser = await storage.getUserByClerkId(target);
-      if (!targetUser) return void res.status(404).json({ error: "Target user not found" });
-    }
+    const targetUser = target === requesterId
+      ? await storage.getUserByClerkId(requesterId)
+      : await storage.getUserByClerkId(target);
+    if (!targetUser) return void res.status(404).json({ error: "Target user not found" });
+    const previousTier = targetUser.tier ?? "free";
     await storage.updateUserTier(target, tier as "free" | "pro" | "premium");
+    await writeAdminAudit({
+      adminEmail: requesterEmail.toLowerCase().trim(),
+      userId: target,
+      action: "tier_flip",
+      source: "manual",
+      previousState: { tier: previousTier },
+      newState: { tier },
+    });
     res.json({ success: true, targetUserId: target, tier });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -388,6 +398,10 @@ router.get("/users", requireAdmin, async (_req, res) => {
 });
 
 // ── Override User Tier ────────────────────────────────────────────────────────
+// requireAdmin authenticates via ADMIN_SECRET_KEY, not a specific email — so
+// the audit row is stamped with the 'x-admin-key' sentinel. When the mobile
+// admin UI lands in Phase 3.2 PR 5 it will go through the email-authed
+// override-tier endpoint above and get a real admin email in the audit.
 router.patch("/users/:userId/tier", requireAdmin, async (req, res) => {
   const { userId } = req.params;
   const { tier } = req.body;
@@ -395,7 +409,17 @@ router.patch("/users/:userId/tier", requireAdmin, async (req, res) => {
     return void res.status(400).json({ error: "tier must be free, pro, or premium" });
   }
   try {
+    const targetUser = await storage.getUserByClerkId(userId);
+    const previousTier = targetUser?.tier ?? "free";
     await storage.updateUserTier(userId, tier as "free" | "pro" | "premium");
+    await writeAdminAudit({
+      adminEmail: "x-admin-key",
+      userId,
+      action: "tier_flip",
+      source: "manual",
+      previousState: { tier: previousTier },
+      newState: { tier },
+    });
     res.json({ success: true, userId, tier });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

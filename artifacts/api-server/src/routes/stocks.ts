@@ -1,6 +1,7 @@
 import { Router } from "express";
 import OpenAI from "openai";
-import { YF1, YF2, yfFetch, fetchGoogleNewsRSS, type NewsItem } from "../lib/newsSources";
+import { YF1, YF2, yfFetch, fetchGoogleNewsRSS, fetchYahooNews, type NewsItem } from "../lib/newsSources";
+import { readCachedNews, upsertNewsItem, type CachedNewsRow, type NewsSource } from "../lib/newsCache";
 
 const router = Router();
 
@@ -187,6 +188,18 @@ router.get("/chart/:symbol", async (req, res) => {
 });
 
 // ─── Events (AI-powered, multi-source, period-aware, relevance-filtered) ──────
+//
+// Cache-first read path (added in Phase 3.1 PR 2):
+//   1. In-process cache returns AI-grouped events — cheapest hit, skips DB + LLM.
+//   2. Postgres `news_cache` returns raw news — fast enough that the only cost
+//      on a cache miss is the LLM grouping call.
+//   3. Cold-cache fallback: a symbol that's never been ingested (e.g. just
+//      added to a watchlist) runs the live Yahoo + Google fetch inline and
+//      upserts into news_cache so the *next* open is warm.
+//
+// We intentionally don't "refresh if cache is stale but non-empty" here — the
+// 15-min worker cadence keeps warm symbols fresher than any user's re-open
+// rhythm, and adding fire-and-forget refresh is PR 4 territory.
 router.get("/events/:symbol", async (req, res) => {
   const { symbol } = req.params;
   const period = (req.query.period as string) || "week";
@@ -204,44 +217,56 @@ router.get("/events/:symbol", async (req, res) => {
       year:  now - 365 * 24 * 60 * 60 * 1000,
     };
     const cutoffMs = cutoffs[period] ?? cutoffs.week;
+    const symbolUpper = symbol.toUpperCase();
 
-    // Fetch Yahoo Finance news + Google News RSS in parallel
-    const [yfData, googleItems] = await Promise.allSettled([
-      yfFetch(`${YF1}/v1/finance/search?q=${encodeURIComponent(symbol)}&quotesCount=0&newsCount=10&enableFuzzyQuery=false`),
-      fetchGoogleNewsRSS(`${symbol} stock`),
-    ]);
+    let allArticles: Array<NewsItem & { sourceLabel: string; idx: number }> = [];
 
-    const yfNews: any[] = yfData.status === "fulfilled" ? (yfData.value?.news ?? []).slice(0, 8) : [];
-    const gnItems: NewsItem[] = googleItems.status === "fulfilled" ? googleItems.value : [];
+    // Step 1: try the Postgres cache. 14 rows ordered by impact DESC NULLS LAST,
+    // then published_at DESC — matches the card priority (importance first).
+    let cachedRows: CachedNewsRow[] = [];
+    try {
+      cachedRows = await readCachedNews(symbolUpper, cutoffMs, 14);
+    } catch (err: any) {
+      // DB-less deployments or schema load failures fall through to the
+      // cold-cache path below. We don't fail the request on a cache miss.
+      console.warn("[events] news_cache read failed:", err?.message);
+    }
 
-    // Normalise and merge
-    const allArticles: Array<NewsItem & { sourceLabel: string; idx: number }> = [
-      ...yfNews.map((item: any, i: number) => ({
-        title: item.title ?? "",
-        publisher: item.publisher ?? "Yahoo Finance",
-        url: item.link ?? "",
-        timestamp: item.providerPublishTime ? new Date(item.providerPublishTime * 1000).toISOString() : new Date().toISOString(),
-        timestampMs: item.providerPublishTime ? item.providerPublishTime * 1000 : now,
-        sourceLabel: "Yahoo Finance",
-        idx: i,
-      })),
-      ...gnItems.map((item, i) => ({
-        ...item,
-        sourceLabel: item.publisher,
-        idx: yfNews.length + i,
-      })),
-    ]
-      .filter((a) => a.title.length > 10 && a.timestampMs >= cutoffMs)
-      // dedupe near-identical titles
-      .reduce<Array<NewsItem & { sourceLabel: string; idx: number }>>((acc, a) => {
-        const isDupe = acc.some((existing) => {
-          const overlap = longestCommonWords(existing.title, a.title);
-          return overlap >= 4;
-        });
-        if (!isDupe) acc.push(a);
-        return acc;
-      }, [])
-      .slice(0, 14);
+    if (cachedRows.length > 0) {
+      allArticles = cachedRows.map((r, i) => articleFromCachedRow(r, i));
+    } else {
+      // Step 2: cold-cache fallback — live fetch, upsert for next time.
+      const [yfItemsResult, googleItemsResult] = await Promise.allSettled([
+        fetchYahooNews(symbolUpper),
+        fetchGoogleNewsRSS(`${symbolUpper} stock`),
+      ]);
+
+      const yfItems: NewsItem[] = yfItemsResult.status === "fulfilled" ? yfItemsResult.value : [];
+      const gnItems: NewsItem[] = googleItemsResult.status === "fulfilled" ? googleItemsResult.value : [];
+
+      // Upsert into news_cache so the next call is warm. Fire-and-forget
+      // per-item so one bad row doesn't poison the list; failures are logged
+      // but don't affect the response.
+      const upserts: Array<Promise<void>> = [];
+      for (const item of yfItems) upserts.push(safeUpsert(symbolUpper, item, "yahoo"));
+      for (const item of gnItems) upserts.push(safeUpsert(symbolUpper, item, "google_rss"));
+      // Await so by the time we build `allArticles` below everything is durable.
+      await Promise.all(upserts);
+
+      allArticles = [
+        ...yfItems.map((item, i) => ({ ...item, sourceLabel: "Yahoo Finance", idx: i })),
+        ...gnItems.map((item, i) => ({ ...item, sourceLabel: item.publisher, idx: yfItems.length + i })),
+      ]
+        .filter((a) => a.title.length > 10 && a.timestampMs >= cutoffMs)
+        // dedupe near-identical titles — keeps the LLM from summarising the
+        // same story twice across sources.
+        .reduce<Array<NewsItem & { sourceLabel: string; idx: number }>>((acc, a) => {
+          const isDupe = acc.some((existing) => longestCommonWords(existing.title, a.title) >= 4);
+          if (!isDupe) acc.push(a);
+          return acc;
+        }, [])
+        .slice(0, 14);
+    }
 
     if (allArticles.length === 0) return void res.json({ events: [] });
 
@@ -379,6 +404,32 @@ function detectEventType(titleLower: string): string {
   if (titleLower.includes("analyst") || titleLower.includes("upgrade") || titleLower.includes("downgrade")) return "analyst";
   if (titleLower.includes("%") || titleLower.includes("surge") || titleLower.includes("plunge")) return "price_move";
   return "news";
+}
+
+// Map a news_cache row into the shape the LLM prompt + event resolver expect.
+// sourceLabel follows the on-demand route's prior behaviour: Yahoo rows get
+// the fixed "Yahoo Finance" label, Google rows get the per-item publisher.
+// pg returns timestamptz as Date — we normalise to ISO string because the
+// prompt builder downstream does `timestamp.slice(0, 10)`.
+function articleFromCachedRow(r: CachedNewsRow, idx: number): NewsItem & { sourceLabel: string; idx: number } {
+  const d = r.published_at instanceof Date ? r.published_at : new Date(r.published_at);
+  return {
+    title: r.title,
+    publisher: r.publisher,
+    url: r.url,
+    timestamp: d.toISOString(),
+    timestampMs: d.getTime(),
+    sourceLabel: r.source === "yahoo" ? "Yahoo Finance" : r.publisher,
+    idx,
+  };
+}
+
+async function safeUpsert(symbol: string, item: NewsItem, source: NewsSource): Promise<void> {
+  try {
+    await upsertNewsItem(symbol, item, source);
+  } catch (err: any) {
+    console.warn("[events] news_cache upsert failed:", err?.message);
+  }
 }
 
 export default router;
