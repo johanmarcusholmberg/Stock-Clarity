@@ -3,7 +3,11 @@ import Stripe from "stripe";
 import { execute, query, queryOne } from "../db";
 import { storage } from "../storage";
 import { getUncachableStripeClient } from "../stripeClient";
-import { computeEffectiveTier, writeAdminAudit } from "../lib/tierService";
+import {
+  computeEffectiveTier,
+  resolveSubscriptionSource,
+  writeAdminAudit,
+} from "../lib/tierService";
 
 const router = Router();
 
@@ -1026,6 +1030,247 @@ router.post("/users/:userId/refund", async (req, res) => {
         chargeId,
         invoiceId: latestPaidInvoice.id,
       },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Apple/Google IAP Stubs (Phase 3.2 PR 4) ──────────────────────────────────
+//
+// Four endpoints that always return 501. Their purpose is an evidence trail:
+// the day IAP integration lands we want to already see, from admin_audit,
+// every time an admin *tried* to cancel or refund an Apple/Google sub. The
+// 501 response is deliberately minimal — no UI copy, no "guidance" fields.
+// PR 5's mobile admin UI branches on platform + attemptedAction to render
+// the right instructions to the admin; putting that copy in the API
+// response would couple backend to UI.
+//
+// All four routes:
+//   - dual auth via resolveAdminEmail (same pattern as Stripe endpoints)
+//   - require a non-empty `reason`
+//   - 404 if the user doesn't exist (so bogus userIds don't leave ghost
+//     audit rows)
+//   - write the audit row BEFORE responding 501. The audit is the whole
+//     point of this PR — if it fails, the 501 still lands (writeAdminAudit
+//     swallows errors by design), but the primary work is the insert.
+//   - record `newState: null` to be honest — nothing changed.
+//
+// Source gating: we do NOT reject when resolveSubscriptionSource disagrees
+// with the endpoint (e.g., /iap/apple/cancel on a Stripe-only user). The
+// mismatch is itself useful evidence captured in metadata; post-facto we can
+// spot "admin kept clicking Apple cancel on Stripe users" without losing the
+// audit trail to a 400.
+
+type IapPlatform = "apple" | "google";
+type IapAction = "cancel" | "refund";
+type IapNotImplementedReason =
+  | "apple_cancel_user_self_service"
+  | "apple_refund_integration_pending"
+  | "google_cancel_integration_pending"
+  | "google_refund_integration_pending";
+
+// Strips fields already captured in dedicated audit columns (admin email)
+// before echoing the request body into metadata. Keeps the row greppable but
+// avoids storing the same value in two places.
+function sanitizeIapBody(body: unknown): Record<string, unknown> {
+  if (!body || typeof body !== "object") return {};
+  const { requesterEmail, ...rest } = body as Record<string, unknown>;
+  void requesterEmail;
+  return rest;
+}
+
+async function writeIapStubAndRespond(args: {
+  res: any;
+  adminEmail: string;
+  userId: string;
+  platform: IapPlatform;
+  action: IapAction;
+  reason: string;
+  attemptedAmountCents: number | null;
+  notImplementedReason: IapNotImplementedReason;
+  requestBody: Record<string, unknown>;
+}): Promise<void> {
+  const {
+    res,
+    adminEmail,
+    userId,
+    platform,
+    action,
+    reason,
+    attemptedAmountCents,
+    notImplementedReason,
+    requestBody,
+  } = args;
+
+  const source = platform === "apple" ? "apple_iap" : "google_play";
+  const [effective, resolved] = await Promise.all([
+    computeEffectiveTier(userId),
+    resolveSubscriptionSource(userId),
+  ]);
+
+  await writeAdminAudit({
+    adminEmail,
+    userId,
+    action,
+    source,
+    previousState: { tier: effective.tier, source: effective.source },
+    // Deliberately null: no mutation happened, echoing previousState would
+    // misrepresent the audit trail.
+    newState: null,
+    reason,
+    metadata: {
+      platform,
+      attemptedAction: action,
+      userSourceAtAttempt: resolved.source,
+      userIapSource: resolved.iapSource,
+      userIapOriginalTransactionId: resolved.iapOriginalTransactionId,
+      stripeCustomerId: resolved.stripeCustomerId,
+      attemptedAmountCents,
+      notImplementedReason,
+      requestBody,
+    },
+  });
+
+  res.status(501).json({
+    error: "IAP action not implemented",
+    platform,
+    attemptedAction: action,
+    audit: { logged: true },
+  });
+}
+
+// Shared request validation for the four routes. Returns null on failure
+// after sending the response, so the caller can early-return.
+async function parseIapRequest(
+  req: any,
+  res: any,
+  opts: { allowAmount: boolean },
+): Promise<{ adminEmail: string; userId: string; reason: string; amountCents: number | null } | null> {
+  const adminEmail = resolveAdminEmail(req);
+  if (!adminEmail) {
+    res.status(401).json({ error: "Unauthorized" });
+    return null;
+  }
+  const { userId } = req.params;
+  const reason =
+    typeof req.body?.reason === "string" && req.body.reason.trim().length > 0
+      ? req.body.reason.trim()
+      : null;
+  if (!reason) {
+    res.status(400).json({ error: "reason is required" });
+    return null;
+  }
+
+  let amountCents: number | null = null;
+  if (opts.allowAmount && req.body?.amountCents !== undefined && req.body?.amountCents !== null) {
+    const raw =
+      typeof req.body.amountCents === "string"
+        ? Number(req.body.amountCents)
+        : (req.body.amountCents as number);
+    if (!Number.isFinite(raw) || !Number.isInteger(raw) || raw <= 0) {
+      res.status(400).json({ error: "amountCents must be a positive integer (cents)" });
+      return null;
+    }
+    amountCents = raw;
+  }
+
+  const targetUser = await storage.getUserByClerkId(userId);
+  if (!targetUser) {
+    res.status(404).json({ error: "User not found" });
+    return null;
+  }
+
+  return { adminEmail, userId, reason, amountCents };
+}
+
+// POST /api/admin/users/:userId/iap/apple/cancel  body: { reason, requesterEmail? }
+// 501 — Apple has no server-side subscription cancellation; the user must
+// cancel in App Store settings. PR 5's UI renders the send-instructions
+// flow; this endpoint just records the intent.
+router.post("/users/:userId/iap/apple/cancel", async (req, res) => {
+  try {
+    const parsed = await parseIapRequest(req, res, { allowAmount: false });
+    if (!parsed) return;
+    await writeIapStubAndRespond({
+      res,
+      adminEmail: parsed.adminEmail,
+      userId: parsed.userId,
+      platform: "apple",
+      action: "cancel",
+      reason: parsed.reason,
+      attemptedAmountCents: null,
+      notImplementedReason: "apple_cancel_user_self_service",
+      requestBody: sanitizeIapBody(req.body),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/users/:userId/iap/apple/refund  body: { amountCents?, reason, requesterEmail? }
+// 501 — Apple's refund-request API is not yet integrated. Full refund when
+// amountCents is omitted; partial when provided. The amount is recorded in
+// metadata for when integration lands.
+router.post("/users/:userId/iap/apple/refund", async (req, res) => {
+  try {
+    const parsed = await parseIapRequest(req, res, { allowAmount: true });
+    if (!parsed) return;
+    await writeIapStubAndRespond({
+      res,
+      adminEmail: parsed.adminEmail,
+      userId: parsed.userId,
+      platform: "apple",
+      action: "refund",
+      reason: parsed.reason,
+      attemptedAmountCents: parsed.amountCents,
+      notImplementedReason: "apple_refund_integration_pending",
+      requestBody: sanitizeIapBody(req.body),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/users/:userId/iap/google/cancel  body: { reason, requesterEmail? }
+// 501 — Play Developer API cancel call not yet integrated.
+router.post("/users/:userId/iap/google/cancel", async (req, res) => {
+  try {
+    const parsed = await parseIapRequest(req, res, { allowAmount: false });
+    if (!parsed) return;
+    await writeIapStubAndRespond({
+      res,
+      adminEmail: parsed.adminEmail,
+      userId: parsed.userId,
+      platform: "google",
+      action: "cancel",
+      reason: parsed.reason,
+      attemptedAmountCents: null,
+      notImplementedReason: "google_cancel_integration_pending",
+      requestBody: sanitizeIapBody(req.body),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/users/:userId/iap/google/refund  body: { amountCents?, reason, requesterEmail? }
+// 501 — Play Console / API refund call not yet integrated. Same amount
+// handling as the Apple refund stub.
+router.post("/users/:userId/iap/google/refund", async (req, res) => {
+  try {
+    const parsed = await parseIapRequest(req, res, { allowAmount: true });
+    if (!parsed) return;
+    await writeIapStubAndRespond({
+      res,
+      adminEmail: parsed.adminEmail,
+      userId: parsed.userId,
+      platform: "google",
+      action: "refund",
+      reason: parsed.reason,
+      attemptedAmountCents: parsed.amountCents,
+      notImplementedReason: "google_refund_integration_pending",
+      requestBody: sanitizeIapBody(req.body),
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
