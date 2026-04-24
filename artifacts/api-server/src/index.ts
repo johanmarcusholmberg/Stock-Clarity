@@ -5,6 +5,7 @@ import { getStripeSync } from "./stripeClient";
 import { startAlertEvaluator } from "./lib/alertEvaluator";
 import { startNewsPreloadWorker } from "./lib/newsPreloadWorker";
 import { startGrantExpiryWorker } from "./lib/grantExpiryWorker";
+import { startGrantExpiryWarningWorker } from "./lib/grantExpiryWarningWorker";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
@@ -59,4 +60,12 @@ app.listen(port, async (err) => {
   // the worker retries every 30s until one tick succeeds, then settles into
   // the hourly cadence.
   startGrantExpiryWorker().catch((e) => logger.warn(e, "Grant expiry worker start error"));
+
+  // Start the 3-day expiry WARNING worker (daily). Queues a user_events
+  // 'grant_expiry_warned' row per grant nearing expiry; the actual email
+  // send lands when the shared email worker does (matches alertEvaluator
+  // email:queued pattern).
+  startGrantExpiryWarningWorker().catch((e) =>
+    logger.warn(e, "Grant expiry warning worker start error"),
+  );
 });
