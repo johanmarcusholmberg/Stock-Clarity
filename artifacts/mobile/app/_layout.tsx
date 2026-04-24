@@ -5,6 +5,7 @@ import {
   Inter_700Bold,
   useFonts,
 } from "@expo-google-fonts/inter";
+import { Feather } from "@expo/vector-icons";
 import { ClerkProvider, ClerkLoaded } from "@clerk/expo";
 import { tokenCache } from "@clerk/expo/token-cache";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -18,6 +19,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { WatchlistProvider, useWatchlist } from "@/context/WatchlistContext";
 import { SubscriptionProvider, useSubscription } from "@/context/SubscriptionContext";
+import { AlertsProvider } from "@/context/AlertsContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { FirstTimeNameModal } from "@/components/FirstTimeNameModal";
 
@@ -60,11 +62,15 @@ function WatchlistProviderWithTier({ children }: { children: React.ReactNode }) 
 }
 
 export default function RootLayout() {
+  // Note: Feather.font is explicitly loaded to ensure icon rendering on Android
+  // preview and dev builds. If icons still fail in Expo web preview, this is a
+  // known limitation — they will render correctly on real devices.
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
+    ...Feather.font,
   });
 
   useEffect(() => {
@@ -84,11 +90,13 @@ export default function RootLayout() {
               <QueryClientProvider client={queryClient}>
                 <SubscriptionProvider>
                   <WatchlistProviderWithTier>
-                    <GestureHandlerRootView>
-                      <KeyboardProvider>
-                        <RootLayoutNav />
-                      </KeyboardProvider>
-                    </GestureHandlerRootView>
+                    <AlertsProvider>
+                      <GestureHandlerRootView>
+                        <KeyboardProvider>
+                          <RootLayoutNav />
+                        </KeyboardProvider>
+                      </GestureHandlerRootView>
+                    </AlertsProvider>
                   </WatchlistProviderWithTier>
                 </SubscriptionProvider>
               </QueryClientProvider>

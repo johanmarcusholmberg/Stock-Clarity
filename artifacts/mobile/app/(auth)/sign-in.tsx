@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { useSignIn } from "@clerk/expo/legacy";
 import { useOAuth } from "@clerk/expo";
-import { Link, useRouter } from "expo-router";
+import { Link, useRouter, useLocalSearchParams } from "expo-router";
 import * as Haptics from "expo-haptics";
 import React, { useState } from "react";
 import {
@@ -35,6 +35,7 @@ export default function SignInScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { resetSuccess } = useLocalSearchParams<{ resetSuccess?: string }>();
   const { isLoaded, signIn, setActive } = useSignIn();
   const { startOAuthFlow: startGoogleOAuth } = useOAuth({ strategy: "oauth_google" });
   const { startOAuthFlow: startAppleOAuth } = useOAuth({ strategy: "oauth_apple" });
@@ -203,6 +204,74 @@ export default function SignInScreen() {
           Real-time insights and AI-powered clarity for every stock you follow.
         </Text>
 
+        {resetSuccess === "true" && (
+          <View style={[styles.successBanner, { backgroundColor: "#22c55e18", borderColor: "#22c55e44" }]}>
+            <Feather name="check-circle" size={16} color="#22c55e" />
+            <Text style={[styles.successText, { color: "#22c55e" }]}>Password reset successfully. Sign in with your new password.</Text>
+          </View>
+        )}
+
+        <View style={styles.formSection}>
+          <Text style={[styles.label, { color: colors.mutedForeground }]}>Email</Text>
+          <TextInput
+            style={[styles.input, { backgroundColor: colors.secondary, borderColor: colors.border, color: colors.foreground }]}
+            value={email}
+            placeholder="you@example.com"
+            placeholderTextColor={colors.mutedForeground}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          <Text style={[styles.label, { color: colors.mutedForeground, marginTop: 14 }]}>Password</Text>
+          <View style={styles.passwordWrapper}>
+            <TextInput
+              style={[styles.input, { backgroundColor: colors.secondary, borderColor: colors.border, color: colors.foreground, paddingRight: 48 }]}
+              value={password}
+              placeholder="••••••••"
+              placeholderTextColor={colors.mutedForeground}
+              onChangeText={setPassword}
+              secureTextEntry={!showPassword}
+            />
+            <TouchableOpacity
+              style={styles.eyeToggle}
+              onPress={() => setShowPassword((v) => !v)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Feather name={showPassword ? "eye-off" : "eye"} size={18} color={colors.mutedForeground} />
+            </TouchableOpacity>
+          </View>
+
+          <Link href="/(auth)/forgot-password" asChild>
+            <TouchableOpacity style={styles.forgotRow}>
+              <Text style={[styles.linkText, { color: colors.primary }]}>Forgot password?</Text>
+            </TouchableOpacity>
+          </Link>
+        </View>
+
+        {error && (
+          <Text style={[styles.errorText, { color: colors.negative, marginTop: 8 }]}>{error}</Text>
+        )}
+
+        <TouchableOpacity
+          style={[styles.primaryButton, { backgroundColor: colors.primary, opacity: (!email || !password || isLoading) ? 0.5 : 1 }]}
+          onPress={handleSignIn}
+          disabled={!email || !password || isLoading}
+        >
+          {isLoading
+            ? <ActivityIndicator color={colors.primaryForeground} />
+            : <Text style={[styles.primaryButtonText, { color: colors.primaryForeground }]}>Sign in</Text>
+          }
+        </TouchableOpacity>
+
+        {/* Divider */}
+        <View style={styles.dividerRow}>
+          <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+          <Text style={[styles.dividerText, { color: colors.mutedForeground }]}>or</Text>
+          <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+        </View>
+
         {/* Social sign-in buttons */}
         <View style={styles.socialSection}>
           <TouchableOpacity
@@ -232,60 +301,6 @@ export default function SignInScreen() {
             </TouchableOpacity>
           )}
         </View>
-
-        {/* Divider */}
-        <View style={styles.dividerRow}>
-          <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
-          <Text style={[styles.dividerText, { color: colors.mutedForeground }]}>or</Text>
-          <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
-        </View>
-
-        <View style={styles.formSection}>
-          <Text style={[styles.label, { color: colors.mutedForeground }]}>Email</Text>
-          <TextInput
-            style={[styles.input, { backgroundColor: colors.secondary, borderColor: colors.border, color: colors.foreground }]}
-            value={email}
-            placeholder="you@example.com"
-            placeholderTextColor={colors.mutedForeground}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-
-          <Text style={[styles.label, { color: colors.mutedForeground, marginTop: 14 }]}>Password</Text>
-          <View style={styles.passwordRow}>
-            <TextInput
-              style={[styles.passwordInput, { backgroundColor: colors.secondary, borderColor: colors.border, color: colors.foreground }]}
-              value={password}
-              placeholder="••••••••"
-              placeholderTextColor={colors.mutedForeground}
-              onChangeText={setPassword}
-              secureTextEntry={!showPassword}
-            />
-            <TouchableOpacity
-              style={[styles.eyeButton, { backgroundColor: colors.secondary, borderColor: colors.border }]}
-              onPress={() => setShowPassword((v) => !v)}
-            >
-              <Feather name={showPassword ? "eye-off" : "eye"} size={16} color={colors.mutedForeground} />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {error && (
-          <Text style={[styles.errorText, { color: colors.negative, marginTop: 8 }]}>{error}</Text>
-        )}
-
-        <TouchableOpacity
-          style={[styles.primaryButton, { backgroundColor: colors.primary, opacity: (!email || !password || isLoading) ? 0.5 : 1 }]}
-          onPress={handleSignIn}
-          disabled={!email || !password || isLoading}
-        >
-          {isLoading
-            ? <ActivityIndicator color={colors.primaryForeground} />
-            : <Text style={[styles.primaryButtonText, { color: colors.primaryForeground }]}>Sign in</Text>
-          }
-        </TouchableOpacity>
 
         <View style={styles.switchRow}>
           <Text style={[styles.switchText, { color: colors.mutedForeground }]}>Don't have an account? </Text>
@@ -348,22 +363,30 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: "Inter_400Regular",
   },
-  passwordRow: { flexDirection: "row", gap: 8 },
-  passwordInput: {
-    flex: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    borderRadius: 12,
-    borderWidth: 1,
-    fontSize: 15,
-    fontFamily: "Inter_400Regular",
+  passwordWrapper: { position: "relative" as const, justifyContent: "center" as const },
+  eyeToggle: {
+    position: "absolute" as const,
+    right: 14,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center" as const,
+    alignItems: "center" as const,
   },
-  eyeButton: {
-    width: 48,
+  forgotRow: { alignSelf: "flex-end" as const, marginTop: 10 },
+  successBanner: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 10,
+    padding: 14,
     borderRadius: 12,
     borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
+    marginBottom: 20,
+  },
+  successText: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+    lineHeight: 18,
   },
   primaryButton: {
     paddingVertical: 15,
@@ -394,7 +417,7 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     marginTop: 4,
   },
-  socialSection: { gap: 10, marginBottom: 20, marginTop: 8 },
+  socialSection: { gap: 10, marginBottom: 16 },
   socialButton: {
     flexDirection: "row",
     alignItems: "center",

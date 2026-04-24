@@ -1,18 +1,9 @@
 import { Router } from "express";
 import OpenAI from "openai";
+import { YF1, YF2, yfFetch, fetchGoogleNewsRSS, fetchYahooNews, type NewsItem } from "../lib/newsSources";
+import { readCachedNews, upsertNewsItem, type CachedNewsRow, type NewsSource } from "../lib/newsCache";
 
 const router = Router();
-
-const YF1 = "https://query1.finance.yahoo.com";
-const YF2 = "https://query2.finance.yahoo.com";
-
-const BASE_HEADERS: Record<string, string> = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-  "Accept": "application/json, text/plain, */*",
-  "Accept-Language": "en-US,en;q=0.9",
-  "Referer": "https://finance.yahoo.com/",
-  "Origin": "https://finance.yahoo.com",
-};
 
 const openai = new OpenAI({
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
@@ -32,80 +23,6 @@ function setInCache<T>(key: string, data: T, ttlMs: number) {
   cache.set(key, { data, expiresAt: Date.now() + ttlMs });
 }
 
-// ─── Yahoo Finance Auth (crumb + cookie) ──────────────────────────────────────
-let yfCrumb: string | null = null;
-let yfCookie: string | null = null;
-let yfAuthExpires = 0;
-
-async function refreshYFAuth(): Promise<boolean> {
-  try {
-    const sessionRes = await fetch("https://fc.yahoo.com", {
-      headers: BASE_HEADERS,
-      redirect: "follow",
-      signal: AbortSignal.timeout(8000),
-    });
-
-    const setCookieHeader = sessionRes.headers.get("set-cookie");
-    if (!setCookieHeader) return false;
-
-    const cookies = setCookieHeader.split(",").map((c) => c.trim().split(";")[0]).join("; ");
-    yfCookie = cookies;
-
-    const crumbRes = await fetch(`${YF1}/v1/test/getcrumb`, {
-      headers: { ...BASE_HEADERS, Cookie: yfCookie },
-      signal: AbortSignal.timeout(8000),
-    });
-
-    if (!crumbRes.ok) return false;
-    const crumb = await crumbRes.text();
-    if (!crumb || crumb.includes("<") || crumb.length < 5) return false;
-
-    yfCrumb = crumb.trim();
-    yfAuthExpires = Date.now() + 60 * 60 * 1000;
-    console.log("[yfAuth] Got crumb:", yfCrumb.slice(0, 8) + "...");
-    return true;
-  } catch (err: any) {
-    console.error("[yfAuth] Failed:", err.message);
-    return false;
-  }
-}
-
-async function getYFHeaders(): Promise<Record<string, string>> {
-  if (!yfCrumb || Date.now() > yfAuthExpires) {
-    await refreshYFAuth();
-  }
-  const headers = { ...BASE_HEADERS };
-  if (yfCookie) headers["Cookie"] = yfCookie;
-  return headers;
-}
-
-function addCrumb(url: string): string {
-  if (!yfCrumb) return url;
-  const sep = url.includes("?") ? "&" : "?";
-  return `${url}${sep}crumb=${encodeURIComponent(yfCrumb)}`;
-}
-
-async function yfFetch(url: string, timeoutMs = 12000): Promise<any> {
-  const headers = await getYFHeaders();
-  const fullUrl = addCrumb(url);
-
-  const res = await fetch(fullUrl, { headers, signal: AbortSignal.timeout(timeoutMs) });
-
-  if (res.status === 429) {
-    console.error("[yfFetch] 429 rate limited:", url.split("?")[0]);
-    yfCrumb = null;
-    yfCookie = null;
-    await new Promise((r) => setTimeout(r, 4000));
-    const newHeaders = await getYFHeaders();
-    const retryRes = await fetch(addCrumb(url), { headers: newHeaders, signal: AbortSignal.timeout(timeoutMs) });
-    if (!retryRes.ok) throw new Error(`YF ${retryRes.status} after retry`);
-    return retryRes.json();
-  }
-
-  if (!res.ok) throw new Error(`YF ${res.status}: ${url.split("?")[0]}`);
-  return res.json();
-}
-
 // ─── Single Quote via Chart ───────────────────────────────────────────────────
 async function fetchQuoteViaChart(symbol: string): Promise<any | null> {
   const cacheKey = `quote:${symbol}`;
@@ -113,7 +30,12 @@ async function fetchQuoteViaChart(symbol: string): Promise<any | null> {
   if (cached) return cached;
 
   try {
-    const url = `${YF2}/v8/finance/chart/${encodeURIComponent(symbol)}?range=2d&interval=1d&includePrePost=false`;
+    // range=1d gives Yahoo's canonical `chartPreviousClose` for the current
+    // session context: it stays frozen across the session and rolls at the
+    // next market open — correctly handling weekends and holidays via
+    // Yahoo's internal market calendar. This is the source of truth for the
+    // "Prev Close" displayed in the header and used as the 1D chart anchor.
+    const url = `${YF2}/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=5m&includePrePost=false`;
     const data = await yfFetch(url);
     const result = data?.chart?.result?.[0];
     if (!result) return null;
@@ -121,7 +43,12 @@ async function fetchQuoteViaChart(symbol: string): Promise<any | null> {
     const meta = result.meta;
     const closes: number[] = result.indicators?.quote?.[0]?.close ?? [];
     const validCloses = closes.filter((c: any) => c != null && !isNaN(c)) as number[];
-    const prevClose = meta.chartPreviousClose ?? (validCloses.length > 1 ? validCloses[validCloses.length - 2] : null);
+    // Yahoo's session-aware previous close. For range=1d this is the close
+    // of the trading session before the current one — it stays fixed across
+    // the whole session and only advances at the next market open. That
+    // matches the cadence we want in the header "Prev Close" field and
+    // as the 1D chart's left-edge anchor.
+    const prevClose = meta.chartPreviousClose ?? null;
     const currentPrice = meta.regularMarketPrice ?? validCloses.at(-1) ?? null;
 
     if (!currentPrice) return null;
@@ -136,6 +63,8 @@ async function fetchQuoteViaChart(symbol: string): Promise<any | null> {
       regularMarketPrice: currentPrice,
       regularMarketChange: change,
       regularMarketChangePercent: changePercent,
+      regularMarketPreviousClose: prevClose ?? null,
+      regularMarketOpen: meta.regularMarketOpen ?? null,
       currency: meta.currency ?? "USD",
       fullExchangeName: meta.fullExchangeName || meta.exchangeName || "",
       marketCap: null,
@@ -151,67 +80,6 @@ async function fetchQuoteViaChart(symbol: string): Promise<any | null> {
   } catch (err: any) {
     console.error(`[fetchQuote] ${symbol}:`, err.message);
     return null;
-  }
-}
-
-// ─── Google News RSS (second source) ─────────────────────────────────────────
-interface NewsItem {
-  title: string;
-  publisher: string;
-  url: string;
-  timestamp: string;
-  timestampMs: number;
-}
-
-async function fetchGoogleNewsRSS(query: string): Promise<NewsItem[]> {
-  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
-  try {
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-        "Accept": "application/rss+xml, application/xml, text/xml, */*",
-      },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) return [];
-
-    const text = await res.text();
-    const items: NewsItem[] = [];
-    const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-    let match;
-
-    while ((match = itemRegex.exec(text)) !== null && items.length < 8) {
-      const itemText = match[1];
-      const rawTitle =
-        itemText.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/)?.[1] ||
-        itemText.match(/<title>(.*?)<\/title>/)?.[1] || "";
-      const title = rawTitle
-        .replace(/&amp;/g, "&")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&#39;/g, "'")
-        .replace(/&quot;/g, '"')
-        .trim();
-      const link =
-        itemText.match(/<link>(.*?)<\/link>/)?.[1]?.trim() ||
-        itemText.match(/<guid[^>]*>(.*?)<\/guid>/)?.[1]?.trim() || "";
-      const pubDate = itemText.match(/<pubDate>(.*?)<\/pubDate>/)?.[1]?.trim() || "";
-      const source =
-        itemText.match(/<source[^>]*>([\s\S]*?)<\/source>/)?.[1]
-          ?.replace(/<!\[CDATA\[(.*?)\]\]>/, "$1")
-          ?.trim() || "News";
-
-      if (title && title.length > 10) {
-        const ts = pubDate ? new Date(pubDate).getTime() : Date.now();
-        if (!isNaN(ts)) {
-          items.push({ title, publisher: source, url: link, timestamp: new Date(ts).toISOString(), timestampMs: ts });
-        }
-      }
-    }
-    return items;
-  } catch (err: any) {
-    console.error("[GoogleNewsRSS]", err.message);
-    return [];
   }
 }
 
@@ -272,10 +140,15 @@ router.get("/chart/:symbol", async (req, res) => {
   const { symbol } = req.params;
   const range = (req.query.range as string) || "1mo";
   const interval = (req.query.interval as string) || "1d";
+  // `fresh=1` bypasses the in-memory cache. Premium users on a 1-min cooldown
+  // would otherwise keep hitting the 60s 1D cache and see identical data.
+  const bypassCache = req.query.fresh === "1";
 
   const cacheKey = `chart:${symbol}:${range}:${interval}`;
-  const cached = getFromCache<any>(cacheKey);
-  if (cached) return void res.json(cached);
+  if (!bypassCache) {
+    const cached = getFromCache<any>(cacheKey);
+    if (cached) return void res.json(cached);
+  }
 
   try {
     const url = `${YF2}/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}&includePrePost=false`;
@@ -315,6 +188,18 @@ router.get("/chart/:symbol", async (req, res) => {
 });
 
 // ─── Events (AI-powered, multi-source, period-aware, relevance-filtered) ──────
+//
+// Cache-first read path (added in Phase 3.1 PR 2):
+//   1. In-process cache returns AI-grouped events — cheapest hit, skips DB + LLM.
+//   2. Postgres `news_cache` returns raw news — fast enough that the only cost
+//      on a cache miss is the LLM grouping call.
+//   3. Cold-cache fallback: a symbol that's never been ingested (e.g. just
+//      added to a watchlist) runs the live Yahoo + Google fetch inline and
+//      upserts into news_cache so the *next* open is warm.
+//
+// We intentionally don't "refresh if cache is stale but non-empty" here — the
+// 15-min worker cadence keeps warm symbols fresher than any user's re-open
+// rhythm, and adding fire-and-forget refresh is PR 4 territory.
 router.get("/events/:symbol", async (req, res) => {
   const { symbol } = req.params;
   const period = (req.query.period as string) || "week";
@@ -332,48 +217,67 @@ router.get("/events/:symbol", async (req, res) => {
       year:  now - 365 * 24 * 60 * 60 * 1000,
     };
     const cutoffMs = cutoffs[period] ?? cutoffs.week;
+    const symbolUpper = symbol.toUpperCase();
 
-    // Fetch Yahoo Finance news + Google News RSS in parallel
-    const [yfData, googleItems] = await Promise.allSettled([
-      yfFetch(`${YF1}/v1/finance/search?q=${encodeURIComponent(symbol)}&quotesCount=0&newsCount=10&enableFuzzyQuery=false`),
-      fetchGoogleNewsRSS(`${symbol} stock`),
-    ]);
+    let allArticles: Array<NewsItem & { sourceLabel: string; idx: number }> = [];
 
-    const yfNews: any[] = yfData.status === "fulfilled" ? (yfData.value?.news ?? []).slice(0, 8) : [];
-    const gnItems: NewsItem[] = googleItems.status === "fulfilled" ? googleItems.value : [];
+    // Step 1: try the Postgres cache. 14 rows ordered by impact DESC NULLS LAST,
+    // then published_at DESC — matches the card priority (importance first).
+    let cachedRows: CachedNewsRow[] = [];
+    try {
+      cachedRows = await readCachedNews(symbolUpper, cutoffMs, 14);
+    } catch (err: any) {
+      // DB-less deployments or schema load failures fall through to the
+      // cold-cache path below. We don't fail the request on a cache miss.
+      console.warn("[events] news_cache read failed:", err?.message);
+    }
 
-    // Normalise and merge
-    const allArticles: Array<NewsItem & { sourceLabel: string; idx: number }> = [
-      ...yfNews.map((item: any, i: number) => ({
-        title: item.title ?? "",
-        publisher: item.publisher ?? "Yahoo Finance",
-        url: item.link ?? "",
-        timestamp: item.providerPublishTime ? new Date(item.providerPublishTime * 1000).toISOString() : new Date().toISOString(),
-        timestampMs: item.providerPublishTime ? item.providerPublishTime * 1000 : now,
-        sourceLabel: "Yahoo Finance",
-        idx: i,
-      })),
-      ...gnItems.map((item, i) => ({
-        ...item,
-        sourceLabel: item.publisher,
-        idx: yfNews.length + i,
-      })),
-    ]
-      .filter((a) => a.title.length > 10 && a.timestampMs >= cutoffMs)
-      // dedupe near-identical titles
-      .reduce<Array<NewsItem & { sourceLabel: string; idx: number }>>((acc, a) => {
-        const isDupe = acc.some((existing) => {
-          const overlap = longestCommonWords(existing.title, a.title);
-          return overlap >= 4;
-        });
-        if (!isDupe) acc.push(a);
-        return acc;
-      }, [])
-      .slice(0, 14);
+    if (cachedRows.length > 0) {
+      allArticles = cachedRows.map((r, i) => articleFromCachedRow(r, i));
+    } else {
+      // Step 2: cold-cache fallback — live fetch, upsert for next time.
+      const [yfItemsResult, googleItemsResult] = await Promise.allSettled([
+        fetchYahooNews(symbolUpper),
+        fetchGoogleNewsRSS(`${symbolUpper} stock`),
+      ]);
+
+      const yfItems: NewsItem[] = yfItemsResult.status === "fulfilled" ? yfItemsResult.value : [];
+      const gnItems: NewsItem[] = googleItemsResult.status === "fulfilled" ? googleItemsResult.value : [];
+
+      // Upsert into news_cache so the next call is warm. Fire-and-forget
+      // per-item so one bad row doesn't poison the list; failures are logged
+      // but don't affect the response.
+      const upserts: Array<Promise<void>> = [];
+      for (const item of yfItems) upserts.push(safeUpsert(symbolUpper, item, "yahoo"));
+      for (const item of gnItems) upserts.push(safeUpsert(symbolUpper, item, "google_rss"));
+      // Await so by the time we build `allArticles` below everything is durable.
+      await Promise.all(upserts);
+
+      allArticles = [
+        ...yfItems.map((item, i) => ({ ...item, sourceLabel: "Yahoo Finance", idx: i })),
+        ...gnItems.map((item, i) => ({ ...item, sourceLabel: item.publisher, idx: yfItems.length + i })),
+      ]
+        .filter((a) => a.title.length > 10 && a.timestampMs >= cutoffMs)
+        // dedupe near-identical titles — keeps the LLM from summarising the
+        // same story twice across sources.
+        .reduce<Array<NewsItem & { sourceLabel: string; idx: number }>>((acc, a) => {
+          const isDupe = acc.some((existing) => longestCommonWords(existing.title, a.title) >= 4);
+          if (!isDupe) acc.push(a);
+          return acc;
+        }, [])
+        .slice(0, 14);
+    }
 
     if (allArticles.length === 0) return void res.json({ events: [] });
 
-    // ONE consolidated AI call: filter + group + summarise
+    // ONE consolidated AI call: filter + group + summarise.
+    //
+    // IMPORTANT: the `what`/`why` fields are displayed *below* the `title`
+    // on the card.  The reader has ALREADY read the title before tapping
+    // to expand, so a summary that paraphrases the title wastes a line.
+    // The prompt below forbids restatement and demands the "so what" —
+    // numbers, named parties, amounts, dates, stated reasons, or likely
+    // impact on the stock.
     const prompt = `You are a senior financial analyst. Analyse these news headlines for stock ticker "${symbol}".
 
 Headlines (numbered):
@@ -384,15 +288,31 @@ Tasks:
 2. GROUP headlines about the same event or topic together.
 3. For each group (up to 5 groups total), produce a JSON object.
 
+CRITICAL SUMMARY RULE:
+Assume the reader has already read the headline. Do NOT restate or paraphrase
+who-did-what from the title. Instead, add the concrete details the headline
+leaves out: numbers, percentages, dollar amounts, dates, named people or
+firms, stated reasons, and the likely impact on ${symbol}'s stock. If the
+underlying article contains no extra detail, make the "what" field a plain-
+language "why it matters" one-liner — never a rewording of the title.
+
+Examples of BAD vs GOOD "what":
+  Title: "V Square Management Makes New Investment in JPMorgan"
+    BAD:  "V Square Quantitative Management LLC has purchased new shares in JPMorgan Chase."
+    GOOD: "New 13F filing shows V Square built a position of ~82K shares (~$16M) — its first disclosed holding in JPM since 2022."
+  Title: "NVIDIA beats Q2 earnings"
+    BAD:  "NVIDIA reported better than expected Q2 earnings."
+    GOOD: "EPS $0.68 vs $0.64 estimate; data-center revenue +154% YoY to $26.3B; guidance raised to $32.5B for Q3."
+
 Return ONLY a JSON array. No markdown, no prose. Format:
 [
   {
     "title": "Concise headline (max 80 chars)",
     "type": "earnings" | "analyst" | "price_move" | "news",
     "sentiment": "positive" | "negative" | "neutral",
-    "what": "1-2 sentences: exactly what happened with ${symbol}. Factual, specific.",
-    "why": "1-2 sentences: why this matters for ${symbol} investors.",
-    "unusual": "1 sentence: what is notable or surprising.",
+    "what": "1-2 sentences of SPECIFIC detail beyond the headline (numbers, names, amounts). Must NOT restate the title.",
+    "why": "1-2 sentences: the consequence or signal for ${symbol} shareholders. Must NOT restate the title or the 'what'.",
+    "unusual": "1 sentence: what is notable, surprising, or inconsistent with the prior trend.",
     "combinedFrom": [1, 3, 7],
     "primarySource": 1
   }
@@ -415,16 +335,43 @@ If fewer than 2 headlines are genuinely relevant to ${symbol}, return an empty a
     }
 
     const events = parsed.slice(0, 5).map((e: any, idx: number) => {
-      const primaryIdx = (e.primarySource ?? 1) - 1;
-      const source = allArticles[primaryIdx] ?? allArticles[0];
-      const combinedCount = Array.isArray(e.combinedFrom) ? e.combinedFrom.length : 1;
+      // Resolve the best article source for this event.  The AI returns
+      // 1-based `primarySource` and `combinedFrom` indices.  We validate
+      // bounds and prefer the first source with a valid HTTP(S) URL.
+      const combinedIndices: number[] = Array.isArray(e.combinedFrom)
+        ? e.combinedFrom.map((i: number) => i - 1).filter((i: number) => i >= 0 && i < allArticles.length)
+        : [];
+      const primaryIdx = typeof e.primarySource === "number"
+        ? e.primarySource - 1
+        : -1;
+
+      // Candidate sources in priority order: primary, then combined, then first article
+      const candidateIndices = [
+        ...(primaryIdx >= 0 && primaryIdx < allArticles.length ? [primaryIdx] : []),
+        ...combinedIndices,
+        0,
+      ];
+
+      // Pick the first candidate with a valid URL
+      let source = allArticles[candidateIndices[0]] ?? allArticles[0];
+      let resolvedUrl = "";
+      for (const ci of candidateIndices) {
+        const candidate = allArticles[ci];
+        if (candidate?.url && /^https?:\/\//.test(candidate.url)) {
+          source = candidate;
+          resolvedUrl = candidate.url;
+          break;
+        }
+      }
+
+      const combinedCount = combinedIndices.length || 1;
       return {
         id: `event-${symbol}-${idx}-${Date.now()}`,
         ticker: symbol,
         type: e.type || "news",
         title: e.title || source?.title || "Market Update",
         publisher: combinedCount > 1 ? `${combinedCount} sources` : (source?.publisher || "News"),
-        url: source?.url || "",
+        url: resolvedUrl,
         what: e.what || "",
         why: e.why || "",
         unusual: e.unusual || "",
@@ -459,6 +406,30 @@ function detectEventType(titleLower: string): string {
   return "news";
 }
 
-setTimeout(() => refreshYFAuth(), 1000);
+// Map a news_cache row into the shape the LLM prompt + event resolver expect.
+// sourceLabel follows the on-demand route's prior behaviour: Yahoo rows get
+// the fixed "Yahoo Finance" label, Google rows get the per-item publisher.
+// pg returns timestamptz as Date — we normalise to ISO string because the
+// prompt builder downstream does `timestamp.slice(0, 10)`.
+function articleFromCachedRow(r: CachedNewsRow, idx: number): NewsItem & { sourceLabel: string; idx: number } {
+  const d = r.published_at instanceof Date ? r.published_at : new Date(r.published_at);
+  return {
+    title: r.title,
+    publisher: r.publisher,
+    url: r.url,
+    timestamp: d.toISOString(),
+    timestampMs: d.getTime(),
+    sourceLabel: r.source === "yahoo" ? "Yahoo Finance" : r.publisher,
+    idx,
+  };
+}
+
+async function safeUpsert(symbol: string, item: NewsItem, source: NewsSource): Promise<void> {
+  try {
+    await upsertNewsItem(symbol, item, source);
+  } catch (err: any) {
+    console.warn("[events] news_cache upsert failed:", err?.message);
+  }
+}
 
 export default router;

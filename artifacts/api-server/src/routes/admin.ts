@@ -1,6 +1,9 @@
 import { Router } from "express";
-import { query } from "../db";
+import Stripe from "stripe";
+import { execute, query, queryOne } from "../db";
 import { storage } from "../storage";
+import { getUncachableStripeClient } from "../stripeClient";
+import { computeEffectiveTier, writeAdminAudit } from "../lib/tierService";
 
 const router = Router();
 
@@ -57,11 +60,20 @@ router.post("/override-tier", async (req, res) => {
     // Upsert requester so they're in our DB
     await storage.upsertUser(requesterId, requesterEmail);
     // If setting own tier, upsert is enough; otherwise ensure target exists
-    if (target !== requesterId) {
-      const targetUser = await storage.getUserByClerkId(target);
-      if (!targetUser) return void res.status(404).json({ error: "Target user not found" });
-    }
+    const targetUser = target === requesterId
+      ? await storage.getUserByClerkId(requesterId)
+      : await storage.getUserByClerkId(target);
+    if (!targetUser) return void res.status(404).json({ error: "Target user not found" });
+    const previousTier = targetUser.tier ?? "free";
     await storage.updateUserTier(target, tier as "free" | "pro" | "premium");
+    await writeAdminAudit({
+      adminEmail: requesterEmail.toLowerCase().trim(),
+      userId: target,
+      action: "tier_flip",
+      source: "manual",
+      previousState: { tier: previousTier },
+      newState: { tier },
+    });
     res.json({ success: true, targetUserId: target, tier });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -388,6 +400,10 @@ router.get("/users", requireAdmin, async (_req, res) => {
 });
 
 // ── Override User Tier ────────────────────────────────────────────────────────
+// requireAdmin authenticates via ADMIN_SECRET_KEY, not a specific email — so
+// the audit row is stamped with the 'x-admin-key' sentinel. When the mobile
+// admin UI lands in Phase 3.2 PR 5 it will go through the email-authed
+// override-tier endpoint above and get a real admin email in the audit.
 router.patch("/users/:userId/tier", requireAdmin, async (req, res) => {
   const { userId } = req.params;
   const { tier } = req.body;
@@ -395,8 +411,622 @@ router.patch("/users/:userId/tier", requireAdmin, async (req, res) => {
     return void res.status(400).json({ error: "tier must be free, pro, or premium" });
   }
   try {
+    const targetUser = await storage.getUserByClerkId(userId);
+    const previousTier = targetUser?.tier ?? "free";
     await storage.updateUserTier(userId, tier as "free" | "pro" | "premium");
+    await writeAdminAudit({
+      adminEmail: "x-admin-key",
+      userId,
+      action: "tier_flip",
+      source: "manual",
+      previousState: { tier: previousTier },
+      newState: { tier },
+    });
     res.json({ success: true, userId, tier });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Admin Grants API (Phase 3.2 PR 2) ─────────────────────────────────────────
+//
+// Dual auth on every grants route: either a valid `x-admin-key` header (the
+// existing dashboard/curl pattern) OR `requesterEmail` in the body / query
+// matching an admin email (the mobile admin-panel pattern). The first form
+// stamps 'x-admin-key' as admin_email in the audit; the second stamps the
+// real email. Both are accepted from day one so PR 5 (mobile UI) doesn't
+// need a parallel route.
+function resolveAdminEmail(req: any): string | null {
+  const secret = process.env.ADMIN_SECRET_KEY;
+  const key = req.headers["x-admin-key"] ?? req.query.key;
+  if (secret && key === secret) return "x-admin-key";
+  const candidate =
+    (typeof req.body?.requesterEmail === "string" && req.body.requesterEmail) ||
+    (typeof req.query?.requesterEmail === "string" && (req.query.requesterEmail as string)) ||
+    (typeof req.headers["x-admin-email"] === "string" && (req.headers["x-admin-email"] as string)) ||
+    "";
+  const normalised = candidate.toLowerCase().trim();
+  if (normalised && isAdminEmail(normalised)) return normalised;
+  return null;
+}
+
+// Parse positive integer days, cap at a sane ceiling. 3650 = ~10 years;
+// beyond that is almost certainly a typo (365000 instead of 365).
+function parseDays(v: unknown): number | null {
+  const n = typeof v === "string" ? Number(v) : (v as number);
+  if (!Number.isFinite(n) || n <= 0 || n > 3650) return null;
+  return Math.floor(n);
+}
+
+type GrantRow = {
+  id: string;
+  user_id: string;
+  tier: "pro" | "premium";
+  expires_at: Date | string;
+  reason: string;
+  granted_by_admin: string;
+  status: "active" | "revoked" | "expired";
+  revoked_at: Date | string | null;
+  created_at: Date | string;
+};
+
+// POST /api/admin/users/:userId/grants  body: { tier, days, reason, requesterEmail? }
+// Creates an admin_grants row. If the new grant's tier outranks the user's
+// current effective tier, we also bump the users.tier projection so quota
+// checks / gates read correctly immediately. Audit is written with
+// action='grant'.
+router.post("/users/:userId/grants", async (req, res) => {
+  const adminEmail = resolveAdminEmail(req);
+  if (!adminEmail) return void res.status(401).json({ error: "Unauthorized" });
+
+  const { userId } = req.params;
+  const { tier, reason } = req.body ?? {};
+  const days = parseDays(req.body?.days);
+
+  if (!["pro", "premium"].includes(tier)) {
+    return void res.status(400).json({ error: "tier must be pro or premium" });
+  }
+  if (days === null) {
+    return void res.status(400).json({ error: "days must be a positive integer ≤ 3650" });
+  }
+  if (typeof reason !== "string" || reason.trim().length === 0) {
+    return void res.status(400).json({ error: "reason is required" });
+  }
+
+  try {
+    const targetUser = await storage.getUserByClerkId(userId);
+    if (!targetUser) return void res.status(404).json({ error: "User not found" });
+
+    const beforeEffective = await computeEffectiveTier(userId);
+    const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+
+    const inserted = await queryOne<GrantRow>(
+      `INSERT INTO admin_grants (user_id, tier, expires_at, reason, granted_by_admin)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, user_id, tier, expires_at, reason, granted_by_admin, status, revoked_at, created_at`,
+      [userId, tier, expiresAt, reason.trim(), adminEmail],
+    );
+    if (!inserted) return void res.status(500).json({ error: "Failed to create grant" });
+
+    // Projection: update users.tier only if the new effective tier changes.
+    // computeEffectiveTier runs grants through the same priority logic used
+    // at read time, so this is guaranteed consistent with /subscription.
+    const afterEffective = await computeEffectiveTier(userId);
+    if (afterEffective.tier !== beforeEffective.tier) {
+      await storage.updateUserTier(userId, afterEffective.tier);
+    }
+
+    await writeAdminAudit({
+      adminEmail,
+      userId,
+      action: "grant",
+      source: "manual",
+      previousState: { tier: beforeEffective.tier, source: beforeEffective.source },
+      newState: { tier: afterEffective.tier, source: afterEffective.source, grantId: inserted.id },
+      reason: reason.trim(),
+      metadata: { grantId: inserted.id, grantTier: tier, days, expiresAt: expiresAt.toISOString() },
+    });
+
+    res.json({ success: true, grant: inserted, effectiveTier: afterEffective });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/admin/grants/:grantId  body: { extendDays, requesterEmail? }
+// Bumps expires_at by N days on an active grant. Refuses to extend a
+// revoked/expired grant — admins should create a fresh grant instead so the
+// audit log reflects intent clearly.
+router.patch("/grants/:grantId", async (req, res) => {
+  const adminEmail = resolveAdminEmail(req);
+  if (!adminEmail) return void res.status(401).json({ error: "Unauthorized" });
+
+  const { grantId } = req.params;
+  const extendDays = parseDays(req.body?.extendDays);
+  if (extendDays === null) {
+    return void res.status(400).json({ error: "extendDays must be a positive integer ≤ 3650" });
+  }
+
+  try {
+    const current = await queryOne<GrantRow>(
+      `SELECT id, user_id, tier, expires_at, reason, granted_by_admin, status, revoked_at, created_at
+         FROM admin_grants WHERE id = $1`,
+      [grantId],
+    );
+    if (!current) return void res.status(404).json({ error: "Grant not found" });
+    if (current.status !== "active") {
+      return void res
+        .status(409)
+        .json({ error: `Cannot extend a ${current.status} grant — create a new one instead` });
+    }
+
+    const previousExpires =
+      current.expires_at instanceof Date ? current.expires_at : new Date(current.expires_at);
+    const newExpires = new Date(previousExpires.getTime() + extendDays * 24 * 60 * 60 * 1000);
+
+    const updated = await queryOne<GrantRow>(
+      `UPDATE admin_grants SET expires_at = $1
+        WHERE id = $2
+        RETURNING id, user_id, tier, expires_at, reason, granted_by_admin, status, revoked_at, created_at`,
+      [newExpires, grantId],
+    );
+
+    await writeAdminAudit({
+      adminEmail,
+      userId: current.user_id,
+      action: "extend",
+      source: "manual",
+      previousState: { expiresAt: previousExpires.toISOString() },
+      newState: { expiresAt: newExpires.toISOString() },
+      reason: typeof req.body?.reason === "string" ? req.body.reason : undefined,
+      metadata: { grantId, extendDays },
+    });
+
+    res.json({ success: true, grant: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/admin/grants/:grantId  body: { reason?, requesterEmail? }
+// Soft-revoke: status='revoked' + revoked_at=NOW(). Recomputes the user's
+// effective tier and writes the projection if it changed (the user may drop
+// back to Stripe or to free). Audit action='revoke'.
+router.delete("/grants/:grantId", async (req, res) => {
+  const adminEmail = resolveAdminEmail(req);
+  if (!adminEmail) return void res.status(401).json({ error: "Unauthorized" });
+
+  const { grantId } = req.params;
+  const reason =
+    typeof req.body?.reason === "string" && req.body.reason.trim().length > 0
+      ? req.body.reason.trim()
+      : undefined;
+
+  try {
+    const current = await queryOne<GrantRow>(
+      `SELECT id, user_id, tier, expires_at, reason, granted_by_admin, status, revoked_at, created_at
+         FROM admin_grants WHERE id = $1`,
+      [grantId],
+    );
+    if (!current) return void res.status(404).json({ error: "Grant not found" });
+    if (current.status !== "active") {
+      return void res.status(409).json({ error: `Grant already ${current.status}` });
+    }
+
+    const beforeEffective = await computeEffectiveTier(current.user_id);
+
+    // Guard against a race with the expiry worker flipping the same row to
+    // 'expired' between the SELECT above and this UPDATE. The AND clause
+    // makes the transition idempotent; if no row comes back we bail rather
+    // than writing a misleading 'revoke' audit on an already-expired grant.
+    const revokedRow = await queryOne<{ id: string }>(
+      `UPDATE admin_grants SET status = 'revoked', revoked_at = NOW()
+        WHERE id = $1 AND status = 'active'
+        RETURNING id`,
+      [grantId],
+    );
+    if (!revokedRow) {
+      return void res.status(409).json({ error: "Grant is no longer active" });
+    }
+
+    const afterEffective = await computeEffectiveTier(current.user_id);
+    if (afterEffective.tier !== beforeEffective.tier) {
+      await storage.updateUserTier(current.user_id, afterEffective.tier);
+    }
+
+    await writeAdminAudit({
+      adminEmail,
+      userId: current.user_id,
+      action: "revoke",
+      source: "manual",
+      previousState: { tier: beforeEffective.tier, source: beforeEffective.source, grantId },
+      newState: { tier: afterEffective.tier, source: afterEffective.source },
+      reason,
+      metadata: { grantId, grantTier: current.tier },
+    });
+
+    res.json({ success: true, grantId, effectiveTier: afterEffective });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/users/:userId/grants?status=active|all
+// Powers the PR 5 audit panel. Defaults to all statuses, newest first. Kept
+// unpaginated because a single user will realistically have <100 grants
+// ever; revisit if that stops being true.
+router.get("/users/:userId/grants", async (req, res) => {
+  const adminEmail = resolveAdminEmail(req);
+  if (!adminEmail) return void res.status(401).json({ error: "Unauthorized" });
+
+  const { userId } = req.params;
+  const statusFilter =
+    typeof req.query.status === "string" && req.query.status !== "all"
+      ? (req.query.status as string)
+      : null;
+  if (statusFilter !== null && !["active", "revoked", "expired"].includes(statusFilter)) {
+    return void res.status(400).json({ error: "status must be active, revoked, expired, or all" });
+  }
+
+  try {
+    const rows = statusFilter
+      ? await query<GrantRow>(
+          `SELECT id, user_id, tier, expires_at, reason, granted_by_admin, status, revoked_at, created_at
+             FROM admin_grants WHERE user_id = $1 AND status = $2
+            ORDER BY created_at DESC`,
+          [userId, statusFilter],
+        )
+      : await query<GrantRow>(
+          `SELECT id, user_id, tier, expires_at, reason, granted_by_admin, status, revoked_at, created_at
+             FROM admin_grants WHERE user_id = $1
+            ORDER BY created_at DESC`,
+          [userId],
+        );
+    res.json({ grants: rows });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Stripe Cancel + Refund (Phase 3.2 PR 3) ───────────────────────────────────
+//
+// Two endpoints, Stripe-only. No IAP handling yet — that's PR 4.
+//
+// Auth: same dual pattern as the grants routes (x-admin-key OR admin email).
+//
+// Idempotency: the key is derived from stable inputs — userId + subscription/
+// charge id + action/mode/amount. The same admin double-click within Stripe's
+// 24h idempotency window collapses to one Stripe operation; a later, distinct
+// action (same endpoint but different mode/amount) gets its own key and runs.
+// Using a random UUID per request would make retries unsafe, so we don't.
+//
+// Audit rows are written AFTER Stripe returns success — never before. A Stripe
+// failure must not leave a "we did it" trail in admin_audit.
+
+// Stripe exports `errors.StripeError` as a class value but the type-level name
+// for the instance isn't in the namespace tree, so we bridge with InstanceType.
+type StripeSdkError = InstanceType<typeof Stripe.errors.StripeError>;
+
+function isStripeError(err: unknown): err is StripeSdkError {
+  return err instanceof Stripe.errors.StripeError;
+}
+
+// Consistent shape for surfacing Stripe failures back to the admin: a 502 with
+// the original code and message. 502 rather than 500 because the upstream that
+// failed is Stripe, not us — this keeps the distinction readable in logs.
+function sendStripeError(res: any, err: StripeSdkError, fallbackMsg: string) {
+  res.status(502).json({
+    error: err.message || fallbackMsg,
+    stripeCode: err.code ?? err.type ?? null,
+  });
+}
+
+// POST /api/admin/users/:userId/cancel
+//   body: { mode?: 'immediate' | 'period_end', reason, requesterEmail? }
+//
+// Default mode is 'immediate' (the design review decided: cancel-immediate,
+// no-refund is the safe default — refund is a separate, explicit step).
+//
+// Interaction with admin grants: this endpoint only touches the Stripe sub.
+// If the user has an active Premium grant stacked on top of a cancelled Pro
+// sub, computeEffectiveTier still returns Premium from the grant — the
+// grant stacking in tierService.ts covers this without a special case here.
+router.post("/users/:userId/cancel", async (req, res) => {
+  const adminEmail = resolveAdminEmail(req);
+  if (!adminEmail) return void res.status(401).json({ error: "Unauthorized" });
+
+  const { userId } = req.params;
+  const modeRaw = typeof req.body?.mode === "string" ? req.body.mode : "immediate";
+  if (!["immediate", "period_end"].includes(modeRaw)) {
+    return void res.status(400).json({ error: "mode must be 'immediate' or 'period_end'" });
+  }
+  const mode = modeRaw as "immediate" | "period_end";
+  const reason =
+    typeof req.body?.reason === "string" && req.body.reason.trim().length > 0
+      ? req.body.reason.trim()
+      : null;
+  if (!reason) {
+    return void res.status(400).json({ error: "reason is required" });
+  }
+
+  try {
+    const targetUser = await storage.getUserByClerkId(userId);
+    if (!targetUser) return void res.status(404).json({ error: "User not found" });
+    if (!targetUser.stripe_customer_id) {
+      return void res.status(400).json({ error: "User has no Stripe customer — nothing to cancel" });
+    }
+
+    const sub = (await storage.getSubscriptionByCustomerId(targetUser.stripe_customer_id)) as any;
+    if (!sub) {
+      return void res
+        .status(400)
+        .json({ error: "No active Stripe subscription found for this user" });
+    }
+    const subscriptionId: string = sub.id;
+    const previousStatus: string = sub.status;
+    const alreadyMarkedPeriodEnd: boolean = !!sub.cancel_at_period_end;
+
+    // Short-circuit a no-op period_end cancel so the admin gets a clear
+    // signal rather than a silent "success" that did nothing.
+    if (mode === "period_end" && alreadyMarkedPeriodEnd) {
+      return void res.status(409).json({
+        error: "Subscription is already set to cancel at period end",
+      });
+    }
+
+    const stripe = await getUncachableStripeClient();
+    const idempotencyKey = `admin-cancel-${userId}-${subscriptionId}-${mode}`;
+
+    let stripeResult: Stripe.Subscription;
+    try {
+      if (mode === "immediate") {
+        stripeResult = await stripe.subscriptions.cancel(
+          subscriptionId,
+          undefined,
+          { idempotencyKey },
+        );
+      } else {
+        stripeResult = await stripe.subscriptions.update(
+          subscriptionId,
+          { cancel_at_period_end: true },
+          { idempotencyKey },
+        );
+      }
+    } catch (err: unknown) {
+      if (isStripeError(err)) {
+        return void sendStripeError(res, err, "Stripe cancel failed");
+      }
+      throw err;
+    }
+
+    // Projection: immediate cancel drops the user to whatever tier they have
+    // without Stripe (free, or an admin grant if one stacks on top).
+    // period_end keeps the sub active, so tier doesn't change yet — the
+    // recompute is still safe, it just won't update users.tier.
+    const beforeEffective = await computeEffectiveTier(userId);
+    const afterEffective = await computeEffectiveTier(userId);
+    if (afterEffective.tier !== (targetUser.tier ?? "free")) {
+      await storage.updateUserTier(userId, afterEffective.tier);
+    }
+
+    // current_period_end moved off Subscription to SubscriptionItem in the
+    // 2025-08-27.basil API version, but the synced stripe.subscriptions row
+    // still carries it as a column. Cast to any here, same pattern as the
+    // read in tierService.ts:64.
+    const cancelAt =
+      mode === "period_end"
+        ? ((stripeResult as any).current_period_end ?? null)
+        : (stripeResult.canceled_at ?? null);
+
+    await writeAdminAudit({
+      adminEmail,
+      userId,
+      action: "cancel",
+      source: "stripe",
+      previousState: {
+        tier: beforeEffective.tier,
+        source: beforeEffective.source,
+        stripeStatus: previousStatus,
+        cancelAtPeriodEnd: alreadyMarkedPeriodEnd,
+      },
+      newState: {
+        tier: afterEffective.tier,
+        source: afterEffective.source,
+        stripeStatus: stripeResult.status,
+        cancelAtPeriodEnd: !!stripeResult.cancel_at_period_end,
+      },
+      reason,
+      metadata: {
+        mode,
+        stripeSubscriptionId: subscriptionId,
+        cancelAt: cancelAt ? new Date(cancelAt * 1000).toISOString() : null,
+      },
+    });
+
+    res.json({
+      success: true,
+      mode,
+      subscriptionId,
+      status: stripeResult.status,
+      cancelAtPeriodEnd: !!stripeResult.cancel_at_period_end,
+      cancelAt: cancelAt ? new Date(cancelAt * 1000).toISOString() : null,
+      effectiveTier: afterEffective,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/users/:userId/refund
+//   body: { amountCents?, reason, requesterEmail? }
+//
+// Full refund of the latest paid invoice's charge when amountCents is omitted;
+// partial refund when it's provided. No tier impact — refunds reimburse past
+// periods, not current access. computeEffectiveTier is intentionally not
+// called here.
+//
+// 400 messages are specific enough for the admin to act on:
+//   - "No paid invoice found for this customer"
+//   - "Latest paid invoice has no associated charge"
+//   - "Charge already fully refunded"
+//   - "Refund amount exceeds remaining refundable balance (X cents available)"
+router.post("/users/:userId/refund", async (req, res) => {
+  const adminEmail = resolveAdminEmail(req);
+  if (!adminEmail) return void res.status(401).json({ error: "Unauthorized" });
+
+  const { userId } = req.params;
+  const reason =
+    typeof req.body?.reason === "string" && req.body.reason.trim().length > 0
+      ? req.body.reason.trim()
+      : null;
+  if (!reason) {
+    return void res.status(400).json({ error: "reason is required" });
+  }
+
+  // amountCents is optional (omit = full refund). When present, must be a
+  // positive integer number of cents — Stripe rejects fractional cents.
+  let amountCents: number | undefined;
+  if (req.body?.amountCents !== undefined && req.body?.amountCents !== null) {
+    const n =
+      typeof req.body.amountCents === "string"
+        ? Number(req.body.amountCents)
+        : (req.body.amountCents as number);
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
+      return void res
+        .status(400)
+        .json({ error: "amountCents must be a positive integer (cents)" });
+    }
+    amountCents = n;
+  }
+
+  try {
+    const targetUser = await storage.getUserByClerkId(userId);
+    if (!targetUser) return void res.status(404).json({ error: "User not found" });
+    if (!targetUser.stripe_customer_id) {
+      return void res
+        .status(400)
+        .json({ error: "User has no Stripe customer — nothing to refund" });
+    }
+
+    const stripe = await getUncachableStripeClient();
+
+    // Ask Stripe directly for the latest paid invoice. Querying the synced
+    // stripe.* tables would be faster but could miss an invoice paid in the
+    // last few seconds before the webhook caught up. For refunds, being
+    // authoritative matters more than latency.
+    let latestPaidInvoice: Stripe.Invoice | undefined;
+    try {
+      const invoices = await stripe.invoices.list({
+        customer: targetUser.stripe_customer_id,
+        status: "paid",
+        limit: 1,
+      });
+      latestPaidInvoice = invoices.data[0];
+    } catch (err: unknown) {
+      if (isStripeError(err)) {
+        return void sendStripeError(res, err, "Stripe invoice lookup failed");
+      }
+      throw err;
+    }
+
+    if (!latestPaidInvoice) {
+      return void res
+        .status(400)
+        .json({ error: "No paid invoice found for this customer" });
+    }
+
+    const chargeRef = (latestPaidInvoice as any).charge;
+    const chargeId: string | null =
+      typeof chargeRef === "string" ? chargeRef : chargeRef?.id ?? null;
+    if (!chargeId) {
+      return void res
+        .status(400)
+        .json({ error: "Latest paid invoice has no associated charge" });
+    }
+
+    let charge: Stripe.Charge;
+    try {
+      charge = await stripe.charges.retrieve(chargeId);
+    } catch (err: unknown) {
+      if (isStripeError(err)) {
+        return void sendStripeError(res, err, "Stripe charge lookup failed");
+      }
+      throw err;
+    }
+
+    const alreadyRefunded = charge.amount_refunded ?? 0;
+    const refundable = Math.max(0, charge.amount - alreadyRefunded);
+    if (refundable === 0) {
+      return void res.status(400).json({ error: "Charge already fully refunded" });
+    }
+    if (amountCents !== undefined && amountCents > refundable) {
+      return void res.status(400).json({
+        error: `Refund amount exceeds remaining refundable balance (${refundable} cents available)`,
+      });
+    }
+
+    // Idempotency key — stable across retries. A full refund and a partial
+    // refund for the same amount of the same charge collapse to one
+    // operation; different amounts get different keys.
+    const amountKey = amountCents === undefined ? "full" : String(amountCents);
+    const idempotencyKey = `admin-refund-${userId}-${chargeId}-${amountKey}`;
+
+    let refund: Stripe.Refund;
+    try {
+      refund = await stripe.refunds.create(
+        {
+          charge: chargeId,
+          ...(amountCents !== undefined ? { amount: amountCents } : {}),
+          metadata: {
+            admin_email: adminEmail,
+            user_id: userId,
+            reason,
+          },
+        },
+        { idempotencyKey },
+      );
+    } catch (err: unknown) {
+      if (isStripeError(err)) {
+        return void sendStripeError(res, err, "Stripe refund failed");
+      }
+      throw err;
+    }
+
+    await writeAdminAudit({
+      adminEmail,
+      userId,
+      action: "refund",
+      source: "stripe",
+      previousState: {
+        chargeId,
+        chargeAmount: charge.amount,
+        previouslyRefunded: alreadyRefunded,
+      },
+      newState: {
+        stripeRefundId: refund.id,
+        refundAmount: refund.amount,
+        refundStatus: refund.status,
+      },
+      reason,
+      metadata: {
+        stripeRefundId: refund.id,
+        amountCents: refund.amount,
+        chargeId,
+        invoiceId: latestPaidInvoice.id,
+      },
+    });
+
+    res.json({
+      success: true,
+      refund: {
+        id: refund.id,
+        amount: refund.amount,
+        currency: refund.currency,
+        status: refund.status,
+        chargeId,
+        invoiceId: latestPaidInvoice.id,
+      },
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -440,6 +1070,44 @@ router.patch("/feedback/:id", requireAdmin, async (req, res) => {
   try {
     await query("UPDATE feedback SET status = $1 WHERE id = $2", [status, id]);
     res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Premium Conversion Funnel ────────────────────────────────────────────────
+// Aggregates lock impressions, CTA clicks, and checkouts per feature over the
+// requested window (default 30 days). Powers the Phase 2 conversion dashboard
+// that tells us which Premium features to prioritise in Phase 3.
+//
+// Public (no admin secret required) so the mobile admin panel can read it
+// using the same email-based isAdmin check the rest of the app uses. We still
+// require a valid admin email via the ?email query param.
+router.get("/premium-funnel", async (req, res) => {
+  const email = typeof req.query.email === "string" ? req.query.email : "";
+  if (!email || !isAdminEmail(email)) {
+    return void res.status(403).json({ error: "Admin only" });
+  }
+  const days = Math.max(1, Math.min(Number(req.query.days) || 30, 365));
+  try {
+    const rows = await query(
+      `
+      SELECT
+        payload->>'feature' AS feature,
+        COUNT(*) FILTER (WHERE event_type = 'premium_lock_impression')        AS impressions,
+        COUNT(*) FILTER (WHERE event_type = 'premium_lock_cta_click')          AS cta_clicks,
+        COUNT(*) FILTER (WHERE event_type = 'premium_paywall_opened')          AS paywall_opens,
+        COUNT(*) FILTER (WHERE event_type = 'premium_paywall_checkout_started') AS checkouts,
+        COUNT(*) FILTER (WHERE event_type = 'premium_feature_first_use')       AS first_uses
+      FROM user_events
+      WHERE created_at > NOW() - ($1 || ' days')::interval
+        AND payload->>'feature' IS NOT NULL
+      GROUP BY 1
+      ORDER BY cta_clicks DESC, impressions DESC
+      `,
+      [days],
+    );
+    res.json({ funnel: rows, days });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

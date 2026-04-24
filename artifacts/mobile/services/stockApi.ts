@@ -42,6 +42,7 @@ export interface QuoteResult {
   trailingPE?: number;
   dividendYield?: number;
   regularMarketOpen?: number;
+  regularMarketPreviousClose?: number;
   regularMarketDayHigh?: number;
   regularMarketDayLow?: number;
 }
@@ -79,7 +80,7 @@ export const CHART_RANGES: { label: string; range: string; interval: string }[] 
   { label: "5D", range: "5d", interval: "15m" },
   { label: "1M", range: "1mo", interval: "1d" },
   { label: "YTD", range: "ytd", interval: "1d" },
-  { label: "1Y", range: "1y", interval: "1wk" },
+  { label: "1Y", range: "1y", interval: "1d" },
   { label: "3Y", range: "3y", interval: "1mo" },
   { label: "5Y", range: "5y", interval: "1mo" },
 ];
@@ -98,6 +99,8 @@ export async function searchStocks(query: string): Promise<SearchResult[]> {
   return data.quotes ?? [];
 }
 
+// Fetches live quotes for one or more tickers. No client-side caching —
+// callers (WatchlistContext, stock detail) control when to call this.
 export async function getQuotes(symbols: string[]): Promise<QuoteResult[]> {
   if (!symbols.length) return [];
   const res = await fetch(`${API_BASE}/stocks/quote?symbols=${encodeURIComponent(symbols.join(","))}`);
@@ -105,11 +108,30 @@ export async function getQuotes(symbols: string[]): Promise<QuoteResult[]> {
   return data.result ?? [];
 }
 
-export async function getChart(symbol: string, range: string, interval: string): Promise<ChartData> {
-  const res = await fetch(`${API_BASE}/stocks/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}`);
+// Fetches OHLC chart data for a single ticker+range+interval combo.
+// Not cached here — TanStack Query in useMiniCharts / useMultiRangeChart
+// handles caching with per-range stale times (see those hooks).
+// `fresh: true` bypasses the server-side chart cache — used by the manual
+// refresh button so Premium users (1-min cooldown) don't hit the 60s
+// 1D server cache and receive identical stale data.
+export async function getChart(
+  symbol: string,
+  range: string,
+  interval: string,
+  opts?: { fresh?: boolean },
+): Promise<ChartData> {
+  const freshParam = opts?.fresh ? `&fresh=1&_t=${Date.now()}` : "";
+  const res = await fetch(
+    `${API_BASE}/stocks/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}${freshParam}`,
+    opts?.fresh ? { cache: "no-store" } : undefined,
+  );
   return res.json();
 }
 
+// Fetches AI-generated news events for a ticker+period.
+// Client-side cache: AsyncStorage with TTL matching the backend cache
+// (see EVENT_CACHE_TTL_MS above). This avoids redundant network round-trips
+// when the user re-opens a stock page or switches period tabs.
 export async function getEvents(symbol: string, period: EventPeriod = "week"): Promise<StockEvent[]> {
   const cacheKey = `@sc_events:${symbol}:${period}`;
 

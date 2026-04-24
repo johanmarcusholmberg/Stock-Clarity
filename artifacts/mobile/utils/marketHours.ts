@@ -11,7 +11,7 @@ export interface MarketSchedule {
 }
 
 // Keyed by normalised exchange identifiers from Yahoo Finance
-const SCHEDULES: Record<string, MarketSchedule> = {
+export const SCHEDULES: Record<string, MarketSchedule> = {
   // ── US (NYSE / NASDAQ) ──
   NYQ:  { timezone: "America/New_York",    openHour: 9,  openMin: 30, closeHour: 16, closeMin: 0,  label: "NYSE" },
   NMS:  { timezone: "America/New_York",    openHour: 9,  openMin: 30, closeHour: 16, closeMin: 0,  label: "NASDAQ" },
@@ -87,7 +87,7 @@ const SCHEDULES: Record<string, MarketSchedule> = {
 
 // Fuzzy-normalise an exchange string from Yahoo Finance into a schedule key.
 // IMPORTANT: more-specific checks must come before generic ones (e.g. "Stockholm" before "NASDAQ").
-function normaliseExchange(raw: string): string {
+export function normaliseExchange(raw: string): string {
   if (!raw) return "DEFAULT";
   const u = raw.toUpperCase().trim();
 

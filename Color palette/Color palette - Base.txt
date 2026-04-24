@@ -19,3 +19,6 @@ Neutral UI
 #4F646B
 #4F6B5F
 
+My color palette are these: Primary #38BEEB 
+I want to generate a logotype with a clear text and font for the application "StockClarity". I want to combine the text with a icon that represents the type of application, which is a portfolio application for stocks where users get easy information regarding their portfolios and updates regarding stock market. 
+Focus is on the slogan "Clarity for your portfolio"

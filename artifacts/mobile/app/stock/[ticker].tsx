@@ -9,6 +9,7 @@ import {
   Modal,
   PanResponder,
   Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -29,9 +30,13 @@ import { useColors } from "@/hooks/useColors";
 import { useMultiRangeChart } from "@/hooks/useMultiRangeChart";
 import { useWatchlist } from "@/context/WatchlistContext";
 import { useSubscription } from "@/context/SubscriptionContext";
+import { useAlerts } from "@/context/AlertsContext";
 import { PaywallSheet } from "@/components/PaywallSheet";
+import AlertSetupSheet from "@/components/AlertSetupSheet";
 import { getQuotes, getEvents, CHART_RANGES, EVENT_PERIODS, formatPrice, formatMarketCap, exchangeToFlag, type StockEvent, type EventPeriod } from "@/services/stockApi";
 import { isMarketOpen } from "@/utils/marketHours";
+import { previousTradingDayLabel } from "@/utils/relativeTradingDay";
+import ExpandableEventCard from "@/components/ExpandableEventCard";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const CHART_HEIGHT = 185;
@@ -50,24 +55,22 @@ function getCurrencySymbol(currency: string): string {
   return map[currency] ?? currency;
 }
 
-function formatYLabel(value: number, mode: ChartMode, currency: string): string {
+function formatYLabel(value: number, mode: ChartMode, _currency: string): string {
   if (mode === "percent") {
     return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
   }
-  const sym = getCurrencySymbol(currency);
-  if (Math.abs(value) >= 10000) return `${sym}${(value / 1000).toFixed(0)}k`;
-  if (Math.abs(value) >= 1000) return `${sym}${(value / 1000).toFixed(1)}k`;
-  if (Math.abs(value) >= 100) return `${sym}${value.toFixed(1)}`;
-  if (Math.abs(value) >= 10) return `${sym}${value.toFixed(2)}`;
-  return `${sym}${value.toFixed(2)}`;
+  if (Math.abs(value) >= 10000) return `${(value / 1000).toFixed(0)}k`;
+  if (Math.abs(value) >= 1000) return `${(value / 1000).toFixed(1)}k`;
+  if (Math.abs(value) >= 100) return `${value.toFixed(1)}`;
+  if (Math.abs(value) >= 10) return `${value.toFixed(2)}`;
+  return `${value.toFixed(2)}`;
 }
 
-function formatTooltipValue(value: number, mode: ChartMode, currency: string): string {
-  if (mode === "percent") {
-    return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
-  }
-  const sym = getCurrencySymbol(currency);
-  return `${sym}${value.toFixed(2)}`;
+function formatTooltipValue(value: number, mode: ChartMode, _currency: string, isAnchor = false): string {
+  const formatted = mode === "percent"
+    ? `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`
+    : value.toFixed(2);
+  return isAnchor ? `Open ${formatted}` : formatted;
 }
 
 // ── X-axis label helpers ───────────────────────────────────────────
@@ -82,6 +85,22 @@ function fmtTime(tsMs: number): string {
 
 function fmtDate(tsMs: number): string {
   return new Date(tsMs).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+// "Updated 12s ago" / "Updated 3m ago" / "Updated at 14:02".  Shown next to
+// the refresh button so stale data is obvious and manual refreshes land
+// visibly — fixes the "1D chart doesn't appear to update" report.
+function fmtUpdatedAt(tsMs: number | null, now: number): string {
+  if (!tsMs) return "";
+  const diffSec = Math.max(0, Math.floor((now - tsMs) / 1000));
+  if (diffSec < 10) return "Updated just now";
+  if (diffSec < 60) return `Updated ${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `Updated ${diffMin}m ago`;
+  const d = new Date(tsMs);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `Updated at ${hh}:${mm}`;
 }
 
 function fmtWeekdayDate(tsMs: number): string {
@@ -120,12 +139,19 @@ function computeXLabels(
   timestamps: number[],
   rangeKey: string,
   plotLeft: number,
-  plotRight: number
+  plotRight: number,
+  // When the 1D series is prefixed with a virtual prev-close point, all
+  // intraday indices are shifted by 1. indexOffset accounts for that so
+  // x-axis labels still align with the correct bar positions.
+  indexOffset: number = 0,
+  totalPoints?: number,
 ): { label: string; x: number }[] {
   if (!timestamps.length) return [];
   const n = timestamps.length;
+  const total = totalPoints ?? n + indexOffset;
   const plotWidth = plotRight - plotLeft;
-  const px = (idx: number) => plotLeft + (idx / Math.max(n - 1, 1)) * plotWidth;
+  const px = (idx: number) =>
+    plotLeft + ((idx + indexOffset) / Math.max(total - 1, 1)) * plotWidth;
 
   // ── 1D: adaptive interval — 30-min early in day, 1-hour once past midday ─
   if (rangeKey === "1d") {
@@ -242,10 +268,14 @@ interface ChartProps {
   currency: string;
   mode: ChartMode;
   yPadding: number;
+  // True when index 0 of `prices`/`timestamps` is the synthetic "open" anchor
+  // (prior period's close). The hook prepends this — the chart just needs to
+  // know so it can label the point correctly and skip it in the X-axis.
+  hasAnchor?: boolean;
   onHoverChange?: (index: number | null) => void;
 }
 
-function InteractiveChart({ prices, timestamps, rangeKey, color, positiveColor, negativeColor, borderColor, mutedColor, width, currency, mode, yPadding, onHoverChange }: ChartProps) {
+function InteractiveChart({ prices, timestamps, rangeKey, color, positiveColor, negativeColor, borderColor, mutedColor, width, currency, mode, yPadding, hasAnchor = false, onHoverChange }: ChartProps) {
   const [touchIndex, setTouchIndex] = useState<number | null>(null);
 
   const plotLeft = Y_AXIS_WIDTH;
@@ -258,6 +288,9 @@ function InteractiveChart({ prices, timestamps, rangeKey, color, positiveColor, 
   const displayValues = useMemo(() => {
     if (!prices.length) return [];
     if (mode === "percent") {
+      // prices[0] is the period's opening anchor (prev close) when hasAnchor
+      // is true, so "0%" naturally sits at the opening — the header ±% and
+      // the chart's visual delta tell the same story.
       const base = prices[0] || 1;
       return prices.map((p) => ((p - base) / base) * 100);
     }
@@ -332,8 +365,9 @@ function InteractiveChart({ prices, timestamps, rangeKey, color, positiveColor, 
 
   if (!prices.length) return null;
 
-  // Clamp tooltip so it stays within chart bounds
-  const tooltipWidth = 80;
+  // Clamp tooltip so it stays within chart bounds. Widen when hovering the
+  // anchor so the "Open" prefix fits without wrapping.
+  const tooltipWidth = hasAnchor && touchIndex === 0 ? 104 : 80;
   const tooltipLeft =
     crosshairX !== null
       ? Math.min(Math.max(crosshairX - tooltipWidth / 2, plotLeft), plotRight - tooltipWidth)
@@ -353,8 +387,8 @@ function InteractiveChart({ prices, timestamps, rangeKey, color, positiveColor, 
             },
           ]}
         >
-          <Text style={chartStyles.tooltipText}>
-            {formatTooltipValue(crosshairVal, mode, currency)}
+          <Text style={chartStyles.tooltipText} numberOfLines={1}>
+            {formatTooltipValue(crosshairVal, mode, currency, hasAnchor && touchIndex === 0)}
           </Text>
         </View>
       )}
@@ -430,10 +464,19 @@ function InteractiveChart({ prices, timestamps, rangeKey, color, positiveColor, 
         </Svg>
       </View>
 
-      {/* X-axis time labels */}
+      {/* X-axis time labels — the anchor at index 0 is a synthetic "open"
+          point, not a real bar, so pass only the real timestamps and shift
+          all label positions one slot right so they align with the bars. */}
       {timestamps.length > 0 ? (
         <View style={{ position: "relative", height: 18, marginTop: 2 }}>
-          {computeXLabels(timestamps, rangeKey, plotLeft, plotRight).map((lbl, i) => (
+          {computeXLabels(
+            hasAnchor ? timestamps.slice(1) : timestamps,
+            rangeKey,
+            plotLeft,
+            plotRight,
+            hasAnchor ? 1 : 0,
+            displayValues.length,
+          ).map((lbl, i) => (
             <Text
               key={i}
               style={[
@@ -482,166 +525,53 @@ const chartStyles = StyleSheet.create({
   xLabel: { fontSize: 10, fontFamily: "Inter_400Regular" },
 });
 
-// ── Expandable Event Card (stock page version) ────────────────────
-interface ExpandableEventCardProps {
-  event: StockEvent;
-  colors: ReturnType<typeof import("@/hooks/useColors").useColors>;
-  canExpand: boolean;
-  summaryCount: number;
-  summaryLimit: number;
-  onNeedUpgrade: () => void;
-  onExpand: () => void;
-}
-
-function ExpandableEventCard({
-  event, colors, canExpand, summaryCount, summaryLimit, onNeedUpgrade, onExpand,
-}: ExpandableEventCardProps) {
-  const [expanded, setExpanded] = useState(false);
-  const hasAI = !!(event.what || event.why || event.unusual);
-  const date = new Date(event.timestamp).toLocaleDateString("en-US", {
-    month: "short", day: "numeric", year: "numeric",
-  });
-  const sentColor =
-    event.sentiment === "positive"
-      ? colors.positive
-      : event.sentiment === "negative"
-      ? colors.negative
-      : colors.mutedForeground;
-
-  const handlePress = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (!expanded && hasAI) {
-      if (!canExpand) {
-        onNeedUpgrade();
-        return;
-      }
-      onExpand();
-    }
-    setExpanded((v) => !v);
-  };
-
-  return (
-    <TouchableOpacity
-      style={[es.card, { backgroundColor: colors.card, borderColor: colors.border }]}
-      onPress={handlePress}
-      activeOpacity={0.8}
-    >
-      <View style={es.header}>
-        <View style={[es.sentDot, { backgroundColor: sentColor }]} />
-        <View style={es.headerText}>
-          <Text style={[es.title, { color: colors.foreground }]} numberOfLines={expanded ? undefined : 2}>
-            {event.title}
-          </Text>
-          <Text style={[es.meta, { color: colors.mutedForeground }]}>
-            {event.publisher ? `${event.publisher} · ` : ""}{date}
-          </Text>
-        </View>
-        <View style={{ alignItems: "flex-end", gap: 4 }}>
-          {hasAI && !canExpand && !expanded && (
-            <View style={[es.lockBadge, { backgroundColor: colors.warning + "22" }]}>
-              <Feather name="lock" size={10} color={colors.warning} />
-              <Text style={[es.lockText, { color: colors.warning }]}>PRO</Text>
-            </View>
-          )}
-          <Feather name={expanded ? "chevron-up" : "chevron-down"} size={16} color={colors.mutedForeground} />
-        </View>
-      </View>
-
-      {/* AI usage hint when not expanded */}
-      {!expanded && hasAI && canExpand && summaryLimit < 9999 && (
-        <Text style={[es.hint, { color: colors.mutedForeground }]}>
-          Tap for AI analysis · {Math.max(0, summaryLimit - summaryCount)} summary{summaryLimit - summaryCount !== 1 ? "s" : ""} left for this stock
-        </Text>
-      )}
-
-      {expanded && (
-        <View style={es.body}>
-          <View style={[es.divider, { backgroundColor: colors.border }]} />
-          {event.what ? (
-            <View style={es.section}>
-              <Text style={[es.sectionLabel, { color: colors.primary }]}>WHAT HAPPENED</Text>
-              <Text style={[es.sectionText, { color: colors.foreground }]}>{event.what}</Text>
-            </View>
-          ) : null}
-          {event.why ? (
-            <View style={es.section}>
-              <Text style={[es.sectionLabel, { color: "#F59E0B" }]}>WHY IT MATTERS</Text>
-              <Text style={[es.sectionText, { color: colors.foreground }]}>{event.why}</Text>
-            </View>
-          ) : null}
-          {event.unusual ? (
-            <View style={es.section}>
-              <Text style={[es.sectionLabel, { color: colors.mutedForeground }]}>UNUSUAL</Text>
-              <Text style={[es.sectionText, { color: colors.foreground }]}>{event.unusual}</Text>
-            </View>
-          ) : null}
-          {event.url ? (
-            <TouchableOpacity
-              style={[es.readMore, { borderColor: colors.border }]}
-              onPress={() => Linking.openURL(event.url)}
-            >
-              <Feather name="external-link" size={12} color={colors.primary} />
-              <Text style={[es.readMoreText, { color: colors.primary }]}>Read full article</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-      )}
-    </TouchableOpacity>
-  );
-}
-
-const es = StyleSheet.create({
-  card: { borderRadius: 14, borderWidth: 1, marginBottom: 8, overflow: "hidden" },
-  header: { flexDirection: "row", alignItems: "flex-start", padding: 14, gap: 10 },
-  sentDot: { width: 8, height: 8, borderRadius: 4, marginTop: 5, flexShrink: 0 },
-  headerText: { flex: 1 },
-  title: { fontSize: 14, fontFamily: "Inter_600SemiBold", lineHeight: 20, marginBottom: 4 },
-  meta: { fontSize: 11, fontFamily: "Inter_400Regular" },
-  lockBadge: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, paddingVertical: 3, borderRadius: 5 },
-  lockText: { fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
-  hint: { fontSize: 11, fontFamily: "Inter_400Regular", paddingHorizontal: 14, paddingBottom: 10, marginTop: -4 },
-  body: { paddingHorizontal: 14, paddingBottom: 14 },
-  divider: { height: 1, marginBottom: 12 },
-  section: { marginBottom: 12 },
-  sectionLabel: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.8, marginBottom: 4 },
-  sectionText: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 19 },
-  readMore: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, borderTopWidth: 1, marginTop: 4 },
-  readMoreText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
-});
-
 // ── Main Screen ───────────────────────────────────────────────────
 export default function StockDetailScreen() {
   const { ticker } = useLocalSearchParams<{ ticker: string }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { stocks, addToWatchlist, isInWatchlist, isInFolder, folders, addToFolder, removeFromFolder } = useWatchlist();
+  const { stocks, updateStockQuote, addToWatchlist, isInWatchlist, isInFolder, folders, addToFolder, removeFromFolder } = useWatchlist();
+  const { enabled: alertsEnabled, getAlertsForSymbol } = useAlerts();
   const [folderSheetVisible, setFolderSheetVisible] = useState(false);
+  const [alertSheetVisible, setAlertSheetVisible] = useState(false);
   const {
     tier,
     canViewStock,
-    canUseAIForStock,
     recordStockView,
-    recordAIUsageForStock,
-    aiUsageForStock,
-    summariesPerStockLimit,
-    stocksLimit,
+    aiSummariesLimit,
+    aiSummariesUsedToday,
+    canUseAI,
   } = useSubscription();
 
   const [liveQuote, setLiveQuote] = useState<any>(null);
   // All chart ranges fetched in parallel via TanStack Query
   const chart = useMultiRangeChart(ticker);
-  const chartLoading = chart.isInitialLoading;
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState(false);
   const [chartMode, setChartMode] = useState<ChartMode>("price");
   const [events, setEvents] = useState<StockEvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(true);
   const [selectedPeriod, setSelectedPeriod] = useState<EventPeriod>("week");
-  const [selectedRange, setSelectedRange] = useState(0); // 1D default — always reset on open
+  const [selectedRange, setSelectedRange] = useState(0); // 1D default
+
+  // Reset view state when navigating to a different stock.
+  // useState(0) only runs on mount — React Navigation reuses this component
+  // for the same route with different params, so we must reset explicitly.
+  useEffect(() => {
+    setSelectedRange(0);       // Always open on 1D
+    setChartMode("price");     // Reset chart mode to price (not %)
+    setLiveQuote(null);        // Clear stale quote from previous stock
+  }, [ticker]);
+
+  // Track loading per selected range — not just the default 1D.
+  // This ensures switching to 1Y (or any range) shows a spinner until its data arrives.
+  const chartLoading = chart.isLoading(selectedRange);
+  const chartError = chart.isError(selectedRange);
   const [stockViewable, setStockViewable] = useState(true);
-  const [paywallReason, setPaywallReason] = useState<"ai_stock_limit" | "stock_daily_limit">("ai_stock_limit");
+  const [paywallReason, setPaywallReason] = useState<"ai_limit" | "stock_daily_limit">("ai_limit");
   const [showPaywall, setShowPaywall] = useState(false);
   const [lastManualRefresh, setLastManualRefresh] = useState<number | null>(null);
+  const [pullRefreshing, setPullRefreshing] = useState(false);
   // 10-second tick for cooldown — avoids per-second re-renders
   const [tickMs, setTickMs] = useState(Date.now());
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -690,19 +620,55 @@ export default function StockDetailScreen() {
   // Quote refresh — chart data is handled by useMultiRangeChart (TanStack Query).
   // We still need to keep liveQuote fresh: fetch on mount and on every range
   // switch so the hero price never shows a stale value.
+  //
+  // Refresh triggers for this screen:
+  //   1. On mount (ticker change) — this effect
+  //   2. On range tab switch — this effect (selectedRange dep)
+  //   3. Pull-to-refresh — handlePullRefresh (quote only, all tiers)
+  //   4. Manual refresh button — handleManualRefresh (quote + all chart
+  //      ranges invalidated, Pro/Premium only, with cooldown)
+  //   5. TanStack Query stale-time — background chart refetch per range
   // ─────────────────────────────────────────────────────────────────────────
+  // Helper: update local liveQuote AND push to shared WatchlistContext store
+  const applyQuote = useCallback((q: any) => {
+    setLiveQuote(q);
+    if (ticker) {
+      // Derive previousClose-based change so watchlist cards are consistent
+      const prevClose = q.regularMarketPreviousClose;
+      const price = q.regularMarketPrice;
+      const change = prevClose != null && price != null ? price - prevClose : q.regularMarketChange;
+      const changePct = prevClose != null && Math.abs(prevClose) > 0 && price != null
+        ? ((price - prevClose) / Math.abs(prevClose)) * 100
+        : q.regularMarketChangePercent;
+      updateStockQuote(ticker, {
+        price: price ?? undefined,
+        currency: q.currency ?? undefined,
+        change: change ?? undefined,
+        changePercent: changePct ?? undefined,
+        name: q.longName || q.shortName || undefined,
+        exchange: q.fullExchangeName || undefined,
+        sector: q.sector || undefined,
+        pe: q.trailingPE ?? undefined,
+      });
+    }
+  }, [ticker, updateStockQuote]);
+
   useEffect(() => {
     if (!ticker) return;
     getQuotes([ticker]).then((quotes) => {
-      if (quotes[0]) setLiveQuote(quotes[0]);
+      if (quotes[0]) applyQuote(quotes[0]);
     }).catch(() => {});
-  }, [selectedRange, ticker]);
+  }, [selectedRange, ticker, applyQuote]);
 
-  // Manual refresh: invalidate all chart queries (TanStack Query refetches in
-  // background) + fetch fresh quote.
+  // Manual refresh (Pro/Premium only): cancels any in-flight chart fetches,
+  // bypasses the server-side chart cache via fresh=1, and populates the cache
+  // with the new data. Also fetches a fresh quote in parallel. Cooldown:
+  // 5 min (Pro) / 1 min (Premium). On error the cooldown timestamp is rolled
+  // back so the user can retry immediately.
   const handleManualRefresh = useCallback(async () => {
     if (isOnCooldown || refreshing || !ticker) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    console.log(`[stock-detail] manual refresh tapped for ${ticker}`);
     setRefreshing(true);
     setRefreshError(false);
     // Record timestamp immediately so button disables right away
@@ -710,12 +676,16 @@ export default function StockDetailScreen() {
     setLastManualRefresh(now);
     setTickMs(now); // force cooldown to re-derive immediately
     try {
-      // Invalidate all chart queries — TanStack Query refetches them in parallel
-      chart.invalidateAll();
-      // Refresh quote
-      const quotes = await getQuotes([ticker]);
-      if (quotes[0]) setLiveQuote(quotes[0]);
-    } catch {
+      // Refetch all ranges AND the quote in parallel. refreshAll throws if
+      // any range fails so we surface an error state to the user.
+      const [, quotes] = await Promise.all([
+        chart.refreshAll(),
+        getQuotes([ticker]),
+      ]);
+      if (quotes[0]) applyQuote(quotes[0]);
+      console.log(`[stock-detail] manual refresh complete for ${ticker}`);
+    } catch (err) {
+      console.warn(`[stock-detail] manual refresh failed for ${ticker}:`, err);
       // Full rollback: revert timestamp so the cooldown doesn't linger on error
       setLastManualRefresh(null);
       setTickMs(Date.now());
@@ -724,9 +694,24 @@ export default function StockDetailScreen() {
     } finally {
       setRefreshing(false);
     }
-  }, [isOnCooldown, refreshing, ticker, chart]);
+  }, [isOnCooldown, refreshing, ticker, chart, applyQuote]);
 
-  // Load events
+  // Pull-to-refresh: fetches a fresh quote so the hero price updates.
+  // Does NOT invalidate chart queries or trigger the cooldown — that's
+  // reserved for the manual refresh button (Pro/Premium).
+  const handlePullRefresh = useCallback(async () => {
+    if (!ticker) return;
+    setPullRefreshing(true);
+    try {
+      const quotes = await getQuotes([ticker]);
+      if (quotes[0]) applyQuote(quotes[0]);
+    } catch {}
+    setPullRefreshing(false);
+  }, [ticker, applyQuote]);
+
+  // Load events (news with AI summaries).
+  // Cache: AsyncStorage with TTL matching the backend (day=20min, week=4h,
+  // month/year=12h — see EVENT_CACHE_TTL_MS in stockApi.ts).
   // On ticker change: clear stale events from the previous stock immediately.
   // On period switch: keep current events visible while the new period loads —
   // this avoids a blank list flash when the backend cache is warm.
@@ -761,6 +746,18 @@ export default function StockDetailScreen() {
     return exch ? isMarketOpen(exch) : false;
   }, [liveQuote?.exchange, liveQuote?.fullExchangeName, exchange]);
 
+  // Label under the PREV CLOSE card. Maps the previous trading day to a
+  // relative name ("Yesterday", "Friday", "Thursday, 17 Apr") so Monday
+  // no longer falsely reads "Yesterday" for a Friday close.
+  const prevCloseDayLabel = useMemo(() => {
+    const exch = liveQuote?.exchange ?? liveQuote?.fullExchangeName ?? exchange;
+    if (!exch) return "Yesterday";
+    // tickMs is the 10s heartbeat that drives the cooldown — piggyback on it
+    // so the label ticks over naturally if the user leaves the page open
+    // past midnight.
+    return previousTradingDayLabel(exch, new Date(tickMs));
+  }, [liveQuote?.exchange, liveQuote?.fullExchangeName, exchange, tickMs]);
+
   const chartFirst = chartPrices.length > 0 ? chartPrices[0] : null;
   const chartLast  = chartPrices.length > 0 ? chartPrices[chartPrices.length - 1] : null;
   const is1D = CHART_RANGES[selectedRange].range === "1d";
@@ -787,22 +784,36 @@ export default function StockDetailScreen() {
     return patched;
   }, [chartPrices, livePrice, marketOpen]);
 
-  // Change relative to the start of the selected chart window
-  const periodChangePoints = (periodStart != null && periodEnd != null)
-    ? periodEnd - periodStart
-    : (liveQuote?.regularMarketChange ?? cachedStock?.change ?? 0);
-  const periodChangePct = (periodStart != null && Math.abs(periodStart) > 0 && periodEnd != null)
-    ? ((periodEnd - periodStart) / Math.abs(periodStart)) * 100
-    : (liveQuote?.regularMarketChangePercent ?? cachedStock?.changePercent ?? 0);
+  // 1D previous close: the actual last regular-session close price.
+  // Used as the reference for 1D change and the strip's first column.
+  const previousClose: number | null = liveQuote?.regularMarketPreviousClose ?? null;
+
+  // 1D change: derive from previousClose + currentPrice so everything is
+  // mathematically consistent.  For other ranges: compute from chart endpoints.
+  const periodChangePoints = is1D
+    ? (previousClose != null && livePrice != null
+        ? livePrice - previousClose
+        : (liveQuote?.regularMarketChange ?? cachedStock?.change ?? 0))
+    : (periodStart != null && periodEnd != null)
+      ? periodEnd - periodStart
+      : (liveQuote?.regularMarketChange ?? cachedStock?.change ?? 0);
+  const periodChangePct = is1D
+    ? (previousClose != null && Math.abs(previousClose) > 0 && livePrice != null
+        ? ((livePrice - previousClose) / Math.abs(previousClose)) * 100
+        : (liveQuote?.regularMarketChangePercent ?? cachedStock?.changePercent ?? 0))
+    : (periodStart != null && Math.abs(periodStart) > 0 && periodEnd != null)
+      ? ((periodEnd - periodStart) / Math.abs(periodStart)) * 100
+      : (liveQuote?.regularMarketChangePercent ?? cachedStock?.changePercent ?? 0);
 
   // Label for the change row: "today" only for 1D, otherwise "this {range}"
   const periodLabel = is1D ? "today" : `this ${CHART_RANGES[selectedRange].label}`;
 
-  // Open/Start strip: 1D uses today's open from the quote, all other ranges use chart first bar
+  // Open/Start strip: 1D uses previous close (the reference price for change
+  // calculations), all other ranges use chart first bar.
   const stripStartPrice: number | null = is1D
-    ? (liveQuote?.regularMarketOpen ?? chartFirst)
+    ? (previousClose ?? chartFirst)
     : chartFirst;
-  const stripStartLabel = is1D ? "Open" : "Start";
+  const stripStartLabel = is1D ? "Prev Close" : "Start";
   // "Current" whenever market is open (live price exists), regardless of range
   const stripEndLabel = marketOpen ? "Current" : (is1D ? "Close" : "End");
 
@@ -819,11 +830,12 @@ export default function StockDetailScreen() {
     return padTable[selectedRange] ?? 25;
   }, [selectedRange]);
 
-  // Per-stock AI tracking
-  const summaryCount = ticker ? aiUsageForStock(ticker) : 0;
-  const canViewAI = ticker ? canUseAIForStock(ticker) : false;
+  // Global shared AI quota — same pool as the Digest page.
+  const summaryCount = aiSummariesUsedToday;
+  const canViewAI = canUseAI;
+  const isUnlimitedAI = aiSummariesLimit === Infinity;
 
-  const handleNeedUpgrade = (reason: "ai_stock_limit" | "stock_daily_limit") => {
+  const handleNeedUpgrade = (reason: "ai_limit" | "stock_daily_limit") => {
     setPaywallReason(reason);
     setShowPaywall(true);
   };
@@ -846,6 +858,9 @@ export default function StockDetailScreen() {
         style={[styles.container, { backgroundColor: colors.background }]}
         contentContainerStyle={{ paddingBottom: Platform.OS === "web" ? 54 : insets.bottom + 20 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={pullRefreshing} onRefresh={handlePullRefresh} tintColor={colors.primary} colors={[colors.primary]} />
+        }
       >
         {/* ── Header ── */}
         <View style={[styles.header, { paddingTop: topPadding + 8 }]}>
@@ -853,28 +868,58 @@ export default function StockDetailScreen() {
             onPress={() => router.back()}
             style={[styles.backButton, { backgroundColor: colors.secondary }]}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Go back"
           >
             <Feather name="arrow-left" size={18} color={colors.foreground} />
           </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              setFolderSheetVisible(true);
-            }}
-            style={[styles.watchlistButton, {
-              backgroundColor: inAnyFolder ? `${colors.positive}18` : colors.primary,
-              borderColor: inAnyFolder ? `${colors.positive}44` : colors.primary,
-            }]}
-          >
-            <Feather
-              name={inAnyFolder ? "bookmark" : "bookmark"}
-              size={14}
-              color={inAnyFolder ? colors.positive : colors.primaryForeground}
-            />
-            <Text style={[styles.watchlistButtonText, { color: inAnyFolder ? colors.positive : colors.primaryForeground }]} numberOfLines={1}>
-              {inAnyFolder ? "Saved" : "Save to Watchlist"}
-            </Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            {alertsEnabled && (
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setAlertSheetVisible(true);
+                }}
+                style={[
+                  styles.backButton,
+                  {
+                    backgroundColor: getAlertsForSymbol(ticker ?? "").length > 0
+                      ? `${colors.primary}18`
+                      : colors.secondary,
+                    borderWidth: 1,
+                    borderColor: getAlertsForSymbol(ticker ?? "").length > 0
+                      ? `${colors.primary}44`
+                      : "transparent",
+                  },
+                ]}
+                accessibilityLabel="Manage alerts for this stock"
+              >
+                <Feather
+                  name="bell"
+                  size={16}
+                  color={getAlertsForSymbol(ticker ?? "").length > 0 ? colors.primary : colors.foreground}
+                />
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                setFolderSheetVisible(true);
+              }}
+              style={[styles.watchlistButton, {
+                backgroundColor: inAnyFolder ? `${colors.positive}18` : colors.primary,
+                borderColor: inAnyFolder ? `${colors.positive}44` : colors.primary,
+              }]}
+            >
+              <Feather
+                name={inAnyFolder ? "bookmark" : "bookmark"}
+                size={14}
+                color={inAnyFolder ? colors.positive : colors.primaryForeground}
+              />
+              <Text style={[styles.watchlistButtonText, { color: inAnyFolder ? colors.positive : colors.primaryForeground }]} numberOfLines={1}>
+                {inAnyFolder ? "Saved" : "Save to Watchlist"}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* ── Hero ── */}
@@ -886,8 +931,8 @@ export default function StockDetailScreen() {
             {exchange ? <Text style={[styles.exchangeLabel, { color: colors.mutedForeground }]}>{flag} {exchange}</Text> : null}
             {sector ? <Text style={[styles.sectorLabel, { color: colors.mutedForeground }]}>· {sector}</Text> : null}
             {currency ? (
-              <View style={[styles.currencyBadge, { backgroundColor: colors.secondary }]}>
-                <Text style={[styles.currencyText, { color: colors.mutedForeground }]}>{currency}</Text>
+              <View style={[styles.currencyBadge, { backgroundColor: `${colors.primary}18`, borderWidth: 1, borderColor: `${colors.primary}44` }]}>
+                <Text style={[styles.currencyText, { color: colors.primary }]}>{currency}</Text>
               </View>
             ) : null}
           </View>
@@ -895,7 +940,7 @@ export default function StockDetailScreen() {
 
           <View style={styles.priceRow}>
             <Text style={[styles.priceText, { color: colors.foreground }]}>
-              {currSym}{formatPrice(displayPrice, currency)}
+              {formatPrice(displayPrice, currency)}
             </Text>
             <View style={[styles.changePill, { backgroundColor: `${changeColor}22` }]}>
               <Feather name={isPositive ? "trending-up" : "trending-down"} size={13} color={changeColor} />
@@ -910,14 +955,20 @@ export default function StockDetailScreen() {
               <View style={styles.openCloseItem}>
                 <Text style={[styles.openCloseLabel, { color: colors.mutedForeground }]}>{stripStartLabel}</Text>
                 <Text style={[styles.openCloseValue, { color: colors.foreground }]}>
-                  {currSym}{formatPrice(stripStartPrice, currency)}
+                  {formatPrice(stripStartPrice, currency)}
+                </Text>
+                <Text style={[styles.openCloseSubValue, { color: colors.mutedForeground }]}>
+                  {is1D ? prevCloseDayLabel : CHART_RANGES[selectedRange].label + " ago"}
                 </Text>
               </View>
               <View style={[styles.openCloseDivider, { backgroundColor: colors.border }]} />
               <View style={styles.openCloseItem}>
                 <Text style={[styles.openCloseLabel, { color: colors.mutedForeground }]}>{stripEndLabel}</Text>
                 <Text style={[styles.openCloseValue, { color: colors.foreground }]}>
-                  {currSym}{formatPrice(periodEnd, currency)}
+                  {formatPrice(periodEnd, currency)}
+                </Text>
+                <Text style={[styles.openCloseSubValue, { color: colors.mutedForeground }]}>
+                  {marketOpen ? "Live price" : "Last trade"}
                 </Text>
               </View>
               <View style={[styles.openCloseDivider, { backgroundColor: colors.border }]} />
@@ -927,7 +978,7 @@ export default function StockDetailScreen() {
                   {periodChangePoints >= 0 ? "+" : ""}{periodChangePct.toFixed(2)}%
                 </Text>
                 <Text style={[styles.openCloseSubValue, { color: changeColor }]}>
-                  {periodChangePoints >= 0 ? "+" : ""}{currSym}{Math.abs(periodChangePoints).toFixed(2)}
+                  {periodChangePoints >= 0 ? "+" : ""}{Math.abs(periodChangePoints).toFixed(2)}
                 </Text>
               </View>
             </View>
@@ -980,7 +1031,7 @@ export default function StockDetailScreen() {
                 onPress={() => setChartMode("price")}
               >
                 <Text style={[styles.modeBtnText, { color: chartMode === "price" ? colors.primaryForeground : colors.mutedForeground }]}>
-                  {currSym}
+                  $
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -998,6 +1049,13 @@ export default function StockDetailScreen() {
             <View style={{ height: CHART_HEIGHT + 20, alignItems: "center", justifyContent: "center" }}>
               <ActivityIndicator color={colors.primary} />
             </View>
+          ) : chartError && chartPrices.length === 0 ? (
+            <View style={{ height: CHART_HEIGHT + 20, alignItems: "center", justifyContent: "center" }}>
+              <Feather name="alert-circle" size={20} color={colors.mutedForeground} />
+              <Text style={{ color: colors.mutedForeground, fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 6 }}>
+                Failed to load chart for this range
+              </Text>
+            </View>
           ) : (
             <InteractiveChart
               prices={displayChartPrices}
@@ -1012,11 +1070,18 @@ export default function StockDetailScreen() {
               currency={currency}
               mode={chartMode}
               yPadding={chartYPadding}
+              hasAnchor={chart.data[selectedRange]?.hasAnchor ?? false}
             />
           )}
 
           {/* ── Manual refresh ── */}
           <View style={{ paddingHorizontal: 16, paddingBottom: 14, paddingTop: 4 }}>
+            {/* Freshness label — shows when the currently displayed data was received */}
+            {chart.lastUpdatedAt[selectedRange] ? (
+              <Text style={[styles.updatedAtNote, { color: colors.mutedForeground }]}>
+                {fmtUpdatedAt(chart.lastUpdatedAt[selectedRange], tickMs)}
+              </Text>
+            ) : null}
             {/* Free tier: info text */}
             {tier === "free" && (
               <Text style={[styles.autoUpdateNote, { color: colors.mutedForeground }]}>
@@ -1069,8 +1134,8 @@ export default function StockDetailScreen() {
         <View style={[styles.statsGrid, { paddingHorizontal: 16, marginBottom: 16 }]}>
           {[
             { label: "Market Cap", value: marketCap },
-            { label: "52W High", value: fiftyTwoHigh ? `${currSym}${fiftyTwoHigh.toFixed(2)}` : "—" },
-            { label: "52W Low", value: fiftyTwoLow ? `${currSym}${fiftyTwoLow.toFixed(2)}` : "—" },
+            { label: "52W High", value: fiftyTwoHigh ? fiftyTwoHigh.toFixed(2) : "—" },
+            { label: "52W Low", value: fiftyTwoLow ? fiftyTwoLow.toFixed(2) : "—" },
             { label: "P/E Ratio", value: pe ? pe.toFixed(1) : "—" },
             { label: "Volume", value: volume ? (volume >= 1e6 ? `${(volume / 1e6).toFixed(1)}M` : `${(volume / 1e3).toFixed(0)}K`) : "—" },
             { label: "Currency", value: `${currency}  (${currSym})` },
@@ -1091,12 +1156,12 @@ export default function StockDetailScreen() {
                 Real events with AI-generated plain-language summaries.
               </Text>
             </View>
-            {/* AI quota indicator */}
-            {tier !== "premium" && (
+            {/* AI quota indicator — shared global pool across the app. */}
+            {!isUnlimitedAI && (
               <View style={[styles.quotaBadge, { backgroundColor: colors.secondary }]}>
                 <Feather name="zap" size={11} color={canViewAI ? colors.primary : colors.warning} />
                 <Text style={[styles.quotaText, { color: canViewAI ? colors.primary : colors.warning }]}>
-                  {summaryCount}/{summaryLimit(tier)}
+                  {summaryCount}/{aiSummariesLimit}
                 </Text>
               </View>
             )}
@@ -1164,12 +1229,8 @@ export default function StockDetailScreen() {
               <ExpandableEventCard
                 key={event.id}
                 event={event}
-                colors={colors}
-                canExpand={stockViewable && canViewAI}
-                summaryCount={summaryCount}
-                summaryLimit={summaryLimit(tier)}
-                onNeedUpgrade={() => handleNeedUpgrade(stockViewable ? "ai_stock_limit" : "stock_daily_limit")}
-                onExpand={() => ticker && recordAIUsageForStock(ticker)}
+                canExpand={stockViewable}
+                onNeedUpgrade={(reason) => handleNeedUpgrade(reason)}
               />
             ))
           )}
@@ -1216,10 +1277,12 @@ export default function StockDetailScreen() {
                           name,
                           exchange,
                           exchangeFlag: flag,
-                          price,
+                          price: displayPrice,
                           currency,
-                          change: periodChangePoints,
-                          changePercent: periodChangePct,
+                          // Always store 1D change — watchlist cards show 1D progress,
+                          // independent of which chart range is currently selected.
+                          change: liveQuote?.regularMarketChange ?? cachedStock?.change ?? 0,
+                          changePercent: liveQuote?.regularMarketChangePercent ?? cachedStock?.changePercent ?? 0,
                         });
                       }
                     }}
@@ -1273,14 +1336,15 @@ export default function StockDetailScreen() {
         triggerReason={paywallReason}
         currentTier={tier}
       />
+
+      <AlertSetupSheet
+        visible={alertSheetVisible}
+        onClose={() => setAlertSheetVisible(false)}
+        symbol={(ticker ?? "").toUpperCase()}
+        currentPrice={displayPrice}
+      />
     </>
   );
-}
-
-function summaryLimit(tier: string): number {
-  if (tier === "pro") return 3;
-  if (tier === "premium") return 5;
-  return 1; // free
 }
 
 const styles = StyleSheet.create({
@@ -1301,8 +1365,8 @@ const styles = StyleSheet.create({
   tickerBadgeText: { fontSize: 13, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
   exchangeLabel: { fontSize: 12, fontFamily: "Inter_400Regular" },
   sectorLabel: { fontSize: 12, fontFamily: "Inter_400Regular" },
-  currencyBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  currencyText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  currencyBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  currencyText: { fontSize: 12, fontFamily: "Inter_700Bold", letterSpacing: 0.3 },
   stockName: { fontSize: 24, fontFamily: "Inter_700Bold", letterSpacing: -0.5, marginBottom: 10 },
   priceRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   priceText: { fontSize: 36, fontFamily: "Inter_700Bold", letterSpacing: -1 },
@@ -1351,13 +1415,14 @@ const styles = StyleSheet.create({
   marketClosedBadge: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, marginBottom: 8, alignSelf: "flex-start" },
   marketClosedText: { fontSize: 11, fontFamily: "Inter_400Regular" },
   autoUpdateNote: { fontSize: 11, fontFamily: "Inter_400Regular", lineHeight: 15, textAlign: "center" },
+  updatedAtNote: { fontSize: 10, fontFamily: "Inter_400Regular", textAlign: "center", marginBottom: 6 },
   refreshButton: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, borderWidth: 1, alignSelf: "stretch", justifyContent: "center" },
   refreshButtonText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   tierChip: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginLeft: 2 },
   tierChipText: { fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
 
   openCloseRow: { flexDirection: "row", alignItems: "stretch", marginTop: 14, borderRadius: 14, borderWidth: 1, overflow: "hidden" },
-  openCloseItem: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 12, paddingHorizontal: 6, gap: 4 },
+  openCloseItem: { flex: 1, alignItems: "center", justifyContent: "flex-start", paddingVertical: 12, paddingHorizontal: 4, gap: 3 },
   openCloseLabel: { fontSize: 10, fontFamily: "Inter_400Regular", textTransform: "uppercase", letterSpacing: 0.5 },
   openCloseValue: { fontSize: 13, fontFamily: "Inter_700Bold", textAlign: "center" },
   openCloseSubValue: { fontSize: 11, fontFamily: "Inter_400Regular", textAlign: "center", opacity: 0.8 },

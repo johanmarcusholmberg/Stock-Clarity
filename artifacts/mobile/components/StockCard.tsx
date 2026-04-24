@@ -10,6 +10,11 @@ interface Props {
   stock: Stock;
   /** Real 1Y chart data from useMiniCharts (separate from quote data on stock object). */
   chartData?: number[];
+  /**
+   * Toggle between % and $ display for the change label.
+   * The underlying stock.change and stock.changePercent always reflect 1D change
+   * (sourced from refreshQuotes), not the mini-chart's 1Y range.
+   */
   showPercent?: boolean;
   editMode?: boolean;
   onRemove?: () => void;
@@ -92,18 +97,23 @@ function StockCardInner({ stock, chartData, showPercent = true, editMode = false
           </Text>
         </View>
 
-        {/* Center: sparkline */}
+        {/* Center: sparkline — uses 1Y chart data; color is based on 1D change */}
         {!editMode && (
           <View style={styles.chartContainer}>
             <MiniChart data={chartData} color={changeColor} width={56} height={28} />
           </View>
         )}
 
-        {/* Right: price + change */}
+        {/* Right: price + currency + change */}
         <View style={styles.right}>
-          <Text style={[styles.price, { color: colors.foreground }]}>
-            {stock.currency === "GBp" ? "p" : ""}{formatPrice(stock.price)}
-          </Text>
+          <View style={styles.priceRow}>
+            <Text style={[styles.price, { color: colors.foreground }]}>
+              {formatPrice(stock.price)}
+            </Text>
+            <Text style={[styles.currencyLabel, { color: colors.mutedForeground }]}>
+              {stock.currency}
+            </Text>
+          </View>
           <Text style={[styles.change, { color: changeColor }]}>
             {changeLabel}
           </Text>
@@ -116,6 +126,7 @@ function StockCardInner({ stock, chartData, showPercent = true, editMode = false
           onPress={onRemove}
           activeOpacity={0.7}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityLabel="Remove stock"
         >
           <Feather name="x" size={13} color="#fff" />
         </TouchableOpacity>
@@ -164,11 +175,21 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     minWidth: 74,
   },
+  priceRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 4,
+  },
   price: {
     fontSize: 14,
     fontFamily: "Inter_700Bold",
     fontVariant: ["tabular-nums"],
     marginBottom: 2,
+  },
+  currencyLabel: {
+    fontSize: 10,
+    fontFamily: "Inter_500Medium",
+    letterSpacing: 0.3,
   },
   change: {
     fontSize: 11,
@@ -197,11 +218,11 @@ const styles = StyleSheet.create({
   /* Edit mode remove button */
   removeBtn: {
     position: "absolute",
-    top: -6,
-    right: -6,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    top: -8,
+    right: -8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
     zIndex: 10,

@@ -1,12 +1,13 @@
 import { Feather } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Haptics from "expo-haptics";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useQueryClient } from "@tanstack/react-query";
 import React, { useState, useMemo, useEffect, useCallback } from "react";
 import {
   Alert,
   Modal,
   Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -18,8 +19,10 @@ import DraggableFlatList, { RenderItemParams } from "react-native-draggable-flat
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUser } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
+import { useDisplayMode } from "@/hooks/useDisplayMode";
 import { useMiniCharts } from "@/hooks/useMiniCharts";
 import { useWatchlist, Stock } from "@/context/WatchlistContext";
+import { useAlerts } from "@/context/AlertsContext";
 import StockCard from "@/components/StockCard";
 
 import { FolderAddSheet } from "@/components/FolderAddSheet";
@@ -140,10 +143,11 @@ export default function WatchlistScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user } = useUser();
+  const queryClient = useQueryClient();
   const {
     watchlist,
     stocks,
-    unreadAlertCount,
+    refreshQuotes,
     folders,
     activeFolderId,
     setActiveFolderId,
@@ -154,9 +158,17 @@ export default function WatchlistScreen() {
     reorderFolder,
     deleteFolder,
   } = useWatchlist();
+  const { events: alertEvents } = useAlerts();
+  const unreadAlertCount = React.useMemo(() => {
+    // Treat an event as "new" if it fired in the last 24h. Simpler than
+    // tracking a read-state on every fire and maps well to the user's
+    // intuition of "anything happen since I last looked?".
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    return alertEvents.filter((e) => new Date(e.firedAt).getTime() > cutoff).length;
+  }, [alertEvents]);
 
   const [filter, setFilter] = useState<Filter>("all");
-  const [showPercent, setShowPercent] = useState(true);
+  const { showPercent, toggle: toggleShowPercent } = useDisplayMode();
   const [editMode, setEditMode] = useState(false);
   const [pendingRemovals, setPendingRemovals] = useState<Set<string>>(new Set());
   const [addSheetVisible, setAddSheetVisible] = useState(false);
@@ -164,21 +176,14 @@ export default function WatchlistScreen() {
   const [pickerVisible, setPickerVisible] = useState(false);
   const [creatingPortfolio, setCreatingPortfolio] = useState(false);
   const [newPortfolioName, setNewPortfolioName] = useState("");
+  const [pickerDeletePending, setPickerDeletePending] = useState(false);
+  // Pull-to-refresh state — triggers refreshQuotes() from WatchlistContext
+  const [pullRefreshing, setPullRefreshing] = useState(false);
   const params = useLocalSearchParams<{ pendingTimezone?: string }>();
-
-  useEffect(() => {
-    AsyncStorage.getItem("@stockclarify_show_percent").then((v) => {
-      if (v !== null) setShowPercent(v === "true");
-    });
-  }, []);
 
   const toggleChangeMode = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setShowPercent((prev) => {
-      const next = !prev;
-      AsyncStorage.setItem("@stockclarify_show_percent", String(next));
-      return next;
-    });
+    toggleShowPercent();
   };
 
   useEffect(() => {
@@ -209,7 +214,8 @@ export default function WatchlistScreen() {
   const allWatched = watchlist.map((ticker) => stocks[ticker]).filter(Boolean);
 
   // Fetch real 1Y chart data for all visible tickers via TanStack Query.
-  // This replaces the old per-ticker sequential fetch in WatchlistContext.
+  // Mini-charts display 1Y history; the progress number on each card uses
+  // the 1D change from stock.changePercent (sourced from refreshQuotes).
   const { charts: miniCharts } = useMiniCharts(watchlist);
   const gainers = allWatched.filter((s) => s.changePercent >= 0);
   const losers = allWatched.filter((s) => s.changePercent < 0);
@@ -250,6 +256,16 @@ export default function WatchlistScreen() {
       return next;
     });
   }, []);
+
+  const handlePullRefresh = useCallback(async () => {
+    setPullRefreshing(true);
+    try {
+      // Invalidate all chart queries so mini-chart sparklines refresh too
+      queryClient.invalidateQueries({ queryKey: ["chart"] });
+      await refreshQuotes();
+    } catch {}
+    setPullRefreshing(false);
+  }, [refreshQuotes, queryClient]);
 
   const handleDeleteFolder = useCallback(() => {
     if (!activeFolder || isDefaultFolder) return;
@@ -292,19 +308,73 @@ export default function WatchlistScreen() {
 
   const handleModalCancel = useCallback(() => {
     setDeleteModal({ visible: false, folderName: "", folderId: "", hasStocks: false });
-  }, []);
+    if (pickerDeletePending) {
+      setPickerDeletePending(false);
+      const remaining = folders.filter((f) => f.id !== DEFAULT_FOLDER_ID).length;
+      if (remaining > 0) {
+        setTimeout(() => setPickerVisible(true), 350);
+      }
+    }
+  }, [pickerDeletePending, folders]);
 
   const handleModalDeleteFolderOnly = useCallback(() => {
     deleteFolder(deleteModal.folderId, false);
     setEditMode(false);
     setDeleteModal({ visible: false, folderName: "", folderId: "", hasStocks: false });
-  }, [deleteModal.folderId, deleteFolder]);
+    if (pickerDeletePending) {
+      setPickerDeletePending(false);
+      const remaining = folders.filter((f) => f.id !== DEFAULT_FOLDER_ID && f.id !== deleteModal.folderId).length;
+      if (remaining > 0) {
+        setTimeout(() => setPickerVisible(true), 350);
+      }
+    }
+  }, [deleteModal.folderId, deleteFolder, pickerDeletePending, folders]);
 
   const handleModalDeleteFolderAndStocks = useCallback(() => {
     deleteFolder(deleteModal.folderId, true);
     setEditMode(false);
     setDeleteModal({ visible: false, folderName: "", folderId: "", hasStocks: false });
-  }, [deleteModal.folderId, deleteFolder]);
+    if (pickerDeletePending) {
+      setPickerDeletePending(false);
+      const remaining = folders.filter((f) => f.id !== DEFAULT_FOLDER_ID && f.id !== deleteModal.folderId).length;
+      if (remaining > 0) {
+        setTimeout(() => setPickerVisible(true), 350);
+      }
+    }
+  }, [deleteModal.folderId, deleteFolder, pickerDeletePending, folders]);
+
+  const closePortfolioPicker = useCallback(() => {
+    setPickerVisible(false);
+    setCreatingPortfolio(false);
+    setNewPortfolioName("");
+  }, []);
+
+  const handleCreatePortfolio = useCallback(() => {
+    const name = newPortfolioName.trim();
+    if (!name) return;
+    const folder = createFolder(name);
+    if (!folder) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setActiveFolderId(folder.id);
+    closePortfolioPicker();
+    setTimeout(() => setAddSheetVisible(true), 350);
+  }, [newPortfolioName, createFolder, setActiveFolderId, closePortfolioPicker]);
+
+  const handlePickerDelete = useCallback((folder: { id: string; name: string; tickers: string[] }) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setPickerVisible(false);
+    setCreatingPortfolio(false);
+    setNewPortfolioName("");
+    setPickerDeletePending(true);
+    setTimeout(() => {
+      setDeleteModal({
+        visible: true,
+        folderName: folder.name,
+        folderId: folder.id,
+        hasStocks: folder.tickers.length > 0,
+      });
+    }, 350);
+  }, []);
 
   const closePortfolioPicker = useCallback(() => {
     setPickerVisible(false);
@@ -336,6 +406,7 @@ export default function WatchlistScreen() {
             <TouchableOpacity
               style={[styles.iconButton, { backgroundColor: colors.secondary }]}
               onPress={() => router.push("/(tabs)/alerts")}
+              accessibilityLabel="View alerts"
             >
               <Feather name="bell" size={18} color={unreadAlertCount > 0 ? colors.primary : colors.mutedForeground} />
               {unreadAlertCount > 0 && (
@@ -442,24 +513,29 @@ export default function WatchlistScreen() {
 
         {/* Toolbar row 1: section title + action buttons */}
         {editMode ? (
-          <View style={[styles.toolbarRow, { paddingHorizontal: 16, marginBottom: 10 }]}>
-            {!isDefaultFolder ? (
+          <View style={{ paddingHorizontal: 16, marginBottom: 10 }}>
+            <Text style={[styles.sectionTitle, { color: colors.foreground, marginBottom: 8 }]}>
+              {activeFolder?.name ?? "Watchlist"}
+            </Text>
+            <View style={styles.toolbarRow}>
+              {!isDefaultFolder ? (
+                <TouchableOpacity
+                  style={[styles.deleteButton, { backgroundColor: colors.negative + "18", borderColor: colors.negative + "44" }]}
+                  onPress={handleDeleteFolder}
+                >
+                  <Feather name="trash-2" size={13} color={colors.negative} />
+                  <Text style={[styles.deleteButtonText, { color: colors.negative }]}>Delete Portfolio</Text>
+                </TouchableOpacity>
+              ) : (
+                <View />
+              )}
               <TouchableOpacity
-                style={[styles.deleteButton, { backgroundColor: colors.negative + "18", borderColor: colors.negative + "44" }]}
-                onPress={handleDeleteFolder}
+                style={[styles.doneButton, { backgroundColor: colors.primary }]}
+                onPress={handleDoneEdit}
               >
-                <Feather name="trash-2" size={13} color={colors.negative} />
-                <Text style={[styles.deleteButtonText, { color: colors.negative }]}>Delete Portfolio</Text>
+                <Text style={[styles.doneButtonText, { color: colors.primaryForeground }]}>Done</Text>
               </TouchableOpacity>
-            ) : (
-              <View />
-            )}
-            <TouchableOpacity
-              style={[styles.doneButton, { backgroundColor: colors.primary }]}
-              onPress={handleDoneEdit}
-            >
-              <Text style={[styles.doneButtonText, { color: colors.primaryForeground }]}>Done</Text>
-            </TouchableOpacity>
+            </View>
           </View>
         ) : (
           <View style={[styles.toolbarRow, { paddingHorizontal: 16, marginBottom: 10 }]}>
@@ -492,6 +568,9 @@ export default function WatchlistScreen() {
           style={styles.fill}
           contentContainerStyle={{ paddingBottom: bottomPadding, paddingHorizontal: 16 }}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={pullRefreshing} onRefresh={handlePullRefresh} tintColor={colors.primary} colors={[colors.primary]} />
+          }
         >
           {allWatched.length === 0 ? (
             <View style={[styles.empty, { borderColor: colors.border }]}>
@@ -513,7 +592,6 @@ export default function WatchlistScreen() {
                 style={[styles.emptyButtonOutline, { borderColor: colors.border }]}
                 onPress={() => setAddSheetVisible(true)}
               >
-                <Feather name="plus" size={15} color={colors.mutedForeground} style={{ marginRight: 6 }} />
                 <Text style={[styles.emptyButtonOutlineText, { color: colors.mutedForeground }]}>Browse & add stocks</Text>
               </TouchableOpacity>
             </View>
@@ -553,6 +631,9 @@ export default function WatchlistScreen() {
           contentContainerStyle={{ paddingBottom: bottomPadding, paddingHorizontal: 16 }}
           showsVerticalScrollIndicator={false}
           activationDistance={dragEnabled ? 0 : 99999}
+          refreshControl={
+            <RefreshControl refreshing={pullRefreshing} onRefresh={handlePullRefresh} tintColor={colors.primary} colors={[colors.primary]} />
+          }
         />
       )}
 
@@ -665,7 +746,19 @@ export default function WatchlistScreen() {
                           {folder.tickers.length} {folder.tickers.length === 1 ? "stock" : "stocks"}
                         </Text>
                       </View>
-                      {isSelected && <Feather name="check" size={16} color={colors.primary} />}
+                      <View style={pickerStyles.rowRight}>
+                        <View style={{ width: 24, alignItems: "center" }}>
+                          {isSelected && <Feather name="check" size={16} color={colors.primary} />}
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => handlePickerDelete(folder)}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                          style={pickerStyles.trashBtn}
+                          accessibilityLabel="Delete portfolio"
+                        >
+                          <Feather name="trash-2" size={16} color={colors.mutedForeground} />
+                        </TouchableOpacity>
+                      </View>
                     </TouchableOpacity>
                   );
                 })}
@@ -688,7 +781,7 @@ const styles = StyleSheet.create({
   greeting: { fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 2 },
   appTitle: { fontSize: 28, fontFamily: "Inter_700Bold", letterSpacing: -0.5 },
   headerButtons: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
-  iconButton: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", position: "relative" },
+  iconButton: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", position: "relative" },
   badge: { position: "absolute", top: 5, right: 5, width: 14, height: 14, borderRadius: 7, alignItems: "center", justifyContent: "center" },
   badgeText: { fontSize: 9, fontFamily: "Inter_700Bold" },
   statsRow: { flexDirection: "row", gap: 10 },
@@ -752,6 +845,8 @@ const pickerStyles = StyleSheet.create({
   emptyText: { fontSize: 14, fontFamily: "Inter_400Regular" },
   row: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 14, borderRadius: 12, borderWidth: 1, marginBottom: 8 },
   rowLeft: { flex: 1, gap: 2 },
+  rowRight: { flexDirection: "row", alignItems: "center", gap: 4 },
   rowName: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   rowCount: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  trashBtn: { padding: 6 },
 });

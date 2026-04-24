@@ -5,6 +5,7 @@ import React, { useState } from "react";
 import { Linking, StyleSheet, Text, TouchableOpacity, View, Animated } from "react-native";
 import { useColors } from "@/hooks/useColors";
 import { DigestEntry } from "@/context/WatchlistContext";
+import TruncatedSummary from "./TruncatedSummary";
 
 interface Props {
   entry: DigestEntry;
@@ -67,10 +68,30 @@ export default function DigestCard({ entry }: Props) {
         </View>
       </View>
 
-      {/* Summary — always visible */}
-      <Text style={[styles.summary, { color: colors.foreground }]} numberOfLines={expanded ? undefined : 2}>
-        {entry.summary}
-      </Text>
+      {/* Summary — always visible. Collapsed: shared 2-line truncation.
+          Expanded: full text via regular Text. */}
+      {expanded ? (
+        <Text style={[styles.summary, { color: colors.foreground }]}>
+          {entry.summary}
+        </Text>
+      ) : (
+        <TruncatedSummary text={entry.summary} color={colors.foreground} />
+      )}
+
+      {/* Compact source link — visible when collapsed */}
+      {!expanded && entry.sourceUrl && (
+        <TouchableOpacity
+          style={styles.compactSource}
+          onPress={handleOpenSource}
+          activeOpacity={0.7}
+        >
+          <Feather name="external-link" size={11} color={colors.mutedForeground} />
+          <Text style={[styles.compactSourceText, { color: colors.mutedForeground }]} numberOfLines={1}>
+            {entry.sourceName || "Source"}
+          </Text>
+          <Text style={[styles.compactReadText, { color: colors.primary }]}>Read article</Text>
+        </TouchableOpacity>
+      )}
 
       {/* Expanded details */}
       {expanded && (
@@ -226,6 +247,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: "Inter_400Regular",
     lineHeight: 19,
+  },
+  compactSource: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  compactSourceText: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    flex: 1,
+  },
+  compactReadText: {
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
   },
   sourceRow: {
     flexDirection: "row",

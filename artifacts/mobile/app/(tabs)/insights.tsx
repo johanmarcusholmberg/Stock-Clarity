@@ -2,6 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
+  Linking,
   Platform,
   ScrollView,
   StyleSheet,
@@ -10,18 +11,44 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as Haptics from "expo-haptics";
+import { useAuth } from "@clerk/expo";
+import Svg, { Path, Line } from "react-native-svg";
 import { useColors } from "@/hooks/useColors";
+import { useDisplayMode } from "@/hooks/useDisplayMode";
+import { useMiniCharts } from "@/hooks/useMiniCharts";
+import { useBenchmarkSeries, inferBenchmark, benchmarkLabel, type Benchmark } from "@/hooks/useBenchmarkSeries";
 import { useWatchlist, Stock } from "@/context/WatchlistContext";
 import { useSubscription } from "@/context/SubscriptionContext";
+import { PremiumGate } from "@/components/PremiumGate";
 import { PaywallSheet } from "@/components/PaywallSheet";
 import { TabHintPopup } from "@/components/TabHintPopup";
+import { trackPremiumEvent } from "@/lib/premiumTelemetry";
+import {
+  alpha,
+  beta,
+  maxDrawdown,
+  sharpeRatio,
+  sortinoRatio,
+  totalReturn,
+  trackingError,
+  volatility,
+  weightedSeries,
+} from "@/lib/portfolioMath";
 
 type FeatherIconName = React.ComponentProps<typeof Feather>["name"];
 type PerfPeriod = "today" | "1w" | "1m";
 
-function getPerformance(stock: Stock, period: PerfPeriod): number {
+const API_BASE = (() => {
+  const domain = process.env.EXPO_PUBLIC_DOMAIN;
+  if (domain) return `https://${domain}/api`;
+  return "http://localhost:8080/api";
+})();
+
+// ─── Helpers (retained from pre-Phase-2 insights screen) ──────────────────────
+
+function getPerformance(stock: Stock, history: number[], period: PerfPeriod): number {
   if (period === "today") return stock.changePercent;
-  const history = stock.priceHistory;
   if (!history || history.length < 2) return stock.changePercent;
   const current = history[history.length - 1];
   const daysBack = period === "1w" ? 5 : 20;
@@ -30,76 +57,82 @@ function getPerformance(stock: Stock, period: PerfPeriod): number {
   return ((current - past) / past) * 100;
 }
 
-function getVolatility(stock: Stock): number {
-  const h = stock.priceHistory;
-  if (!h || h.length < 2) return 0;
-  const changes: number[] = [];
-  for (let i = 1; i < h.length; i++) {
-    if (h[i - 1] !== 0) changes.push(Math.abs((h[i] - h[i - 1]) / h[i - 1]) * 100);
-  }
-  if (!changes.length) return 0;
-  return changes.reduce((a, b) => a + b, 0) / changes.length;
+function getPerformanceAbs(stock: Stock, history: number[], period: PerfPeriod): number {
+  if (period === "today") return stock.change;
+  if (!history || history.length < 2) return stock.change;
+  const current = history[history.length - 1];
+  const daysBack = period === "1w" ? 5 : 20;
+  const past = history[Math.max(0, history.length - 1 - daysBack)];
+  if (!past) return stock.change;
+  return current - past;
 }
 
-function get52wProximity(stock: Stock): { pctFromHigh: number; pctFromLow: number } {
-  const h = stock.priceHistory;
-  if (!h || !h.length) return { pctFromHigh: 0, pctFromLow: 0 };
-  const high = Math.max(...h);
-  const low = Math.min(...h);
+function get52wProximity(stock: Stock, history: number[]): { pctFromHigh: number; pctFromLow: number } {
+  if (!history || !history.length) return { pctFromHigh: 0, pctFromLow: 0 };
+  const high = Math.max(...history);
+  const low = Math.min(...history);
   const current = stock.price;
   const pctFromHigh = high > 0 ? ((current - high) / high) * 100 : 0;
   const pctFromLow = low > 0 ? ((current - low) / low) * 100 : 0;
   return { pctFromHigh, pctFromLow };
 }
 
-function ColoredPct({ value, style }: { value: number; style?: object }) {
-  const colors = useColors();
-  const color = value >= 0 ? colors.positive : colors.negative;
-  return (
-    <Text style={[{ color, fontFamily: "Inter_600SemiBold", fontSize: 13 }, style]}>
-      {value >= 0 ? "+" : ""}{value.toFixed(2)}%
-    </Text>
-  );
-}
-
-function SectionHeader({ title, icon }: { title: string; icon: FeatherIconName }) {
+function SectionHeader({ title, icon, right }: { title: string; icon: FeatherIconName; right?: React.ReactNode }) {
   const colors = useColors();
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12, marginTop: 4 }}>
       <Feather name={icon} size={16} color={colors.primary} />
-      <Text style={{ color: colors.foreground, fontSize: 16, fontFamily: "Inter_700Bold" }}>{title}</Text>
+      <Text style={{ color: colors.foreground, fontSize: 16, fontFamily: "Inter_700Bold", flex: 1 }}>
+        {title}
+      </Text>
+      {right}
     </View>
   );
 }
 
-function LockOverlay({ onUpgrade, message }: { onUpgrade: () => void; message: string }) {
+function ColoredChange({
+  pct,
+  abs,
+  currency,
+  showPercent,
+  style,
+}: {
+  pct: number;
+  abs: number;
+  currency?: string;
+  showPercent: boolean;
+  style?: object;
+}) {
   const colors = useColors();
+  const metric = showPercent ? pct : abs;
+  if (!Number.isFinite(metric)) {
+    return (
+      <Text style={[{ color: colors.mutedForeground, fontFamily: "Inter_400Regular", fontSize: 13 }, style]}>
+        N/A
+      </Text>
+    );
+  }
+  const color = metric >= 0 ? colors.positive : colors.negative;
+  const sign = metric >= 0 ? "+" : "\u2212";
+  const label = showPercent
+    ? `${sign}${Math.abs(pct).toFixed(2)}%`
+    : `${sign}${currency ? currency + " " : ""}${Math.abs(abs).toFixed(2)}`;
   return (
-    <View style={{
-      position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
-      backgroundColor: colors.background + "E8",
-      borderRadius: 14, alignItems: "center", justifyContent: "center",
-      padding: 20, gap: 10,
-    }}>
-      <View style={{ backgroundColor: colors.card, borderRadius: 40, padding: 10, marginBottom: 4 }}>
-        <Feather name="lock" size={22} color={colors.primary} />
-      </View>
-      <Text style={{ color: colors.foreground, fontFamily: "Inter_700Bold", fontSize: 15, textAlign: "center" }}>{message}</Text>
-      <TouchableOpacity
-        style={{ backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 22, paddingVertical: 10, marginTop: 2 }}
-        onPress={onUpgrade}
-      >
-        <Text style={{ color: colors.primaryForeground, fontFamily: "Inter_700Bold", fontSize: 14 }}>Upgrade</Text>
-      </TouchableOpacity>
-    </View>
+    <Text style={[{ color, fontFamily: "Inter_600SemiBold", fontSize: 13 }, style]}>
+      {label}
+    </Text>
   );
 }
+
+// ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function InsightsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { userId } = useAuth();
   const { watchlist, stocks, folders, activeFolderId } = useWatchlist();
   const { tier } = useSubscription();
+  const { showPercent, toggle: toggleShowPercent } = useDisplayMode();
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [period, setPeriod] = useState<PerfPeriod>("today");
 
@@ -108,15 +141,14 @@ export default function InsightsScreen() {
 
   const watchedStocks = useMemo(
     () => watchlist.map((t) => stocks[t]).filter(Boolean) as Stock[],
-    [watchlist, stocks]
+    [watchlist, stocks],
   );
+
+  const { charts } = useMiniCharts(watchlist);
 
   const activePortfolioName = activeFolderId === "default"
     ? "Watchlist"
     : folders.find((f) => f.id === activeFolderId)?.name ?? "Watchlist";
-
-  const isProOrPremium = tier === "pro" || tier === "premium";
-  const isPremium = tier === "premium";
 
   // ─── Computed stats ────────────────────────────────────────────────────────
 
@@ -125,10 +157,22 @@ export default function InsightsScreen() {
   const avgChange = watchedStocks.length
     ? watchedStocks.reduce((sum, s) => sum + s.changePercent, 0) / watchedStocks.length
     : 0;
+  const avgChangeAbs = watchedStocks.length
+    ? watchedStocks.reduce((sum, s) => sum + s.change, 0) / watchedStocks.length
+    : 0;
+  const portfolioCurrency = watchedStocks.length
+    ? watchedStocks.every((s) => s.currency === watchedStocks[0].currency)
+      ? watchedStocks[0].currency
+      : undefined
+    : undefined;
 
   const sortedByPerf = useMemo(() =>
-    [...watchedStocks].sort((a, b) => getPerformance(b, period) - getPerformance(a, period)),
-    [watchedStocks, period]
+    [...watchedStocks].sort(
+      (a, b) =>
+        getPerformance(b, charts[b.ticker] ?? [], period) -
+        getPerformance(a, charts[a.ticker] ?? [], period),
+    ),
+    [watchedStocks, charts, period],
   );
   const bestPerformers = sortedByPerf.slice(0, 3);
   const worstPerformers = [...sortedByPerf].reverse().slice(0, 3);
@@ -144,31 +188,44 @@ export default function InsightsScreen() {
       .sort((a, b) => b.count - a.count);
   }, [watchedStocks]);
 
-  const exchangeBreakdown = useMemo(() => {
-    const map: Record<string, number> = {};
+  // ─── Portfolio time series + benchmark ─────────────────────────────────────
+  // Weights for the portfolio time series are price-weighted at *current*
+  // prices and back-applied. This is a deliberate simplification for v1;
+  // see premium-gating.md for the rationale.
+  const currencies = watchedStocks.map((s) => s.currency);
+  const benchmark: Benchmark = useMemo(() => inferBenchmark(currencies), [currencies.join(",")]);
+  const benchmarkQuery = useBenchmarkSeries(benchmark);
+  const benchmarkPrices = benchmarkQuery.data?.prices ?? [];
+
+  const portfolioSeries = useMemo(() => {
+    if (!watchedStocks.length) return [];
+    const seriesList: number[][] = [];
+    const weights: number[] = [];
+    let totalValue = 0;
     for (const s of watchedStocks) {
-      const ex = s.exchange || "Unknown";
-      map[ex] = (map[ex] || 0) + 1;
+      const h = charts[s.ticker];
+      if (h && h.length > 20 && s.price > 0) {
+        seriesList.push(h);
+        weights.push(s.price);
+        totalValue += s.price;
+      }
     }
-    return Object.entries(map)
-      .map(([name, count]) => ({ name, count, pct: (count / watchedStocks.length) * 100 }))
-      .sort((a, b) => b.count - a.count);
-  }, [watchedStocks]);
+    if (totalValue === 0) return [];
+    const norm = weights.map((w) => w / totalValue);
+    return weightedSeries(seriesList, norm);
+  }, [watchedStocks, charts]);
 
-  const avgVolatility = useMemo(() => {
-    if (!watchedStocks.length) return 0;
-    return watchedStocks.reduce((sum, s) => sum + getVolatility(s), 0) / watchedStocks.length;
-  }, [watchedStocks]);
-
-  // Weighted average P/E — price-weighted across stocks that have P/E data.
-  // Yahoo Finance returns trailingPE on live quotes; seed data has static values.
-  const weightedAvgPE = useMemo(() => {
-    const withPE = watchedStocks.filter((s) => s.pe != null && s.pe > 0 && s.price > 0);
-    if (!withPE.length) return null;
-    const totalPrice = withPE.reduce((sum, s) => sum + s.price, 0);
-    const weighted = withPE.reduce((sum, s) => sum + s.pe! * s.price, 0);
-    return weighted / totalPrice;
-  }, [watchedStocks]);
+  const portfolioTotalReturn = totalReturn(portfolioSeries);
+  const benchmarkTotalReturn = totalReturn(benchmarkPrices);
+  const portfolioBeta = beta(portfolioSeries, benchmarkPrices);
+  const portfolioVol30 = volatility(portfolioSeries, 30);
+  const portfolioVol90 = volatility(portfolioSeries, 90);
+  const portfolioVol365 = volatility(portfolioSeries, 365);
+  const portfolioDD = maxDrawdown(portfolioSeries);
+  const portfolioSharpe = sharpeRatio(portfolioSeries);
+  const portfolioSortino = sortinoRatio(portfolioSeries);
+  const portfolioAlpha = alpha(portfolioSeries, benchmarkPrices);
+  const portfolioTrackingError = trackingError(portfolioSeries, benchmarkPrices);
 
   // ─── Empty state ───────────────────────────────────────────────────────────
   if (watchedStocks.length === 0) {
@@ -182,7 +239,7 @@ export default function InsightsScreen() {
             No stocks to analyze
           </Text>
           <Text style={{ color: colors.mutedForeground, fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 22, marginBottom: 24 }}>
-            Add some stocks to your watchlist to see portfolio-level insights and analytics here.
+            Add some stocks to your watchlist to see portfolio-level insights here.
           </Text>
           <TouchableOpacity
             style={{ backgroundColor: colors.primary, borderRadius: 12, paddingHorizontal: 24, paddingVertical: 12 }}
@@ -195,6 +252,13 @@ export default function InsightsScreen() {
     );
   }
 
+  const handleExport = async (format: "csv" | "html") => {
+    if (!userId) return;
+    trackPremiumEvent("premium_lock_cta_click", userId, { feature: "export_pdf_csv", cta: "export", format });
+    const url = `${API_BASE}/export/portfolio.${format}?userId=${encodeURIComponent(userId)}&folderId=${encodeURIComponent(activeFolderId)}`;
+    await Linking.openURL(url);
+  };
+
   // ─── Main screen ───────────────────────────────────────────────────────────
   return (
     <View style={[s.fill, { backgroundColor: colors.background }]}>
@@ -204,14 +268,34 @@ export default function InsightsScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
-        <Text style={{ color: colors.foreground, fontSize: 28, fontFamily: "Inter_700Bold", letterSpacing: -0.5, marginBottom: 4 }}>
-          Insights
-        </Text>
-        <Text style={{ color: colors.mutedForeground, fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 20 }}>
-          Analytics for your {activePortfolioName}
-        </Text>
+        <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, gap: 12 }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={{ color: colors.foreground, fontSize: 28, fontFamily: "Inter_700Bold", letterSpacing: -0.5, marginBottom: 4 }}>
+              Insights
+            </Text>
+            <Text
+              style={{ color: colors.mutedForeground, fontSize: 13, fontFamily: "Inter_400Regular" }}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
+              Analytics for your portfolio: {activePortfolioName}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={[s.changeToggle, { backgroundColor: colors.secondary, borderColor: colors.border }]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              toggleShowPercent();
+            }}
+            accessibilityLabel="Toggle between percent and dollar display"
+          >
+            <Text style={[s.changeToggleText, { color: showPercent ? colors.primary : colors.mutedForeground }]}>%</Text>
+            <View style={[s.changeToggleDivider, { backgroundColor: colors.border }]} />
+            <Text style={[s.changeToggleText, { color: !showPercent ? colors.primary : colors.mutedForeground }]}>$</Text>
+          </TouchableOpacity>
+        </View>
 
-        {/* ── Free Preview Card (visible to all) ───────────────────────────── */}
+        {/* ── Today's Snapshot (Free — always visible) ────────────────────── */}
         <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <SectionHeader title="Today's Snapshot" icon="activity" />
           <View style={{ flexDirection: "row", gap: 10, marginBottom: 4 }}>
@@ -225,70 +309,29 @@ export default function InsightsScreen() {
             </View>
             <View style={[s.snapshotCard, { backgroundColor: colors.secondary }]}>
               <Text style={[s.snapshotLabel, { color: colors.mutedForeground }]}>Avg Δ</Text>
-              <Text style={[s.snapshotValue, { color: avgChange >= 0 ? colors.positive : colors.negative }]}>
-                {avgChange >= 0 ? "+" : ""}{avgChange.toFixed(2)}%
+              <Text style={[s.snapshotValue, { color: (showPercent ? avgChange : avgChangeAbs) >= 0 ? colors.positive : colors.negative }]}>
+                {showPercent
+                  ? `${avgChange >= 0 ? "+" : ""}${avgChange.toFixed(2)}%`
+                  : `${avgChangeAbs >= 0 ? "+" : "\u2212"}${portfolioCurrency ? portfolioCurrency + " " : ""}${Math.abs(avgChangeAbs).toFixed(2)}`}
               </Text>
             </View>
           </View>
         </View>
 
-        {/* ── Teaser block for Free users (immediately below preview card) ─── */}
-        {!isProOrPremium && (
-          <View style={{ marginTop: 14 }}>
-            {/* Blurred/dimmed shape previewing the sections below */}
-            <View style={{ borderRadius: 14, overflow: "hidden", marginBottom: 14 }}>
-              {/* Ghost rows that hint at the content underneath */}
-              <View style={{ backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 14, padding: 16, gap: 10 }}>
-                <View style={{ height: 14, width: "55%", backgroundColor: colors.secondary, borderRadius: 6 }} />
-                {[80, 60, 45].map((w, i) => (
-                  <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                    <View style={{ height: 10, width: `${w}%`, backgroundColor: colors.secondary, borderRadius: 4 }} />
-                    <View style={{ height: 10, flex: 1, backgroundColor: colors.secondary, borderRadius: 4, opacity: 0.5 }} />
-                  </View>
-                ))}
-                <View style={{ height: 6, width: "100%", backgroundColor: colors.secondary, borderRadius: 3, marginTop: 4 }} />
-                <View style={{ height: 6, width: "70%", backgroundColor: colors.secondary, borderRadius: 3, opacity: 0.6 }} />
-              </View>
-
-              {/* Lock overlay on top of ghost rows */}
-              <View style={{
-                position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
-                backgroundColor: colors.background + "CC",
-                borderRadius: 14, alignItems: "center", justifyContent: "center",
-                padding: 24, gap: 10,
-              }}>
-                <View style={{ backgroundColor: colors.card, borderRadius: 40, padding: 10 }}>
-                  <Feather name="lock" size={22} color={colors.primary} />
-                </View>
-                <Text style={{ color: colors.foreground, fontFamily: "Inter_700Bold", fontSize: 16, textAlign: "center" }}>
-                  Unlock Full Insights
-                </Text>
-                <Text style={{ color: colors.mutedForeground, fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 19 }}>
-                  Pro unlocks performance rankings, sector breakdown, and 52-week range. Premium adds exchange mix, volatility, and more.
-                </Text>
-                <TouchableOpacity
-                  style={{ backgroundColor: colors.primary, borderRadius: 12, paddingHorizontal: 28, paddingVertical: 11, marginTop: 4 }}
-                  onPress={() => setPaywallVisible(true)}
-                >
-                  <Text style={{ color: colors.primaryForeground, fontFamily: "Inter_700Bold", fontSize: 15 }}>View Plans</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        )}
-
-        {/* ── Pro stats sections ────────────────────────────────────────────── */}
-        <View style={{ marginTop: isProOrPremium ? 16 : 0 }}>
-          {/* Performance rankings */}
-          <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border, overflow: "hidden" }]}>
+        {/* ── Performance (Pro) ───────────────────────────────────────────── */}
+        <PremiumGate
+          feature="performance_rankings"
+          title="Rank your best & worst"
+          pitch="Upgrade to Pro to see daily, weekly, and monthly performance leaders across your portfolio."
+          style={{ marginTop: 14 }}
+        >
+          <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <SectionHeader title="Performance" icon="trending-up" />
 
-            {/* Period selector */}
             <View style={{ flexDirection: "row", backgroundColor: colors.secondary, borderRadius: 10, padding: 3, marginBottom: 14, gap: 2 }}>
               {(["today", "1w", "1m"] as PerfPeriod[]).map((p) => (
                 <TouchableOpacity
                   key={p}
-                  disabled={!isProOrPremium}
                   style={{
                     flex: 1, paddingVertical: 7, alignItems: "center", borderRadius: 8,
                     backgroundColor: period === p ? colors.primary : "transparent",
@@ -311,7 +354,12 @@ export default function InsightsScreen() {
                 <Text style={{ color: colors.primary, fontFamily: "Inter_700Bold", fontSize: 13, width: 20 }}>#{i + 1}</Text>
                 <Text style={{ color: colors.foreground, fontFamily: "Inter_600SemiBold", fontSize: 14, flex: 1 }}>{stock.ticker}</Text>
                 <Text style={{ color: colors.mutedForeground, fontSize: 12, fontFamily: "Inter_400Regular", flex: 1 }} numberOfLines={1}>{stock.name}</Text>
-                <ColoredPct value={getPerformance(stock, period)} />
+                <ColoredChange
+                  pct={getPerformance(stock, charts[stock.ticker] ?? [], period)}
+                  abs={getPerformanceAbs(stock, charts[stock.ticker] ?? [], period)}
+                  currency={stock.currency}
+                  showPercent={showPercent}
+                />
               </View>
             ))}
 
@@ -321,17 +369,25 @@ export default function InsightsScreen() {
                 <Text style={{ color: colors.negative, fontFamily: "Inter_700Bold", fontSize: 13, width: 20 }}>#{i + 1}</Text>
                 <Text style={{ color: colors.foreground, fontFamily: "Inter_600SemiBold", fontSize: 14, flex: 1 }}>{stock.ticker}</Text>
                 <Text style={{ color: colors.mutedForeground, fontSize: 12, fontFamily: "Inter_400Regular", flex: 1 }} numberOfLines={1}>{stock.name}</Text>
-                <ColoredPct value={getPerformance(stock, period)} />
+                <ColoredChange
+                  pct={getPerformance(stock, charts[stock.ticker] ?? [], period)}
+                  abs={getPerformanceAbs(stock, charts[stock.ticker] ?? [], period)}
+                  currency={stock.currency}
+                  showPercent={showPercent}
+                />
               </View>
             ))}
-
-            {!isProOrPremium && (
-              <LockOverlay message="Upgrade to Pro to see performance rankings" onUpgrade={() => setPaywallVisible(true)} />
-            )}
           </View>
+        </PremiumGate>
 
-          {/* Sector Breakdown */}
-          <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border, marginTop: 14, overflow: "hidden" }]}>
+        {/* ── Sector Breakdown (Pro) ──────────────────────────────────────── */}
+        <PremiumGate
+          feature="sector_breakdown"
+          title="Know your sector exposure"
+          pitch="Pro unlocks a breakdown of your watchlist by sector so you can spot concentration risk."
+          style={{ marginTop: 14 }}
+        >
+          <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <SectionHeader title="Sector Breakdown" icon="grid" />
             {sectorBreakdown.map((sec) => (
               <View key={sec.name} style={{ marginBottom: 10 }}>
@@ -346,16 +402,20 @@ export default function InsightsScreen() {
                 </View>
               </View>
             ))}
-            {!isProOrPremium && (
-              <LockOverlay message="Upgrade to Pro to see sector breakdown" onUpgrade={() => setPaywallVisible(true)} />
-            )}
           </View>
+        </PremiumGate>
 
-          {/* 52-Week Proximity */}
-          <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border, marginTop: 14, overflow: "hidden" }]}>
+        {/* ── 52-Week Proximity (Pro) ─────────────────────────────────────── */}
+        <PremiumGate
+          feature="fifty_two_week_range"
+          title="See where each holding trades"
+          pitch="Pro shows how close each stock is to its 52-week high and low."
+          style={{ marginTop: 14 }}
+        >
+          <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <SectionHeader title="52-Week Range Proximity" icon="maximize-2" />
             {watchedStocks.map((stock) => {
-              const { pctFromHigh, pctFromLow } = get52wProximity(stock);
+              const { pctFromHigh, pctFromLow } = get52wProximity(stock, charts[stock.ticker] ?? []);
               const range = pctFromLow - pctFromHigh;
               const progress = range !== 0 ? pctFromLow / range : 0.5;
               return (
@@ -382,89 +442,216 @@ export default function InsightsScreen() {
                 </View>
               );
             })}
-            {!isProOrPremium && (
-              <LockOverlay message="Upgrade to Pro to see 52-week range data" onUpgrade={() => setPaywallVisible(true)} />
-            )}
           </View>
-        </View>
+        </PremiumGate>
 
-        {/* ── Premium Section ──────────────────────────────────────────────── */}
-        <View style={{ marginTop: 14 }}>
-          <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border, overflow: "hidden" }]}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12, marginTop: 4 }}>
-              <Feather name="star" size={16} color={colors.warning} />
-              <Text style={{ color: colors.foreground, fontSize: 16, fontFamily: "Inter_700Bold" }}>Premium Insights</Text>
-              <View style={{ backgroundColor: colors.warning + "22", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2 }}>
-                <Text style={{ color: colors.warning, fontSize: 10, fontFamily: "Inter_700Bold" }}>PREMIUM</Text>
-              </View>
+        {/* ── Risk Metrics (Premium) ──────────────────────────────────────── */}
+        <PremiumGate
+          feature="risk_metrics"
+          title="Risk metrics you can trust"
+          pitch="Premium unlocks beta, volatility at 30/90/365 days, max drawdown, Sharpe and Sortino — all computed across your portfolio."
+          style={{ marginTop: 14 }}
+        >
+          <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <SectionHeader title="Risk Metrics" icon="shield" />
+            <View style={s.grid}>
+              <RiskStat label="Beta vs" sub={benchmarkLabel(benchmark)} value={portfolioBeta.toFixed(2)} />
+              <RiskStat label="Max drawdown" value={`${(portfolioDD * 100).toFixed(1)}%`} color={colors.negative} />
+              <RiskStat label="Sharpe" value={portfolioSharpe.toFixed(2)} />
+              <RiskStat label="Sortino" value={Number.isFinite(portfolioSortino) ? portfolioSortino.toFixed(2) : "—"} />
             </View>
-
-            {/* Weighted avg P/E — price-weighted using trailingPE from Yahoo Finance */}
-            <View style={[s.premiumRow, { borderBottomColor: colors.border }]}>
-              <View>
-                <Text style={{ color: colors.mutedForeground, fontSize: 11, fontFamily: "Inter_400Regular", marginBottom: 2 }}>Weighted Avg P/E</Text>
-                {weightedAvgPE != null ? (
-                  <Text style={{ color: colors.foreground, fontSize: 20, fontFamily: "Inter_700Bold" }}>{weightedAvgPE.toFixed(1)}×</Text>
-                ) : (
-                  <>
-                    <Text style={{ color: colors.foreground, fontSize: 20, fontFamily: "Inter_700Bold" }}>N/A</Text>
-                    <Text style={{ color: colors.mutedForeground, fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 1 }}>No P/E data available</Text>
-                  </>
-                )}
-              </View>
-              <Feather name="bar-chart" size={20} color={colors.primary} />
+            <View style={{ height: 12 }} />
+            <Text style={s.riskSection}>VOLATILITY (ANNUALISED)</Text>
+            <View style={s.grid}>
+              <RiskStat label="30-day" value={`${(portfolioVol30 * 100).toFixed(1)}%`} />
+              <RiskStat label="90-day" value={`${(portfolioVol90 * 100).toFixed(1)}%`} />
+              <RiskStat label="365-day" value={`${(portfolioVol365 * 100).toFixed(1)}%`} />
             </View>
+          </View>
+        </PremiumGate>
 
-            {/* Exchange breakdown */}
-            <View style={{ marginTop: 12, marginBottom: 8 }}>
-              <Text style={{ color: colors.mutedForeground, fontSize: 12, fontFamily: "Inter_600SemiBold", marginBottom: 8, letterSpacing: 0.5 }}>EXCHANGE MIX</Text>
-              {exchangeBreakdown.map((ex) => (
-                <View key={ex.name} style={{ marginBottom: 8 }}>
-                  <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 3 }}>
-                    <Text style={{ color: colors.foreground, fontSize: 13, fontFamily: "Inter_400Regular" }}>{ex.name}</Text>
-                    <Text style={{ color: colors.mutedForeground, fontSize: 12, fontFamily: "Inter_400Regular" }}>{ex.pct.toFixed(0)}%</Text>
-                  </View>
-                  <View style={{ height: 5, backgroundColor: colors.secondary, borderRadius: 3, overflow: "hidden" }}>
-                    <View style={{ height: 5, width: `${ex.pct}%` as `${number}%`, backgroundColor: colors.accent, borderRadius: 3 }} />
-                  </View>
-                </View>
-              ))}
+        {/* ── Benchmark Comparison (Premium) ──────────────────────────────── */}
+        <PremiumGate
+          feature="benchmark_comparison"
+          title="Benchmark your portfolio"
+          pitch={`See how your holdings stack up against the ${benchmarkLabel(benchmark)} — total return, alpha, and tracking error.`}
+          style={{ marginTop: 14 }}
+        >
+          <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <SectionHeader title={`Portfolio vs ${benchmarkLabel(benchmark)}`} icon="activity" />
+            <TwoLineSparkline
+              a={portfolioSeries}
+              b={benchmarkPrices}
+              colorA={colors.primary}
+              colorB={colors.mutedForeground}
+            />
+            <View style={{ flexDirection: "row", gap: 14, marginTop: 12, marginBottom: 6 }}>
+              <Legend dotColor={colors.primary} label={activePortfolioName} />
+              <Legend dotColor={colors.mutedForeground} label={benchmarkLabel(benchmark)} />
             </View>
-
-            {/* Volatility snapshot */}
-            <View style={[s.premiumRow, { borderBottomWidth: 0, marginTop: 4 }]}>
-              <View>
-                <Text style={{ color: colors.mutedForeground, fontSize: 11, fontFamily: "Inter_400Regular", marginBottom: 2 }}>Avg Monthly Volatility</Text>
-                <View style={{ flexDirection: "row", alignItems: "baseline", gap: 4 }}>
-                  <Text style={{ color: colors.foreground, fontSize: 20, fontFamily: "Inter_700Bold" }}>{avgVolatility.toFixed(2)}%</Text>
-                  <Text style={{ color: colors.mutedForeground, fontSize: 12, fontFamily: "Inter_400Regular" }}>avg daily swing</Text>
-                </View>
-              </View>
-              <Feather name="zap" size={20} color={colors.warning} />
-            </View>
-
-            {!isPremium && (
-              <LockOverlay
-                message="Upgrade to Premium to unlock advanced analytics"
-                onUpgrade={() => setPaywallVisible(true)}
+            <View style={s.grid}>
+              <RiskStat
+                label={`1Y return (${activePortfolioName})`}
+                value={`${(portfolioTotalReturn * 100).toFixed(1)}%`}
+                color={portfolioTotalReturn >= 0 ? colors.positive : colors.negative}
               />
-            )}
+              <RiskStat
+                label={`1Y return (${benchmarkLabel(benchmark)})`}
+                value={`${(benchmarkTotalReturn * 100).toFixed(1)}%`}
+                color={benchmarkTotalReturn >= 0 ? colors.positive : colors.negative}
+              />
+              <RiskStat label="Alpha" value={`${(portfolioAlpha * 100).toFixed(2)}%`} />
+              <RiskStat label="Tracking error" value={`${(portfolioTrackingError * 100).toFixed(2)}%`} />
+            </View>
+            <Text style={s.footnote}>
+              Computed using current-weight back-applied returns. Rebalancing history is not tracked in v1.
+            </Text>
           </View>
-        </View>
+        </PremiumGate>
+
+        {/* ── Export (Premium) ────────────────────────────────────────────── */}
+        <PremiumGate
+          feature="export_pdf_csv"
+          title="Export your portfolio"
+          pitch="Premium lets you download a CSV or printable HTML snapshot — share with an advisor or save for your records."
+          previewReal={false}
+          style={{ marginTop: 14 }}
+        >
+          <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <SectionHeader title="Export" icon="download" />
+            <Text style={{ color: colors.mutedForeground, fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 12, lineHeight: 19 }}>
+              Download a snapshot of the <Text style={{ fontFamily: "Inter_600SemiBold" }}>{activePortfolioName}</Text> portfolio with current prices.
+            </Text>
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <TouchableOpacity
+                onPress={() => handleExport("csv")}
+                style={[s.exportBtn, { backgroundColor: colors.primary }]}
+              >
+                <Feather name="file" size={16} color={colors.primaryForeground} />
+                <Text style={[s.exportBtnText, { color: colors.primaryForeground }]}>CSV</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => handleExport("html")}
+                style={[s.exportBtn, { backgroundColor: colors.secondary, borderColor: colors.border, borderWidth: 1 }]}
+              >
+                <Feather name="printer" size={16} color={colors.foreground} />
+                <Text style={[s.exportBtnText, { color: colors.foreground }]}>Print / PDF</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </PremiumGate>
       </ScrollView>
 
       <PaywallSheet visible={paywallVisible} onClose={() => setPaywallVisible(false)} triggerReason="general" currentTier={tier} />
       <TabHintPopup
         tabKey="insights"
-        hint="Insights shows portfolio-level analytics for your watchlist: performance rankings, sector breakdown, 52-week range proximity, and more — with deeper data available on Pro and Premium."
+        hint="Insights shows portfolio-level analytics. Pro unlocks performance, sector and 52-week data; Premium adds risk metrics, benchmark comparison, and export."
       />
     </View>
   );
 }
 
+// ─── Small presentational components ──────────────────────────────────────────
+
+function RiskStat({
+  label,
+  sub,
+  value,
+  color,
+}: {
+  label: string;
+  sub?: string;
+  value: string;
+  color?: string;
+}) {
+  const colors = useColors();
+  return (
+    <View style={[s.riskStat, { backgroundColor: colors.secondary }]}>
+      <Text style={{ color: colors.mutedForeground, fontSize: 11, fontFamily: "Inter_500Medium" }}>
+        {label}
+      </Text>
+      {sub ? (
+        <Text style={{ color: colors.mutedForeground, fontSize: 10, fontFamily: "Inter_400Regular", marginBottom: 2 }}>
+          {sub}
+        </Text>
+      ) : null}
+      <Text
+        style={{
+          color: color ?? colors.foreground,
+          fontSize: 18,
+          fontFamily: "Inter_700Bold",
+          fontVariant: ["tabular-nums"],
+          marginTop: 2,
+        }}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function Legend({ dotColor, label }: { dotColor: string; label: string }) {
+  const colors = useColors();
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dotColor }} />
+      <Text style={{ color: colors.mutedForeground, fontSize: 12, fontFamily: "Inter_500Medium" }}>{label}</Text>
+    </View>
+  );
+}
+
+function TwoLineSparkline({
+  a,
+  b,
+  colorA,
+  colorB,
+}: {
+  a: number[];
+  b: number[];
+  colorA: string;
+  colorB: string;
+}) {
+  const width = 320;
+  const height = 120;
+  const n = Math.min(a.length, b.length);
+  if (n < 2) {
+    return <View style={{ height, alignItems: "center", justifyContent: "center" }} />;
+  }
+  const ta = a.slice(a.length - n);
+  const tb = b.slice(b.length - n);
+  // Normalise both series to a 100-index at t=0 so they're comparable.
+  const normA = ta.map((p) => (ta[0] > 0 ? (p / ta[0]) * 100 : 0));
+  const normB = tb.map((p) => (tb[0] > 0 ? (p / tb[0]) * 100 : 0));
+  const vals = [...normA, ...normB];
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const span = max - min || 1;
+
+  const toPath = (series: number[]) => {
+    return series
+      .map((v, i) => {
+        const x = (i / (n - 1)) * width;
+        const y = height - ((v - min) / span) * height;
+        return `${i === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`;
+      })
+      .join(" ");
+  };
+
+  return (
+    <Svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
+      <Line x1={0} y1={height - ((100 - min) / span) * height} x2={width} y2={height - ((100 - min) / span) * height} stroke={colorB} strokeDasharray="3 4" strokeWidth={0.5} opacity={0.6} />
+      <Path d={toPath(normB)} stroke={colorB} strokeWidth={1.5} fill="none" />
+      <Path d={toPath(normA)} stroke={colorA} strokeWidth={2} fill="none" />
+    </Svg>
+  );
+}
+
 const s = StyleSheet.create({
   fill: { flex: 1 },
-  card: { borderRadius: 16, borderWidth: 1, padding: 16 },
+  card: { borderRadius: 14, borderWidth: 1, padding: 16 },
+  changeToggle: { flexDirection: "row", alignItems: "center", borderRadius: 8, borderWidth: 1, overflow: "hidden", alignSelf: "flex-start" },
+  changeToggleText: { fontSize: 12, fontFamily: "Inter_700Bold", paddingHorizontal: 10, paddingVertical: 6 },
+  changeToggleDivider: { width: 1, height: "100%" },
   snapshotCard: {
     flex: 1,
     paddingVertical: 14,
@@ -476,8 +663,24 @@ const s = StyleSheet.create({
   },
   snapshotLabel: { fontSize: 11, fontFamily: "Inter_400Regular" },
   snapshotValue: { fontSize: 20, fontFamily: "Inter_700Bold", fontVariant: ["tabular-nums"] },
-  premiumRow: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingVertical: 10, borderBottomWidth: 1,
+  riskStat: {
+    flexBasis: "48%",
+    flexGrow: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
   },
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  riskSection: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 1, marginBottom: 8, color: "#888" },
+  footnote: { marginTop: 10, fontSize: 11, fontFamily: "Inter_400Regular", color: "#777", lineHeight: 16 },
+  exportBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  exportBtnText: { fontSize: 14, fontFamily: "Inter_700Bold" },
 });

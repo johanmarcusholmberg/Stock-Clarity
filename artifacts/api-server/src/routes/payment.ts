@@ -2,6 +2,7 @@ import { Router } from "express";
 import { getUncachableStripeClient, getStripePublishableKey } from "../stripeClient";
 import { storage } from "../storage";
 import { logger } from "../lib/logger";
+import { computeEffectiveTier } from "../lib/tierService";
 
 const router = Router();
 
@@ -184,35 +185,28 @@ router.post("/portal", async (req, res) => {
   }
 });
 
-// Get user subscription status
+// Get user subscription status.
+//
+// Tier is derived via computeEffectiveTier() — the single source of truth
+// that layers active admin_grants over the Stripe subscription. users.tier
+// is kept in sync as a cached projection so columns-direct readers (ai
+// quota, export gates) don't lag behind this endpoint.
 router.get("/subscription/:userId", async (req, res) => {
   const { userId } = req.params;
   try {
     const user = await storage.getUserByClerkId(userId);
     if (!user) return void res.json({ tier: "free", subscription: null });
 
-    let subscription = null;
-    let tier: "free" | "pro" | "premium" = user.tier ?? "free";
+    const subscription = user.stripe_customer_id
+      ? await storage.getSubscriptionByCustomerId(user.stripe_customer_id)
+      : null;
 
-    if (user.stripe_customer_id) {
-      subscription = await storage.getSubscriptionByCustomerId(user.stripe_customer_id);
+    const effective = await computeEffectiveTier(userId);
+    const tier = effective.tier;
 
-      // Derive tier from live Stripe subscription data (product metadata)
-      const stripeTier = await storage.getTierFromSubscription(user.stripe_customer_id);
-
-      // If subscription is active, trust Stripe as ground truth
-      if (stripeTier !== "free") {
-        tier = stripeTier;
-      } else if (!subscription) {
-        // No active subscription in Stripe — revert to free if DB says otherwise
-        tier = "free";
-      }
-
-      // Sync tier back to DB if it has drifted
-      if (tier !== (user.tier ?? "free")) {
-        await storage.updateUserTier(userId, tier);
-        logger.info({ userId, from: user.tier, to: tier }, "Tier synced from Stripe");
-      }
+    if (tier !== (user.tier ?? "free")) {
+      await storage.updateUserTier(userId, tier);
+      logger.info({ userId, from: user.tier, to: tier, source: effective.source }, "Tier synced");
     }
 
     res.json({

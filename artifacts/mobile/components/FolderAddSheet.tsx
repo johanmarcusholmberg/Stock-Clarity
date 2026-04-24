@@ -196,7 +196,7 @@ export function FolderAddSheet({ visible, onClose, folderId, folderName }: Props
                 onPress={() => setTab("watchlist")}
               >
                 <Feather name="bookmark" size={13} color={activeTab === "watchlist" ? colors.primary : colors.mutedForeground} />
-                <Text style={[s.tabBtnText, { color: activeTab === "watchlist" ? colors.primary : colors.mutedForeground }]}>My Watchlist</Text>
+                <Text style={[s.tabBtnText, { color: activeTab === "watchlist" ? colors.primary : colors.mutedForeground }]}>Watchlist</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[s.tabBtn, activeTab === "search" && { backgroundColor: colors.card }]}
@@ -271,7 +271,7 @@ export function FolderAddSheet({ visible, onClose, folderId, folderName }: Props
                   autoCapitalize="none"
                 />
                 {searchQuery.length > 0 && (
-                  <TouchableOpacity onPress={() => { setSearchQuery(""); setSearchResults([]); }}>
+                  <TouchableOpacity onPress={() => { setSearchQuery(""); setSearchResults([]); }} accessibilityLabel="Clear search" hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}>
                     <Feather name="x" size={16} color={colors.mutedForeground} />
                   </TouchableOpacity>
                 )}
