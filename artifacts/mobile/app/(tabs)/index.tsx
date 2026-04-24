@@ -375,17 +375,7 @@ export default function WatchlistScreen() {
       });
     }, 350);
   }, []);
-  
-
-  const handleCreatePortfolio = useCallback(() => {
-    const name = newPortfolioName.trim();
-    if (!name) return;
-    const folder = createFolder(name);
-    if (!folder) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setActiveFolderId(folder.id);
-    closePortfolioPicker();
-  }, [newPortfolioName, createFolder, setActiveFolderId, closePortfolioPicker]);
+   
 
   return (
     <View style={[styles.fill, { backgroundColor: colors.background }]}>
