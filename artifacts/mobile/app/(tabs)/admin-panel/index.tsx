@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useAuth, useUser } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription, Tier } from "@/context/SubscriptionContext";
@@ -41,6 +42,9 @@ interface StatsData {
   errors: { total: string; today: string };
   feedback: { total: string; avg_rating: string };
   eventHistory: Array<{ date: string; count: string }>;
+  eventsToday?: number;
+  uniqueStocksToday?: number;
+  avgRating?: number;
 }
 
 interface PremiumFunnelRow {
@@ -54,9 +58,10 @@ interface PremiumFunnelRow {
 
 export default function AdminPanelScreen() {
   const colors = useColors();
+  const router = useRouter();
   const { userId } = useAuth();
   const { user } = useUser();
-  const { tier, isAdmin, adminOverrideTier, refresh: refreshSub } = useSubscription();
+  const { tier, isAdmin, subscriptionToolsAllowed, adminOverrideTier, refresh: refreshSub } = useSubscription();
 
   const [users, setUsers] = useState<UserRow[]>([]);
   const [stats, setStats] = useState<StatsData | null>(null);
@@ -257,6 +262,18 @@ export default function AdminPanelScreen() {
       borderColor: colors.border,
     },
     miniTierBtnText: { fontSize: 10, fontFamily: "Inter_700Bold", color: colors.mutedForeground },
+    manageBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      backgroundColor: colors.primary + "14",
+    },
+    manageText: { color: colors.primary, fontSize: 11, fontFamily: "Inter_700Bold" },
     statRow: {
       flexDirection: "row",
       justifyContent: "space-between",
@@ -451,6 +468,17 @@ export default function AdminPanelScreen() {
                           </View>
                         ))}
                       </View>
+                      {/* Manage ▸ — opens the detail screen. Flag-gated; server is
+                          authoritative, this gate is cosmetic. */}
+                      {subscriptionToolsAllowed && (
+                        <TouchableOpacity
+                          style={[s.manageBtn, { alignSelf: "flex-start" }]}
+                          onPress={() => router.push(`/admin-panel/user/${u.clerk_user_id}`)}
+                        >
+                          <Feather name="settings" size={12} color={colors.primary} />
+                          <Text style={s.manageText}>manage ▸</Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   ))
                 )}
