@@ -1,5 +1,14 @@
 import Stripe from "stripe";
 
+type ReplitConnectionResponse = {
+  items?: Array<{
+    settings?: {
+      publishable?: string;
+      secret?: string;
+    };
+  }>;
+};
+
 async function getCredentials() {
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
   const xReplitToken = process.env.REPL_IDENTITY
@@ -18,7 +27,7 @@ async function getCredentials() {
   const response = await fetch(url.toString(), {
     headers: { Accept: "application/json", "X-Replit-Token": xReplitToken },
   });
-  const data = await response.json();
+  const data = (await response.json()) as ReplitConnectionResponse;
   const conn = data.items?.[0];
 
   if (!conn?.settings?.secret) throw new Error("Stripe connection not found");
