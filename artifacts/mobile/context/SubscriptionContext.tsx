@@ -50,6 +50,13 @@ interface SubscriptionState {
   tier: Tier;
   isLoading: boolean;
   isAdmin: boolean;
+  /**
+   * True only when BOTH the Phase 3.2 admin-subscription feature flag is on
+   * AND this specific admin is on the rollout allowlist (or allowlist is
+   * empty). Mirrors the `subscriptionTools.allowed` field on /admin/check.
+   * Server middleware is authoritative — this flag is a cosmetic gate.
+   */
+  subscriptionToolsAllowed: boolean;
   // Stock views/day (separate concept from AI summaries).
   stocksSeenToday: string[];
   stocksLimit: number;
@@ -91,6 +98,7 @@ const SubscriptionContext = createContext<SubscriptionState>({
   tier: "free",
   isLoading: true,
   isAdmin: false,
+  subscriptionToolsAllowed: false,
   stocksSeenToday: [],
   stocksLimit: 3,
   summariesPerStockLimit: 1,
@@ -123,6 +131,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const [tier, setTier] = useState<Tier>("free");
   const [isLoading, setIsLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [subscriptionToolsAllowed, setSubscriptionToolsAllowed] = useState(false);
 
   // Stock views/day (unrelated to AI quota).
   const [stocksSeen, setStocksSeen] = useState<string[]>([]);
@@ -277,9 +286,14 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       if (res.ok) {
         const data = await res.json();
         setIsAdmin(data.isAdmin === true);
+        // /admin/check returns { subscriptionTools: { enabled, allowed } }.
+        // Non-admins always see {false,false} — see routes/admin.ts:48.
+        const allowed = data?.subscriptionTools?.allowed === true;
+        setSubscriptionToolsAllowed(allowed);
       }
     } catch {
       setIsAdmin(false);
+      setSubscriptionToolsAllowed(false);
     }
   }, [userId, email]);
 
@@ -405,6 +419,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         tier,
         isLoading,
         isAdmin,
+        subscriptionToolsAllowed,
         stocksSeenToday: stocksSeen,
         stocksLimit,
         summariesPerStockLimit,
