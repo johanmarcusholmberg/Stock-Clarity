@@ -140,6 +140,83 @@ export async function computeEffectiveTier(userId: string): Promise<EffectiveTie
   return result;
 }
 
+// Classifies *where* a user's current subscription lives. Distinct from
+// EffectiveTierSource (which answers "what tier?") — this answers "which
+// backend would I call to mutate it?". Used by the IAP stub endpoints to
+// enrich audit metadata and by the mobile admin UI (PR 5) to pick the right
+// endpoint.
+export type SubscriptionSource =
+  | "stripe"
+  | "apple_iap"
+  | "google_play"
+  | "manual"
+  | "none";
+
+export interface ResolvedSubscriptionSource {
+  source: SubscriptionSource;
+  stripeCustomerId: string | null;
+  // Raw users.iap_source — 'apple' | 'google' | null. Kept separate from
+  // `source` so audit rows can distinguish "column is set but we classified
+  // as stripe because Stripe takes priority" from "column is null".
+  iapSource: string | null;
+  iapOriginalTransactionId: string | null;
+}
+
+// Priority mirrors design doc §4 — admin never picks the source, the helper
+// does. Grant-only users fall into 'manual'; no-sub-no-grant into 'none'.
+// Today iap_source is always null (no IAP ingest wired yet); the branches
+// exist so IAP integration is a data-only change later.
+export async function resolveSubscriptionSource(
+  userId: string,
+): Promise<ResolvedSubscriptionSource> {
+  await adminSchemaReady;
+  const user = await storage.getUserByClerkId(userId);
+  const stripeCustomerId: string | null = user?.stripe_customer_id ?? null;
+  const iapSource: string | null = user?.iap_source ?? null;
+  const iapOriginalTransactionId: string | null =
+    user?.iap_original_transaction_id ?? null;
+
+  if (!user) {
+    return {
+      source: "none",
+      stripeCustomerId: null,
+      iapSource: null,
+      iapOriginalTransactionId: null,
+    };
+  }
+
+  // 1. Stripe — authoritative when an active/trialing sub exists. Using
+  // getSubscriptionByCustomerId (not getTierFromSubscription) because a sub
+  // without tier metadata is still a Stripe-sourced user.
+  if (stripeCustomerId) {
+    const sub = await storage.getSubscriptionByCustomerId(stripeCustomerId);
+    if (sub) {
+      return { source: "stripe", stripeCustomerId, iapSource, iapOriginalTransactionId };
+    }
+  }
+
+  // 2. IAP — placeholder branches, no-op today.
+  if (iapSource === "apple") {
+    return { source: "apple_iap", stripeCustomerId, iapSource, iapOriginalTransactionId };
+  }
+  if (iapSource === "google") {
+    return { source: "google_play", stripeCustomerId, iapSource, iapOriginalTransactionId };
+  }
+
+  // 3. Grant-only — user has no external sub but an active admin grant.
+  const grant = await queryOne<{ id: string }>(
+    `SELECT id FROM admin_grants
+      WHERE user_id = $1 AND status = 'active' AND expires_at > NOW()
+      LIMIT 1`,
+    [userId],
+  );
+  if (grant) {
+    return { source: "manual", stripeCustomerId, iapSource, iapOriginalTransactionId };
+  }
+
+  return { source: "none", stripeCustomerId, iapSource, iapOriginalTransactionId };
+}
+
 export type AdminAuditAction =
   | "grant"
   | "revoke"

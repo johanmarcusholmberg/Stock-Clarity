@@ -3,7 +3,13 @@ import Stripe from "stripe";
 import { execute, query, queryOne } from "../db";
 import { storage } from "../storage";
 import { getUncachableStripeClient } from "../stripeClient";
-import { computeEffectiveTier, writeAdminAudit } from "../lib/tierService";
+import {
+  computeEffectiveTier,
+  resolveSubscriptionSource,
+  writeAdminAudit,
+} from "../lib/tierService";
+import { canUseSubscriptionTools } from "../lib/adminFeatureFlag";
+import { checkAndRecordAdminAction } from "../lib/adminRateLimit";
 
 const router = Router();
 
@@ -35,7 +41,19 @@ router.get("/check", async (req, res) => {
     // Upsert user so they're always in our DB
     await storage.upsertUser(userId, email);
     const admin = isAdminEmail(email);
-    res.json({ isAdmin: admin, email, adminEmails: admin ? getAdminEmails() : [] });
+    // Subscription-tools flag state — non-admins always get {false,false}
+    // so the client can't deduce feature existence from this endpoint.
+    // PR 5a: piggybacked here so mobile SubscriptionContext gets it on the
+    // same mount fetch it already does; no extra round trip.
+    const subscriptionTools = admin
+      ? canUseSubscriptionTools(email)
+      : { enabled: false, allowed: false };
+    res.json({
+      isAdmin: admin,
+      email,
+      adminEmails: admin ? getAdminEmails() : [],
+      subscriptionTools,
+    });
   } catch {
     res.json({ isAdmin: false });
   }
@@ -450,6 +468,51 @@ function resolveAdminEmail(req: any): string | null {
   return null;
 }
 
+// Access gate for the subscription-tools surface area (PR 5a). Resolves the
+// admin, rejects if missing/not-allowed-by-feature-flag. Returns the email
+// on success or null after sending the appropriate error response. Use on
+// READ routes (overview, audit, GET grants) — no rate limit bump here.
+async function requireSubscriptionToolsAccess(req: any, res: any): Promise<string | null> {
+  const adminEmail = resolveAdminEmail(req);
+  if (!adminEmail) {
+    res.status(401).json({ error: "Unauthorized" });
+    return null;
+  }
+  const flag = canUseSubscriptionTools(adminEmail);
+  if (!flag.allowed) {
+    res.status(403).json({
+      error: "Admin subscription tools are not enabled for this account",
+      subscriptionTools: flag,
+    });
+    return null;
+  }
+  return adminEmail;
+}
+
+// MUTATION gate: access check + bump the per-email rate limit window. Use on
+// every write route in the subscription-tools surface (grants create/extend/
+// revoke, cancel, refund, IAP stubs). IAP stubs count even though they
+// return 501 — they still write admin_audit rows, so the rate limit is
+// doing its job of dampening audit-log noise from a runaway client.
+//
+// On a 429 reject we set Retry-After so the client's back-off has a
+// meaningful hint (rough — it's the age of the oldest in-window hit).
+async function requireSubscriptionToolsMutation(req: any, res: any): Promise<string | null> {
+  const adminEmail = await requireSubscriptionToolsAccess(req, res);
+  if (!adminEmail) return null;
+  const rl = await checkAndRecordAdminAction(adminEmail);
+  if (!rl.allowed) {
+    res.set("Retry-After", String(rl.retryAfterSec ?? 3600));
+    res.status(429).json({
+      error: "Admin action rate limit exceeded (10/hour)",
+      retryAfterSec: rl.retryAfterSec,
+      count: rl.count,
+    });
+    return null;
+  }
+  return adminEmail;
+}
+
 // Parse positive integer days, cap at a sane ceiling. 3650 = ~10 years;
 // beyond that is almost certainly a typo (365000 instead of 365).
 function parseDays(v: unknown): number | null {
@@ -476,8 +539,8 @@ type GrantRow = {
 // checks / gates read correctly immediately. Audit is written with
 // action='grant'.
 router.post("/users/:userId/grants", async (req, res) => {
-  const adminEmail = resolveAdminEmail(req);
-  if (!adminEmail) return void res.status(401).json({ error: "Unauthorized" });
+  const adminEmail = await requireSubscriptionToolsMutation(req, res);
+  if (!adminEmail) return;
 
   const { userId } = req.params;
   const { tier, reason } = req.body ?? {};
@@ -538,8 +601,8 @@ router.post("/users/:userId/grants", async (req, res) => {
 // revoked/expired grant — admins should create a fresh grant instead so the
 // audit log reflects intent clearly.
 router.patch("/grants/:grantId", async (req, res) => {
-  const adminEmail = resolveAdminEmail(req);
-  if (!adminEmail) return void res.status(401).json({ error: "Unauthorized" });
+  const adminEmail = await requireSubscriptionToolsMutation(req, res);
+  if (!adminEmail) return;
 
   const { grantId } = req.params;
   const extendDays = parseDays(req.body?.extendDays);
@@ -564,8 +627,12 @@ router.patch("/grants/:grantId", async (req, res) => {
       current.expires_at instanceof Date ? current.expires_at : new Date(current.expires_at);
     const newExpires = new Date(previousExpires.getTime() + extendDays * 24 * 60 * 60 * 1000);
 
+    // PR 5a: reset warn_sent_at so an extended grant re-enters the 3-day
+    // warning pool. If an admin extends a grant from 2d → 30d, we've
+    // already warned but the user isn't about to expire anymore — we want
+    // the warning worker to fire again when they approach the new expiry.
     const updated = await queryOne<GrantRow>(
-      `UPDATE admin_grants SET expires_at = $1
+      `UPDATE admin_grants SET expires_at = $1, warn_sent_at = NULL
         WHERE id = $2
         RETURNING id, user_id, tier, expires_at, reason, granted_by_admin, status, revoked_at, created_at`,
       [newExpires, grantId],
@@ -593,8 +660,8 @@ router.patch("/grants/:grantId", async (req, res) => {
 // effective tier and writes the projection if it changed (the user may drop
 // back to Stripe or to free). Audit action='revoke'.
 router.delete("/grants/:grantId", async (req, res) => {
-  const adminEmail = resolveAdminEmail(req);
-  if (!adminEmail) return void res.status(401).json({ error: "Unauthorized" });
+  const adminEmail = await requireSubscriptionToolsMutation(req, res);
+  if (!adminEmail) return;
 
   const { grantId } = req.params;
   const reason =
@@ -656,8 +723,8 @@ router.delete("/grants/:grantId", async (req, res) => {
 // unpaginated because a single user will realistically have <100 grants
 // ever; revisit if that stops being true.
 router.get("/users/:userId/grants", async (req, res) => {
-  const adminEmail = resolveAdminEmail(req);
-  if (!adminEmail) return void res.status(401).json({ error: "Unauthorized" });
+  const adminEmail = await requireSubscriptionToolsAccess(req, res);
+  if (!adminEmail) return;
 
   const { userId } = req.params;
   const statusFilter =
@@ -683,6 +750,130 @@ router.get("/users/:userId/grants", async (req, res) => {
           [userId],
         );
     res.json({ grants: rows });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Subscription Overview + Audit (Phase 3.2 PR 5a) ──────────────────────────
+//
+// One-shot endpoint that bundles everything the mobile admin detail screen
+// needs to render its header, actions drawer, and active-grants list.
+// Centralising the per-source classification here means the client doesn't
+// reimplement resolveSubscriptionSource; a single switch on
+// `resolvedSource.source` picks which cancel/refund endpoint to hit.
+//
+// Audit is a separate endpoint rather than a field on the overview because
+// 50 rows of JSONB per refresh would bloat a call that runs after every
+// mutation.
+
+// Shape of the stripe.subscriptions row we surface to the client. We cast
+// fields off an `any` because the synced table mirrors Stripe's API which
+// moves columns between releases (see PR 3 comment on current_period_end
+// and the basil API version).
+interface OverviewStripeSubscription {
+  id: string;
+  status: string;
+  cancel_at_period_end: boolean;
+  current_period_end: number | null;
+}
+
+// GET /api/admin/users/:userId/subscription-overview
+router.get("/users/:userId/subscription-overview", async (req, res) => {
+  const adminEmail = await requireSubscriptionToolsAccess(req, res);
+  if (!adminEmail) return;
+
+  const { userId } = req.params;
+  try {
+    const user = await storage.getUserByClerkId(userId);
+    if (!user) return void res.status(404).json({ error: "User not found" });
+
+    const [effective, resolved, activeGrants] = await Promise.all([
+      computeEffectiveTier(userId),
+      resolveSubscriptionSource(userId),
+      query<GrantRow>(
+        `SELECT id, user_id, tier, expires_at, reason, granted_by_admin, status, revoked_at, created_at
+           FROM admin_grants
+          WHERE user_id = $1 AND status = 'active' AND expires_at > NOW()
+          ORDER BY expires_at ASC`,
+        [userId],
+      ),
+    ]);
+
+    // Stripe sub lookup happens AFTER resolved so we only hit Stripe for
+    // users who actually have a customer id. Saves one DB query for the
+    // grant-only and free-tier paths that hit this endpoint regularly.
+    let stripeSubscription: OverviewStripeSubscription | null = null;
+    if (user.stripe_customer_id) {
+      const raw = (await storage.getSubscriptionByCustomerId(
+        user.stripe_customer_id,
+      )) as any;
+      if (raw) {
+        const periodEndRaw = raw.current_period_end;
+        const periodEnd =
+          typeof periodEndRaw === "number" && Number.isFinite(periodEndRaw)
+            ? periodEndRaw
+            : typeof periodEndRaw === "string" && periodEndRaw !== ""
+              ? Number(periodEndRaw)
+              : null;
+        stripeSubscription = {
+          id: String(raw.id),
+          status: String(raw.status ?? "unknown"),
+          cancel_at_period_end: !!raw.cancel_at_period_end,
+          current_period_end: Number.isFinite(periodEnd) ? (periodEnd as number) : null,
+        };
+      }
+    }
+
+    res.json({
+      user: {
+        clerkUserId: user.clerk_user_id,
+        email: user.email,
+        tier: user.tier,
+        stripeCustomerId: user.stripe_customer_id,
+        createdAt: user.created_at,
+      },
+      effectiveTier: effective,
+      resolvedSource: resolved,
+      stripeSubscription,
+      activeGrants,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/users/:userId/audit?limit=50&offset=0
+// Paginated admin_audit rows for the detail-screen audit panel. Paginated
+// rather than bundled into overview because 50 JSONB rows on every refresh
+// adds up — and the panel is a tab the admin opens sometimes, not always.
+router.get("/users/:userId/audit", async (req, res) => {
+  const adminEmail = await requireSubscriptionToolsAccess(req, res);
+  if (!adminEmail) return;
+
+  const { userId } = req.params;
+  const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 200);
+  const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
+
+  try {
+    const rows = await query(
+      `SELECT id, admin_email, user_id, action, source,
+              previous_state, new_state, reason, metadata, created_at
+         FROM admin_audit WHERE user_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2 OFFSET $3`,
+      [userId, limit, offset],
+    );
+    const totalRow = await queryOne<{ total: string }>(
+      `SELECT COUNT(*)::text AS total FROM admin_audit WHERE user_id = $1`,
+      [userId],
+    );
+    res.json({
+      audit: rows,
+      total: parseInt(totalRow?.total ?? "0", 10),
+      limit,
+      offset,
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -732,8 +923,8 @@ function sendStripeError(res: any, err: StripeSdkError, fallbackMsg: string) {
 // sub, computeEffectiveTier still returns Premium from the grant — the
 // grant stacking in tierService.ts covers this without a special case here.
 router.post("/users/:userId/cancel", async (req, res) => {
-  const adminEmail = resolveAdminEmail(req);
-  if (!adminEmail) return void res.status(401).json({ error: "Unauthorized" });
+  const adminEmail = await requireSubscriptionToolsMutation(req, res);
+  if (!adminEmail) return;
 
   const { userId } = req.params;
   const modeRaw = typeof req.body?.mode === "string" ? req.body.mode : "immediate";
@@ -871,8 +1062,8 @@ router.post("/users/:userId/cancel", async (req, res) => {
 //   - "Charge already fully refunded"
 //   - "Refund amount exceeds remaining refundable balance (X cents available)"
 router.post("/users/:userId/refund", async (req, res) => {
-  const adminEmail = resolveAdminEmail(req);
-  if (!adminEmail) return void res.status(401).json({ error: "Unauthorized" });
+  const adminEmail = await requireSubscriptionToolsMutation(req, res);
+  if (!adminEmail) return;
 
   const { userId } = req.params;
   const reason =
@@ -1026,6 +1217,247 @@ router.post("/users/:userId/refund", async (req, res) => {
         chargeId,
         invoiceId: latestPaidInvoice.id,
       },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Apple/Google IAP Stubs (Phase 3.2 PR 4) ──────────────────────────────────
+//
+// Four endpoints that always return 501. Their purpose is an evidence trail:
+// the day IAP integration lands we want to already see, from admin_audit,
+// every time an admin *tried* to cancel or refund an Apple/Google sub. The
+// 501 response is deliberately minimal — no UI copy, no "guidance" fields.
+// PR 5's mobile admin UI branches on platform + attemptedAction to render
+// the right instructions to the admin; putting that copy in the API
+// response would couple backend to UI.
+//
+// All four routes:
+//   - dual auth via resolveAdminEmail (same pattern as Stripe endpoints)
+//   - require a non-empty `reason`
+//   - 404 if the user doesn't exist (so bogus userIds don't leave ghost
+//     audit rows)
+//   - write the audit row BEFORE responding 501. The audit is the whole
+//     point of this PR — if it fails, the 501 still lands (writeAdminAudit
+//     swallows errors by design), but the primary work is the insert.
+//   - record `newState: null` to be honest — nothing changed.
+//
+// Source gating: we do NOT reject when resolveSubscriptionSource disagrees
+// with the endpoint (e.g., /iap/apple/cancel on a Stripe-only user). The
+// mismatch is itself useful evidence captured in metadata; post-facto we can
+// spot "admin kept clicking Apple cancel on Stripe users" without losing the
+// audit trail to a 400.
+
+type IapPlatform = "apple" | "google";
+type IapAction = "cancel" | "refund";
+type IapNotImplementedReason =
+  | "apple_cancel_user_self_service"
+  | "apple_refund_integration_pending"
+  | "google_cancel_integration_pending"
+  | "google_refund_integration_pending";
+
+// Strips fields already captured in dedicated audit columns (admin email)
+// before echoing the request body into metadata. Keeps the row greppable but
+// avoids storing the same value in two places.
+function sanitizeIapBody(body: unknown): Record<string, unknown> {
+  if (!body || typeof body !== "object") return {};
+  const { requesterEmail, ...rest } = body as Record<string, unknown>;
+  void requesterEmail;
+  return rest;
+}
+
+async function writeIapStubAndRespond(args: {
+  res: any;
+  adminEmail: string;
+  userId: string;
+  platform: IapPlatform;
+  action: IapAction;
+  reason: string;
+  attemptedAmountCents: number | null;
+  notImplementedReason: IapNotImplementedReason;
+  requestBody: Record<string, unknown>;
+}): Promise<void> {
+  const {
+    res,
+    adminEmail,
+    userId,
+    platform,
+    action,
+    reason,
+    attemptedAmountCents,
+    notImplementedReason,
+    requestBody,
+  } = args;
+
+  const source = platform === "apple" ? "apple_iap" : "google_play";
+  const [effective, resolved] = await Promise.all([
+    computeEffectiveTier(userId),
+    resolveSubscriptionSource(userId),
+  ]);
+
+  await writeAdminAudit({
+    adminEmail,
+    userId,
+    action,
+    source,
+    previousState: { tier: effective.tier, source: effective.source },
+    // Deliberately null: no mutation happened, echoing previousState would
+    // misrepresent the audit trail.
+    newState: null,
+    reason,
+    metadata: {
+      platform,
+      attemptedAction: action,
+      userSourceAtAttempt: resolved.source,
+      userIapSource: resolved.iapSource,
+      userIapOriginalTransactionId: resolved.iapOriginalTransactionId,
+      stripeCustomerId: resolved.stripeCustomerId,
+      attemptedAmountCents,
+      notImplementedReason,
+      requestBody,
+    },
+  });
+
+  res.status(501).json({
+    error: "IAP action not implemented",
+    platform,
+    attemptedAction: action,
+    audit: { logged: true },
+  });
+}
+
+// Shared request validation for the four routes. Returns null on failure
+// after sending the response, so the caller can early-return.
+async function parseIapRequest(
+  req: any,
+  res: any,
+  opts: { allowAmount: boolean },
+): Promise<{ adminEmail: string; userId: string; reason: string; amountCents: number | null } | null> {
+  // PR 5a: IAP stubs count as mutations for rate-limit purposes — they
+  // still write admin_audit rows even though the response is 501, and we
+  // want to throttle audit-log noise the same way as a real cancel.
+  const adminEmail = await requireSubscriptionToolsMutation(req, res);
+  if (!adminEmail) return null;
+  const { userId } = req.params;
+  const reason =
+    typeof req.body?.reason === "string" && req.body.reason.trim().length > 0
+      ? req.body.reason.trim()
+      : null;
+  if (!reason) {
+    res.status(400).json({ error: "reason is required" });
+    return null;
+  }
+
+  let amountCents: number | null = null;
+  if (opts.allowAmount && req.body?.amountCents !== undefined && req.body?.amountCents !== null) {
+    const raw =
+      typeof req.body.amountCents === "string"
+        ? Number(req.body.amountCents)
+        : (req.body.amountCents as number);
+    if (!Number.isFinite(raw) || !Number.isInteger(raw) || raw <= 0) {
+      res.status(400).json({ error: "amountCents must be a positive integer (cents)" });
+      return null;
+    }
+    amountCents = raw;
+  }
+
+  const targetUser = await storage.getUserByClerkId(userId);
+  if (!targetUser) {
+    res.status(404).json({ error: "User not found" });
+    return null;
+  }
+
+  return { adminEmail, userId, reason, amountCents };
+}
+
+// POST /api/admin/users/:userId/iap/apple/cancel  body: { reason, requesterEmail? }
+// 501 — Apple has no server-side subscription cancellation; the user must
+// cancel in App Store settings. PR 5's UI renders the send-instructions
+// flow; this endpoint just records the intent.
+router.post("/users/:userId/iap/apple/cancel", async (req, res) => {
+  try {
+    const parsed = await parseIapRequest(req, res, { allowAmount: false });
+    if (!parsed) return;
+    await writeIapStubAndRespond({
+      res,
+      adminEmail: parsed.adminEmail,
+      userId: parsed.userId,
+      platform: "apple",
+      action: "cancel",
+      reason: parsed.reason,
+      attemptedAmountCents: null,
+      notImplementedReason: "apple_cancel_user_self_service",
+      requestBody: sanitizeIapBody(req.body),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/users/:userId/iap/apple/refund  body: { amountCents?, reason, requesterEmail? }
+// 501 — Apple's refund-request API is not yet integrated. Full refund when
+// amountCents is omitted; partial when provided. The amount is recorded in
+// metadata for when integration lands.
+router.post("/users/:userId/iap/apple/refund", async (req, res) => {
+  try {
+    const parsed = await parseIapRequest(req, res, { allowAmount: true });
+    if (!parsed) return;
+    await writeIapStubAndRespond({
+      res,
+      adminEmail: parsed.adminEmail,
+      userId: parsed.userId,
+      platform: "apple",
+      action: "refund",
+      reason: parsed.reason,
+      attemptedAmountCents: parsed.amountCents,
+      notImplementedReason: "apple_refund_integration_pending",
+      requestBody: sanitizeIapBody(req.body),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/users/:userId/iap/google/cancel  body: { reason, requesterEmail? }
+// 501 — Play Developer API cancel call not yet integrated.
+router.post("/users/:userId/iap/google/cancel", async (req, res) => {
+  try {
+    const parsed = await parseIapRequest(req, res, { allowAmount: false });
+    if (!parsed) return;
+    await writeIapStubAndRespond({
+      res,
+      adminEmail: parsed.adminEmail,
+      userId: parsed.userId,
+      platform: "google",
+      action: "cancel",
+      reason: parsed.reason,
+      attemptedAmountCents: null,
+      notImplementedReason: "google_cancel_integration_pending",
+      requestBody: sanitizeIapBody(req.body),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/users/:userId/iap/google/refund  body: { amountCents?, reason, requesterEmail? }
+// 501 — Play Console / API refund call not yet integrated. Same amount
+// handling as the Apple refund stub.
+router.post("/users/:userId/iap/google/refund", async (req, res) => {
+  try {
+    const parsed = await parseIapRequest(req, res, { allowAmount: true });
+    if (!parsed) return;
+    await writeIapStubAndRespond({
+      res,
+      adminEmail: parsed.adminEmail,
+      userId: parsed.userId,
+      platform: "google",
+      action: "refund",
+      reason: parsed.reason,
+      attemptedAmountCents: parsed.amountCents,
+      notImplementedReason: "google_refund_integration_pending",
+      requestBody: sanitizeIapBody(req.body),
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
