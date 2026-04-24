@@ -1,6 +1,17 @@
 import Stripe from "stripe";
 
-let connectionSettings: any;
+type ReplitConnectionItem = {
+  settings?: {
+    publishable?: string;
+    secret?: string;
+  };
+};
+
+type ReplitConnectionResponse = {
+  items?: ReplitConnectionItem[];
+};
+
+let connectionSettings: ReplitConnectionItem | undefined;
 
 async function getCredentials() {
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
@@ -25,7 +36,7 @@ async function getCredentials() {
     headers: { Accept: "application/json", "X-Replit-Token": xReplitToken },
   });
 
-  const data = await response.json();
+  const data = (await response.json()) as ReplitConnectionResponse;
   connectionSettings = data.items?.[0];
 
   if (!connectionSettings?.settings?.publishable || !connectionSettings?.settings?.secret) {
