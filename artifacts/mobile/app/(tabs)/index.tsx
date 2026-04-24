@@ -376,6 +376,22 @@ export default function WatchlistScreen() {
     }, 350);
   }, []);
 
+  const closePortfolioPicker = useCallback(() => {
+    setPickerVisible(false);
+    setCreatingPortfolio(false);
+    setNewPortfolioName("");
+  }, []);
+
+  const handleCreatePortfolio = useCallback(() => {
+    const name = newPortfolioName.trim();
+    if (!name) return;
+    const folder = createFolder(name);
+    if (!folder) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setActiveFolderId(folder.id);
+    closePortfolioPicker();
+  }, [newPortfolioName, createFolder, setActiveFolderId, closePortfolioPicker]);
+
   return (
     <View style={[styles.fill, { backgroundColor: colors.background }]}>
       <View style={{ paddingTop: topPadding + 16 }}>
