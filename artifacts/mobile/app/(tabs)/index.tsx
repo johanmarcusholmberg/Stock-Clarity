@@ -375,12 +375,7 @@ export default function WatchlistScreen() {
       });
     }, 350);
   }, []);
-
-  const closePortfolioPicker = useCallback(() => {
-    setPickerVisible(false);
-    setCreatingPortfolio(false);
-    setNewPortfolioName("");
-  }, []);
+  
 
   const handleCreatePortfolio = useCallback(() => {
     const name = newPortfolioName.trim();
