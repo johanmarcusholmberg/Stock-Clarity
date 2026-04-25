@@ -11,6 +11,7 @@ import authRouter from "./auth";
 import alertsRouter from "./alerts";
 import pushTokensRouter from "./pushTokens";
 import exportRouter from "./export";
+import notifyRouter from "./notify";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use("/auth", authRouter);
 router.use("/alerts", alertsRouter);
 router.use("/push-tokens", pushTokensRouter);
 router.use("/export", exportRouter);
+router.use("/notify", notifyRouter);
 
 export default router;
