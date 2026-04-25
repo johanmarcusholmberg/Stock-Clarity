@@ -1,25 +1,38 @@
 import { execute, query, queryOne } from "../db";
 import { notifySchemaReady } from "./notifySchema";
+import { EARNINGS_KEYWORDS_RE } from "./newsImpact";
 import { sendExpoPush } from "./pushDelivery";
 import { logger } from "./logger";
 
 // Notification evaluator.
 //
-// PR 1 shipped the lifecycle + heartbeat skeleton. PR 2 (this file) wires up
-// the news side:
-//   - module-level cursor over news_cache.id, initialised lazily on the first
-//     tick so historical rows never fire
-//   - fan-out per news row → one row per user via window-function "first
+// PR 1 shipped the lifecycle + heartbeat skeleton. PR 2 wired up the news
+// side. PR 3 (this update) adds the earnings side: three firing windows per
+// (subscription, earnings_calendar.id) — earnings_t1 (≈24h ahead),
+// earnings_open (market open on the day), earnings_after (after close, gated
+// on a high-impact earnings headline).
+//
+// Shared invariants:
+//   - fan-out per source row → one row per user via window-function "first
 //     match wins" between the per-symbol row and the user's NULL-symbol
 //     default row
-//   - per-user daily cap (5/24h, sliding) and quiet-hours suppression
-//   - push-only delivery in PR 2 (delivery_channel='email'/'both' deferred to
-//     a follow-up — schema supports it, evaluator does not yet)
+//   - quiet-hours suppression applies to both kinds; per-user daily cap
+//     applies to news only (earnings events are rare)
+//   - push-only delivery for now (delivery_channel='email'/'both' deferred —
+//     schema supports it, evaluator does not yet)
 //   - notification_events INSERT first → UNIQUE (subscription_id, source_kind,
 //     source_id, kind) handles idempotency. We only send the push if the
 //     INSERT actually wrote a row. A missed push beats an untracked one.
 //
-// Earnings side (T-1 / T-open / T-after) lands in PR 3.
+// News side specifics:
+//   - module-level cursor over news_cache.id, initialised lazily on the first
+//     tick so historical rows never fire
+//
+// Earnings side specifics:
+//   - no cursor — each tick scans earnings_calendar in [now-24h, now+25h]
+//     (24h lookback is the worst-case UTC-date-match for a BMO row during
+//     its earnings_after window; 25h lookahead covers earnings_t1 with slop)
+//     and lets the UNIQUE constraint gate duplicates
 
 const TICK_INTERVAL_MS = 60 * 1000;
 const NEWS_DAILY_CAP = 5;
@@ -77,7 +90,10 @@ interface SubscriberRow {
 // Per-symbol row wins over the user-default row. If the per-symbol row is
 // muted, the user is skipped (explicit mute) — the default does not bubble
 // through. If only the default exists, it's used.
-async function resolveSubscribers(symbol: string): Promise<SubscriberRow[]> {
+async function resolveSubscribers(
+  symbol: string,
+  kind: "news" | "earnings",
+): Promise<SubscriberRow[]> {
   return query<SubscriberRow>(
     `SELECT id, user_id, symbol, status, min_impact_score, delivery_channel,
             quiet_start_hour, quiet_end_hour
@@ -88,11 +104,11 @@ async function resolveSubscribers(symbol: string): Promise<SubscriberRow[]> {
                   ORDER BY (symbol IS NULL) ASC
                 ) AS prio
            FROM notify_subscriptions ns
-          WHERE kind = 'news'
+          WHERE kind = $2
             AND (symbol = $1 OR symbol IS NULL)
        ) ranked
       WHERE prio = 1`,
-    [symbol],
+    [symbol, kind],
   );
 }
 
@@ -273,7 +289,7 @@ async function fireOne(news: NewsRow, sub: SubscriberRow): Promise<void> {
 }
 
 async function fanOutNewsRow(news: NewsRow): Promise<void> {
-  const subs = await resolveSubscribers(news.symbol);
+  const subs = await resolveSubscribers(news.symbol, "news");
   for (const sub of subs) {
     if (sub.status === "muted") continue;
     const minImpact = sub.min_impact_score ?? 60;
@@ -319,8 +335,315 @@ async function processNewsCursor(): Promise<void> {
   newsCursor = Number(rows[rows.length - 1].id);
 }
 
+// ── Earnings: types ──────────────────────────────────────────────────────────
+type EarningsWindow = "earnings_t1" | "earnings_open" | "earnings_after";
+
+interface EarningsRow {
+  id: number;
+  symbol: string;
+  expected_at: Date | string;
+}
+
+interface EarningsNewsHint {
+  id: number;
+  title: string;
+  publisher: string;
+}
+
+// ── Earnings: ET time helpers ────────────────────────────────────────────────
+// Intl is the source of truth for DST. We never hardcode -04:00 / -05:00.
+function etDateString(d: Date): string {
+  // en-CA formats as YYYY-MM-DD by default.
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+function etTimeOfDay(d: Date): { hour: number; minute: number } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  let h = Number(get("hour"));
+  const m = Number(get("minute"));
+  if (!Number.isFinite(h)) h = 0;
+  // Some ICU builds return 24 instead of 0 at midnight.
+  if (h === 24) h = 0;
+  return { hour: h, minute: Number.isFinite(m) ? m : 0 };
+}
+
+// "Today's 09:30 ET" expressed as a UTC instant. EDT is UTC-4, EST is UTC-5;
+// we try both candidates and pick the one that round-trips back to 09:30 on
+// the right ET date. The fallback (EDT) is the common case ~8 months a year.
+function etMarketOpenUtc(now: Date): Date {
+  const dateStr = etDateString(now); // "YYYY-MM-DD"
+  const [y, m, d] = dateStr.split("-").map(Number);
+  for (const offsetH of [4, 5]) {
+    const candidate = new Date(Date.UTC(y, m - 1, d, 9 + offsetH, 30));
+    if (etDateString(candidate) === dateStr) {
+      const t = etTimeOfDay(candidate);
+      if (t.hour === 9 && t.minute === 30) return candidate;
+    }
+  }
+  return new Date(Date.UTC(y, m - 1, d, 13, 30));
+}
+
+// ── Earnings: window detection ───────────────────────────────────────────────
+// Returns every window that should fire right now for this row. The
+// earnings_after window is included on a time match alone — the news-gate
+// check is the caller's responsibility.
+function windowsFiringFor(expectedAt: Date, now: Date): EarningsWindow[] {
+  const out: EarningsWindow[] = [];
+  const diffH = (expectedAt.getTime() - now.getTime()) / 3_600_000;
+  if (diffH >= 23 && diffH <= 25) out.push("earnings_t1");
+
+  // earnings_open / earnings_after are gated on a UTC-date match between
+  // expected_at and now (per design doc) plus an ET clock-time check.
+  const sameUtcDate =
+    now.getUTCFullYear() === expectedAt.getUTCFullYear() &&
+    now.getUTCMonth() === expectedAt.getUTCMonth() &&
+    now.getUTCDate() === expectedAt.getUTCDate();
+  if (sameUtcDate) {
+    const { hour, minute } = etTimeOfDay(now);
+    const minutesEt = hour * 60 + minute;
+    if (minutesEt >= 9 * 60 + 30 && minutesEt < 10 * 60 + 30) out.push("earnings_open");
+    if (minutesEt >= 16 * 60 && minutesEt < 20 * 60) out.push("earnings_after");
+  }
+  return out;
+}
+
+// ── Earnings: after-window news gate ─────────────────────────────────────────
+// Only fire earnings_after if a high-impact news headline mentioning earnings
+// has landed since the open. We pull a small candidate set in SQL (symbol,
+// score, time) and apply the regex in JS to keep PG/JS regex semantics
+// aligned with newsImpact.ts.
+async function findEarningsAfterMatch(
+  symbol: string,
+  marketOpenUtc: Date,
+): Promise<EarningsNewsHint | null> {
+  const rows = await query<{
+    id: string | number;
+    title: string;
+    publisher: string;
+  }>(
+    `SELECT id, title, publisher
+       FROM news_cache
+      WHERE symbol = $1
+        AND impact_score IS NOT NULL
+        AND impact_score >= 60
+        AND published_at >= $2
+      ORDER BY published_at DESC
+      LIMIT 50`,
+    [symbol, marketOpenUtc.toISOString()],
+  );
+  for (const r of rows) {
+    if (EARNINGS_KEYWORDS_RE.test(r.title)) {
+      return { id: Number(r.id), title: r.title, publisher: r.publisher };
+    }
+  }
+  return null;
+}
+
+// ── Earnings: payload formatter ──────────────────────────────────────────────
+function formatEarningsPayload(
+  symbol: string,
+  window: EarningsWindow,
+  newsHint?: EarningsNewsHint,
+): { title: string; body: string } {
+  const title = symbol;
+  let raw: string;
+  if (window === "earnings_t1") {
+    raw = "Earnings expected in ~24h";
+  } else if (window === "earnings_open") {
+    raw = "Earnings expected today";
+  } else {
+    raw = newsHint
+      ? `Earnings reported — ${newsHint.publisher}: ${newsHint.title}`
+      : "Earnings reported";
+  }
+  const body =
+    raw.length <= PUSH_BODY_MAX_CHARS ? raw : raw.slice(0, PUSH_BODY_MAX_CHARS - 1) + "…";
+  return { title, body };
+}
+
+// ── Earnings: push ───────────────────────────────────────────────────────────
+async function sendEarningsPush(
+  userId: string,
+  title: string,
+  body: string,
+  earnings: EarningsRow,
+  window: EarningsWindow,
+): Promise<"push" | "push:no_token" | "push:failed"> {
+  const tokens = await query<{ token: string }>(
+    "SELECT token FROM expo_push_tokens WHERE user_id = $1",
+    [userId],
+  );
+  if (!tokens.length) return "push:no_token";
+  const messages = tokens.map((t) => ({
+    to: t.token,
+    title,
+    body,
+    sound: "default" as const,
+    data: {
+      kind: "earnings_alert",
+      window,
+      symbol: earnings.symbol,
+      calendarId: earnings.id,
+    },
+  }));
+  const receipts = await sendExpoPush(messages);
+  return receipts.length ? "push" : "push:failed";
+}
+
+// ── Earnings: telemetry ──────────────────────────────────────────────────────
+type EarningsOutcome = "sent" | "quiet";
+
+async function writeEarningsTelemetry(
+  outcome: EarningsOutcome,
+  sub: SubscriberRow,
+  earnings: EarningsRow,
+  window: EarningsWindow,
+  finalDeliveredVia: string,
+): Promise<void> {
+  const eventType = outcome === "sent" ? "earnings_alert_sent" : "notification_suppressed_quiet_hours";
+  try {
+    await execute(
+      `INSERT INTO user_events (user_id, event_type, payload, ip_address, user_agent)
+       VALUES ($1, $2, $3, NULL, NULL)`,
+      [
+        sub.user_id,
+        eventType,
+        JSON.stringify({
+          subscriptionId: sub.id,
+          calendarId: earnings.id,
+          symbol: earnings.symbol,
+          window,
+          deliveredVia: finalDeliveredVia,
+        }),
+      ],
+    );
+  } catch (err: any) {
+    logger.warn({ err: err?.message, eventType }, "notify telemetry insert failed");
+  }
+}
+
+// ── Earnings: per-row fan-out + per-user fire ────────────────────────────────
+async function fireEarningsOne(
+  earnings: EarningsRow,
+  sub: SubscriberRow,
+  window: EarningsWindow,
+  newsHint?: EarningsNewsHint,
+): Promise<void> {
+  // No daily cap on earnings — design doc treats them as rare events.
+  const inQuiet = await isInQuietHours(sub.user_id, sub);
+
+  const outcome: EarningsOutcome = inQuiet ? "quiet" : "sent";
+  const initialDelivery = inQuiet ? "suppressed:quiet_hours" : "push";
+
+  const { title, body } = formatEarningsPayload(earnings.symbol, window, newsHint);
+
+  const inserted = await queryOne<{ id: string | number }>(
+    `INSERT INTO notification_events
+       (user_id, subscription_id, symbol, kind, source_kind, source_id, title, body, delivered_via)
+     VALUES ($1, $2, $3, $4, 'earnings_calendar', $5, $6, $7, $8)
+     ON CONFLICT (subscription_id, source_kind, source_id, kind) DO NOTHING
+     RETURNING id`,
+    [sub.user_id, sub.id, earnings.symbol, window, earnings.id, title, body, initialDelivery],
+  );
+  if (!inserted) return;
+
+  let finalDelivery = initialDelivery;
+  if (outcome === "sent") {
+    const result = await sendEarningsPush(sub.user_id, title, body, earnings, window);
+    if (result !== "push") {
+      finalDelivery = result;
+      await execute(
+        "UPDATE notification_events SET delivered_via = $1 WHERE id = $2",
+        [finalDelivery, inserted.id],
+      );
+    }
+  }
+
+  await writeEarningsTelemetry(outcome, sub, earnings, window, finalDelivery);
+}
+
+async function fanOutEarningsRow(
+  earnings: EarningsRow,
+  window: EarningsWindow,
+  newsHint?: EarningsNewsHint,
+): Promise<void> {
+  const subs = await resolveSubscribers(earnings.symbol, "earnings");
+  for (const sub of subs) {
+    if (sub.status === "muted") continue;
+    try {
+      await fireEarningsOne(earnings, sub, window, newsHint);
+    } catch (err: any) {
+      logger.warn(
+        {
+          err: err?.message,
+          calendarId: earnings.id,
+          window,
+          subscriptionId: sub.id,
+        },
+        "notify fireEarningsOne failed",
+      );
+    }
+  }
+}
+
+// ── Earnings: tick scan ──────────────────────────────────────────────────────
+async function processEarningsWindows(): Promise<void> {
+  const now = new Date();
+  const rows = await query<{ id: string | number; symbol: string; expected_at: string | Date }>(
+    `SELECT id, symbol, expected_at
+       FROM earnings_calendar
+      WHERE expected_at >= NOW() - INTERVAL '24 hours'
+        AND expected_at <= NOW() + INTERVAL '25 hours'`,
+  );
+  if (!rows.length) return;
+
+  for (const r of rows) {
+    const earnings: EarningsRow = {
+      id: Number(r.id),
+      symbol: r.symbol,
+      expected_at: r.expected_at,
+    };
+    const expectedAt =
+      r.expected_at instanceof Date ? r.expected_at : new Date(r.expected_at);
+    const windows = windowsFiringFor(expectedAt, now);
+    if (!windows.length) continue;
+
+    let afterMatch: EarningsNewsHint | null | undefined; // lazy
+    for (const window of windows) {
+      try {
+        if (window === "earnings_after") {
+          if (afterMatch === undefined) {
+            afterMatch = await findEarningsAfterMatch(r.symbol, etMarketOpenUtc(now));
+          }
+          if (!afterMatch) continue;
+          await fanOutEarningsRow(earnings, window, afterMatch);
+        } else {
+          await fanOutEarningsRow(earnings, window);
+        }
+      } catch (err: any) {
+        logger.warn(
+          { err: err?.message, calendarId: earnings.id, window },
+          "notify earnings fan-out failed",
+        );
+      }
+    }
+  }
+}
+
 async function tick(): Promise<void> {
   await processNewsCursor();
+  await processEarningsWindows();
   await touchHeartbeat();
 }
 
@@ -368,6 +691,11 @@ export const __test__ = {
   inQuietWindow,
   currentHourInTz,
   formatPayload,
+  etDateString,
+  etTimeOfDay,
+  etMarketOpenUtc,
+  windowsFiringFor,
+  formatEarningsPayload,
   resetCursorForTest: () => {
     newsCursor = null;
   },
