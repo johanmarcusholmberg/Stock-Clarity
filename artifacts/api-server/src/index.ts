@@ -6,6 +6,8 @@ import { startAlertEvaluator } from "./lib/alertEvaluator";
 import { startNewsPreloadWorker } from "./lib/newsPreloadWorker";
 import { startGrantExpiryWorker } from "./lib/grantExpiryWorker";
 import { startGrantExpiryWarningWorker } from "./lib/grantExpiryWarningWorker";
+import { startEarningsCalendarWorker } from "./lib/earningsCalendarWorker";
+import { startNotifyEvaluator } from "./lib/notifyEvaluator";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
@@ -68,4 +70,12 @@ app.listen(port, async (err) => {
   startGrantExpiryWarningWorker().catch((e) =>
     logger.warn(e, "Grant expiry warning worker start error"),
   );
+
+  // Phase 3.3 PR 1 — earnings calendar refresh + notify evaluator skeleton.
+  // Both no-op unless NOTIFY_ENABLED=true. The evaluator is heartbeat-only
+  // until PR 2 fills in the news fan-out and PR 3 the earnings windows.
+  startEarningsCalendarWorker().catch((e) =>
+    logger.warn(e, "Earnings calendar worker start error"),
+  );
+  startNotifyEvaluator().catch((e) => logger.warn(e, "Notify evaluator start error"));
 });
