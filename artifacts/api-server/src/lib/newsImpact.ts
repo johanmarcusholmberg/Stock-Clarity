@@ -49,11 +49,17 @@ const PUBLISHER_WEIGHTS: Array<[RegExp, number]> = [
 
 const DEFAULT_PUBLISHER_WEIGHT = 4;
 
+// Earnings keyword regex. Exported so the notify evaluator can reuse it for
+// the earnings_after gate (only fire the after-market alert if a high-impact
+// news headline mentioning earnings has landed since the open).
+export const EARNINGS_KEYWORDS_RE =
+  /\b(earnings|eps|revenue|beats?|miss(?:es|ed)?|guidance|outlook|forecast|results)\b/i;
+
 // Keyword buckets. First match in each bucket counts once — stacking three
 // lawsuit synonyms in the same title shouldn't multiply the bucket's weight.
 const KEYWORD_BUCKETS: Array<{ re: RegExp; weight: number }> = [
   // Earnings and guidance — the single most market-moving category.
-  { re: /\b(earnings|eps|revenue|beats?|miss(?:es|ed)?|guidance|outlook|forecast|results)\b/i, weight: 22 },
+  { re: EARNINGS_KEYWORDS_RE, weight: 22 },
   // M&A / corporate actions.
   { re: /\b(acquisition|acquires?|merger|merge(?:s|d)?|buyout|takeover|divestiture|spin[-\s]?off)\b/i, weight: 22 },
   // Analyst rating changes.
