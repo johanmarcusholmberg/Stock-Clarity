@@ -21,6 +21,7 @@ import { WatchlistProvider, useWatchlist } from "@/context/WatchlistContext";
 import { SubscriptionProvider, useSubscription } from "@/context/SubscriptionContext";
 import { AlertsProvider } from "@/context/AlertsContext";
 import { NotifyProvider } from "@/context/NotifyContext";
+import { HoldingsProvider } from "@/context/HoldingsContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { FirstTimeNameModal } from "@/components/FirstTimeNameModal";
 
@@ -93,11 +94,13 @@ export default function RootLayout() {
                   <WatchlistProviderWithTier>
                     <AlertsProvider>
                       <NotifyProvider>
-                        <GestureHandlerRootView>
-                          <KeyboardProvider>
-                            <RootLayoutNav />
-                          </KeyboardProvider>
-                        </GestureHandlerRootView>
+                        <HoldingsProvider>
+                          <GestureHandlerRootView>
+                            <KeyboardProvider>
+                              <RootLayoutNav />
+                            </KeyboardProvider>
+                          </GestureHandlerRootView>
+                        </HoldingsProvider>
                       </NotifyProvider>
                     </AlertsProvider>
                   </WatchlistProviderWithTier>

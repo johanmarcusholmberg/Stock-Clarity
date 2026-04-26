@@ -1,0 +1,141 @@
+// Client for the /api/holdings endpoints. Mirrors notifyApi.ts:
+// snake_case stays on the wire; rows come straight out of pg.
+
+const API_BASE = (() => {
+  const domain = process.env.EXPO_PUBLIC_DOMAIN;
+  if (domain) return `https://${domain}/api`;
+  return "http://localhost:8080/api";
+})();
+
+export interface Lot {
+  id: string;
+  holding_id: string;
+  qty: string;
+  cost_per_share: string;
+  purchased_at: string;
+  currency: string;
+  created_at: string;
+}
+
+export interface HoldingRow {
+  id: string;
+  user_id: string;
+  ticker: string;
+  currency: string;
+  created_at: string;
+}
+
+export interface Holding extends HoldingRow {
+  lots: Lot[];
+}
+
+export interface HoldingsListResponse {
+  holdings: Holding[];
+}
+
+export interface HoldingsStatusResponse {
+  enabled: boolean;
+}
+
+export type ApiError = { error: string; limit?: number };
+
+export async function getHoldingsStatus(): Promise<HoldingsStatusResponse> {
+  try {
+    const res = await fetch(`${API_BASE}/holdings/status`);
+    if (!res.ok) return { enabled: false };
+    return (await res.json()) as HoldingsStatusResponse;
+  } catch {
+    return { enabled: false };
+  }
+}
+
+export async function listHoldings(userId: string): Promise<HoldingsListResponse> {
+  try {
+    const res = await fetch(`${API_BASE}/holdings/${encodeURIComponent(userId)}`);
+    if (!res.ok) return { holdings: [] };
+    return (await res.json()) as HoldingsListResponse;
+  } catch {
+    return { holdings: [] };
+  }
+}
+
+export interface AddHoldingInput {
+  ticker: string;
+  qty: number;
+  cost_per_share: number;
+  purchased_at: string;
+  currency?: string;
+}
+
+export interface AddHoldingResponse {
+  holding: HoldingRow;
+  lot: Lot;
+}
+
+export async function addHolding(
+  userId: string,
+  input: AddHoldingInput,
+): Promise<AddHoldingResponse | ApiError> {
+  const res = await fetch(`${API_BASE}/holdings/${encodeURIComponent(userId)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return { error: data?.error ?? `HTTP ${res.status}`, limit: data?.limit };
+  }
+  return data as AddHoldingResponse;
+}
+
+export interface AddLotInput {
+  qty: number;
+  cost_per_share: number;
+  purchased_at: string;
+  currency?: string;
+}
+
+export async function addLot(
+  userId: string,
+  holdingId: string,
+  input: AddLotInput,
+): Promise<{ lot: Lot } | ApiError> {
+  const res = await fetch(
+    `${API_BASE}/holdings/${encodeURIComponent(userId)}/${encodeURIComponent(holdingId)}/lots`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { error: data?.error ?? `HTTP ${res.status}` };
+  return data as { lot: Lot };
+}
+
+export async function deleteHolding(
+  userId: string,
+  holdingId: string,
+): Promise<{ ok: true } | ApiError> {
+  const res = await fetch(
+    `${API_BASE}/holdings/${encodeURIComponent(userId)}/${encodeURIComponent(holdingId)}`,
+    { method: "DELETE" },
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { error: data?.error ?? `HTTP ${res.status}` };
+  return data as { ok: true };
+}
+
+export async function deleteLot(
+  userId: string,
+  holdingId: string,
+  lotId: string,
+): Promise<{ ok: true } | ApiError> {
+  const res = await fetch(
+    `${API_BASE}/holdings/${encodeURIComponent(userId)}/${encodeURIComponent(holdingId)}/lots/${encodeURIComponent(lotId)}`,
+    { method: "DELETE" },
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { error: data?.error ?? `HTTP ${res.status}` };
+  return data as { ok: true };
+}

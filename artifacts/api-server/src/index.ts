@@ -8,6 +8,7 @@ import { startGrantExpiryWorker } from "./lib/grantExpiryWorker";
 import { startGrantExpiryWarningWorker } from "./lib/grantExpiryWarningWorker";
 import { startEarningsCalendarWorker } from "./lib/earningsCalendarWorker";
 import { startNotifyEvaluator } from "./lib/notifyEvaluator";
+import { startPortfolioSnapshotWorker } from "./lib/portfolioSnapshotWorker";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
@@ -78,4 +79,11 @@ app.listen(port, async (err) => {
     logger.warn(e, "Earnings calendar worker start error"),
   );
   startNotifyEvaluator().catch((e) => logger.warn(e, "Notify evaluator start error"));
+
+  // Phase 3.4 PR 2 — daily holdings → portfolio_snapshots writer. No-op
+  // unless HOLDINGS_ENABLED=true. Aligned to 06:30 UTC after the earnings
+  // calendar worker so quote fan-outs don't pile up at the same moment.
+  startPortfolioSnapshotWorker().catch((e) =>
+    logger.warn(e, "Portfolio snapshot worker start error"),
+  );
 });
