@@ -12,6 +12,7 @@ import alertsRouter from "./alerts";
 import pushTokensRouter from "./pushTokens";
 import exportRouter from "./export";
 import notifyRouter from "./notify";
+import holdingsRouter from "./holdings";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use("/alerts", alertsRouter);
 router.use("/push-tokens", pushTokensRouter);
 router.use("/export", exportRouter);
 router.use("/notify", notifyRouter);
+router.use("/holdings", holdingsRouter);
 
 export default router;

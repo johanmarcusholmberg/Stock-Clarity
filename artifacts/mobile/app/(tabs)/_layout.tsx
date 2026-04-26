@@ -5,11 +5,13 @@ import { Platform } from "react-native";
 import { useAuth } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription } from "@/context/SubscriptionContext";
+import { useHoldings } from "@/context/HoldingsContext";
 
 const ICON_SIZE = 23;
 
 export default function TabLayout() {
   const { tier, isAdmin } = useSubscription();
+  const { enabled: holdingsEnabled } = useHoldings();
   const { isSignedIn, isLoaded } = useAuth();
   const colors = useColors();
   const isWeb = Platform.OS === "web";
@@ -65,6 +67,16 @@ export default function TabLayout() {
         options={{
           title: "Insights",
           tabBarIcon: ({ color }) => <Feather name="pie-chart" size={ICON_SIZE} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="portfolio"
+        options={{
+          title: "Portfolio",
+          // Hidden when HOLDINGS_ENABLED is off; same gating pattern the
+          // admin-panel tab uses with isAdmin.
+          href: holdingsEnabled ? undefined : null,
+          tabBarIcon: ({ color }) => <Feather name="briefcase" size={ICON_SIZE} color={color} />,
         }}
       />
       <Tabs.Screen
