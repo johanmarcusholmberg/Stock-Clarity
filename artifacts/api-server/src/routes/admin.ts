@@ -181,9 +181,26 @@ button{width:100%;padding:12px;border-radius:8px;border:none;background:#14b8a6;
   let recentErrors: any[] = [];
   let recentFeedback: any[] = [];
   let users: any[] = [];
+  // Phase 3.3 PR 6 — notify telemetry (last 7 days). Sourced from user_events
+  // rows the notify evaluator writes (news_alert_sent / earnings_alert_sent /
+  // notification_suppressed_*). CTR is intentionally not tracked yet — see
+  // notifyEvaluator.ts header.
+  let notifyTotals = { news_sent: 0, earnings_sent: 0 };
+  let notifySuppressed: any[] = [];
 
   try {
-    const [usersRes, eventsRes, errorsRes, feedbackRes, trendingRes, recentErrorsRes, recentFeedbackRes, usersListRes] = await Promise.all([
+    const [
+      usersRes,
+      eventsRes,
+      errorsRes,
+      feedbackRes,
+      trendingRes,
+      recentErrorsRes,
+      recentFeedbackRes,
+      usersListRes,
+      notifySentRes,
+      notifySuppressedRes,
+    ] = await Promise.all([
       query("SELECT COUNT(*) as c FROM users"),
       query("SELECT COUNT(*) as c FROM user_events WHERE created_at > NOW() - INTERVAL '24 hours'"),
       query("SELECT COUNT(*) as c FROM error_logs WHERE created_at > NOW() - INTERVAL '24 hours'"),
@@ -201,6 +218,22 @@ button{width:100%;padding:12px;border-radius:8px;border:none;background:#14b8a6;
           GREATEST(1, DATE_PART('day', NOW() - u.created_at)::int) AS days_since_joined
         FROM users u ORDER BY u.created_at DESC LIMIT 50
       `),
+      query(`
+        SELECT
+          COUNT(*) FILTER (WHERE event_type = 'news_alert_sent')     AS news_sent,
+          COUNT(*) FILTER (WHERE event_type = 'earnings_alert_sent') AS earnings_sent
+        FROM user_events
+        WHERE created_at > NOW() - INTERVAL '7 days'
+          AND event_type IN ('news_alert_sent','earnings_alert_sent')
+      `),
+      query(`
+        SELECT event_type, COUNT(*) AS c
+        FROM user_events
+        WHERE created_at > NOW() - INTERVAL '7 days'
+          AND event_type LIKE 'notification_suppressed_%'
+        GROUP BY event_type
+        ORDER BY c DESC
+      `),
     ]);
     stats.users = parseInt(usersRes[0]?.c ?? "0");
     stats.events_today = parseInt(eventsRes[0]?.c ?? "0");
@@ -212,6 +245,9 @@ button{width:100%;padding:12px;border-radius:8px;border:none;background:#14b8a6;
     recentErrors = recentErrorsRes;
     recentFeedback = recentFeedbackRes;
     users = usersListRes;
+    notifyTotals.news_sent = parseInt(notifySentRes[0]?.news_sent ?? "0");
+    notifyTotals.earnings_sent = parseInt(notifySentRes[0]?.earnings_sent ?? "0");
+    notifySuppressed = notifySuppressedRes;
   } catch {}
 
   const style = `<style>
@@ -248,6 +284,16 @@ button{width:100%;padding:12px;border-radius:8px;border:none;background:#14b8a6;
   </style>`;
 
   const starsHtml = (r: number) => r ? "★".repeat(r) + "☆".repeat(5 - r) : "—";
+
+  // Friendly label for the suppressed-by-reason rows (event_type → display).
+  const suppressedLabel = (eventType: string): string => {
+    if (eventType === "notification_suppressed_cap") return "Daily cap (5/24h)";
+    if (eventType === "notification_suppressed_quiet_hours") return "Quiet hours";
+    return eventType.replace(/^notification_suppressed_/, "").replace(/_/g, " ");
+  };
+  const suppressedRows = notifySuppressed.length
+    ? notifySuppressed.map(s => `<tr><td>${suppressedLabel(s.event_type)}</td><td style="text-align:right">${s.c}</td></tr>`).join("")
+    : '<tr><td colspan="2" style="color:#64748b;padding:20px">No suppressions in the last 7 days</td></tr>';
 
   const usersRows = users.length
     ? users.map(u => `<tr>
@@ -294,6 +340,19 @@ button{width:100%;padding:12px;border-radius:8px;border:none;background:#14b8a6;
     <table>
       <tr><th>Ticker</th><th>Name</th><th>Views</th></tr>
       ${trending.length ? trending.map(t => `<tr><td><b>${t.ticker}</b></td><td>${t.stock_name ?? "—"}</td><td>${t.views}</td></tr>`).join("") : '<tr><td colspan="3" style="color:#64748b;padding:20px">No data yet</td></tr>'}
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>🔔 Notify Alerts (7d)</h2>
+    <div class="grid" style="margin-bottom:16px">
+      <div class="stat"><div class="val">${notifyTotals.news_sent}</div><div class="lbl">News Sent</div></div>
+      <div class="stat"><div class="val">${notifyTotals.earnings_sent}</div><div class="lbl">Earnings Sent</div></div>
+      <div class="stat"><div class="val">${notifyTotals.news_sent + notifyTotals.earnings_sent}</div><div class="lbl">Total Sent</div></div>
+    </div>
+    <table>
+      <tr><th>Suppressed (reason)</th><th style="text-align:right">Count</th></tr>
+      ${suppressedRows}
     </table>
   </div>
 

@@ -63,10 +63,16 @@ export interface NotifyStatusResponse {
   enabled: boolean;
 }
 
-// ── Status (NOTIFY_ENABLED on the server) ───────────────────────────────────
-export async function getNotifyStatus(): Promise<NotifyStatusResponse> {
+// ── Status (NOTIFY_ENABLED + per-user rollout bucket on the server) ─────────
+// userId is required for the rollout gate. Calling without it (anonymous
+// caller) yields enabled=false on the server — matches the existing
+// signed-out behaviour where the consumer treats notify as off.
+export async function getNotifyStatus(
+  userId?: string | null,
+): Promise<NotifyStatusResponse> {
   try {
-    const res = await fetch(`${API_BASE}/notify/status`);
+    const qs = userId ? `?userId=${encodeURIComponent(userId)}` : "";
+    const res = await fetch(`${API_BASE}/notify/status${qs}`);
     if (!res.ok) return { enabled: false };
     return (await res.json()) as NotifyStatusResponse;
   } catch {
