@@ -25,6 +25,7 @@ import { useColors } from "@/hooks/useColors";
 import { useTheme } from "@/context/ThemeContext";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { useWatchlist } from "@/context/WatchlistContext";
+import { useNotify } from "@/context/NotifyContext";
 import { PaywallSheet } from "@/components/PaywallSheet";
 import { TabHintPopup } from "@/components/TabHintPopup";
 import {
@@ -67,6 +68,7 @@ export default function AccountScreen() {
     openPortal,
   } = useSubscription();
   const { stocks } = useWatchlist();
+  const notify = useNotify();
   const [showPaywall, setShowPaywall] = useState(false);
   const [feedbackCategory, setFeedbackCategory] = useState<FeedbackCategory>("general");
   const [feedbackMessage, setFeedbackMessage] = useState("");
@@ -581,6 +583,35 @@ export default function AccountScreen() {
             )}
           </View>
         </View>
+
+        {/* Stock notifications (news + earnings, Phase 3.3) */}
+        {notify.enabled && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>Stock Notifications</Text>
+            <View style={s.card}>
+              <TouchableOpacity
+                style={[s.row, s.rowLast]}
+                onPress={() => router.push("/(tabs)/notifications")}
+                activeOpacity={0.7}
+              >
+                <View style={s.rowIcon}>
+                  <Feather name="bell" size={18} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.rowLabel, { marginBottom: 0 }]}>News & earnings</Text>
+                  <Text style={[s.rowValue, { fontSize: 11, marginTop: 2 }]}>
+                    {notify.defaults.news?.status === "active" || notify.defaults.earnings?.status === "active"
+                      ? "On"
+                      : notify.defaults.news || notify.defaults.earnings
+                        ? "Off"
+                        : "Not set up yet"}
+                  </Text>
+                </View>
+                <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* Notifications */}
         {notifPrefs && (

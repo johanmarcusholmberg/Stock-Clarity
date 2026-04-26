@@ -33,7 +33,17 @@ export async function registerForAlerts(userId: string | null): Promise<string |
     const token = tokenRes?.data;
     if (!token) return null;
 
-    await registerPushToken(userId, token, Platform.OS);
+    // IANA zone (e.g. "Europe/Stockholm"). Used by the notify evaluator to
+    // honour the user's quiet-hours window. We send it on every register;
+    // the server upserts so the column stays current as the user travels.
+    let timezone: string | null = null;
+    try {
+      timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+    } catch {
+      timezone = null;
+    }
+
+    await registerPushToken(userId, token, Platform.OS, timezone);
     return token;
   } catch {
     return null;

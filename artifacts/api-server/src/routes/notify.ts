@@ -16,6 +16,12 @@ router.use(async (_req, _res, next) => {
   next();
 });
 
+// ── Feature flag exposure for the mobile client ─────────────────────────────
+router.get("/status", (_req, res) => {
+  const enabled = (process.env.NOTIFY_ENABLED ?? "").toLowerCase() === "true";
+  res.json({ enabled });
+});
+
 interface SubscriptionRow {
   id: string;
   user_id: string;

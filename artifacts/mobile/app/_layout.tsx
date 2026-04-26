@@ -20,6 +20,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { WatchlistProvider, useWatchlist } from "@/context/WatchlistContext";
 import { SubscriptionProvider, useSubscription } from "@/context/SubscriptionContext";
 import { AlertsProvider } from "@/context/AlertsContext";
+import { NotifyProvider } from "@/context/NotifyContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { FirstTimeNameModal } from "@/components/FirstTimeNameModal";
 
@@ -91,11 +92,13 @@ export default function RootLayout() {
                 <SubscriptionProvider>
                   <WatchlistProviderWithTier>
                     <AlertsProvider>
-                      <GestureHandlerRootView>
-                        <KeyboardProvider>
-                          <RootLayoutNav />
-                        </KeyboardProvider>
-                      </GestureHandlerRootView>
+                      <NotifyProvider>
+                        <GestureHandlerRootView>
+                          <KeyboardProvider>
+                            <RootLayoutNav />
+                          </KeyboardProvider>
+                        </GestureHandlerRootView>
+                      </NotifyProvider>
                     </AlertsProvider>
                   </WatchlistProviderWithTier>
                 </SubscriptionProvider>
