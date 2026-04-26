@@ -12,22 +12,30 @@ router.use(async (_req, _res, next) => {
 // Register (or touch) a device's Expo push token against a user.
 // Called from the mobile client on sign-in + app launch.
 router.post("/", async (req, res) => {
-  const { token, userId, platform } = req.body ?? {};
+  const { token, userId, platform, timezone } = req.body ?? {};
   if (typeof token !== "string" || !token.startsWith("ExponentPushToken[")) {
     return void res.status(400).json({ error: "invalid Expo push token" });
   }
   if (typeof userId !== "string" || !userId) {
     return void res.status(400).json({ error: "userId required" });
   }
+  // IANA zone strings are bounded but we still cap defensively. An invalid
+  // timezone here is non-fatal — the evaluator falls back to UTC if it can't
+  // parse the value at notification time.
+  const tz =
+    typeof timezone === "string" && timezone.length > 0 && timezone.length <= 64
+      ? timezone
+      : null;
   try {
     await execute(
-      `INSERT INTO expo_push_tokens (token, user_id, platform, last_seen)
-       VALUES ($1, $2, $3, NOW())
+      `INSERT INTO expo_push_tokens (token, user_id, platform, timezone, last_seen)
+       VALUES ($1, $2, $3, $4, NOW())
        ON CONFLICT (token) DO UPDATE
          SET user_id = EXCLUDED.user_id,
              platform = EXCLUDED.platform,
+             timezone = COALESCE(EXCLUDED.timezone, expo_push_tokens.timezone),
              last_seen = NOW()`,
-      [token, userId, typeof platform === "string" ? platform.slice(0, 16) : null],
+      [token, userId, typeof platform === "string" ? platform.slice(0, 16) : null, tz],
     );
     res.json({ ok: true });
   } catch (e: any) {

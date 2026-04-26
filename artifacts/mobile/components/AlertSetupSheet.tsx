@@ -6,6 +6,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -15,6 +16,8 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useAlerts } from "@/context/AlertsContext";
+import { useNotify } from "@/context/NotifyContext";
+import type { NotifyKind } from "@/services/notifyApi";
 import type { AlertDeliveryChannel, AlertType, UserAlert } from "@/services/alertsApi";
 
 interface Props {
@@ -63,7 +66,29 @@ function formatLastFired(iso: string | null): string {
 export default function AlertSetupSheet({ visible, onClose, symbol, currentPrice }: Props) {
   const colors = useColors();
   const { enabled, evaluatorHealthy, getAlertsForSymbol, createAlert, updateAlert, deleteAlert } = useAlerts();
+  const notify = useNotify();
   const existing = getAlertsForSymbol(symbol);
+
+  // Effective toggle state per kind: per-symbol row if it exists, else the
+  // user-default. "active" = on, "muted" = off, no row at all = off (user
+  // hasn't opted in yet — turning it on creates a per-symbol override).
+  const newsEffective = notify.getEffective(symbol, "news");
+  const earningsEffective = notify.getEffective(symbol, "earnings");
+  const [savingKind, setSavingKind] = useState<NotifyKind | null>(null);
+
+  const handleNotifyToggle = async (kind: NotifyKind, nextOn: boolean) => {
+    setSavingKind(kind);
+    Haptics.selectionAsync();
+    try {
+      await notify.upsert({
+        kind,
+        symbol,
+        status: nextOn ? "active" : "muted",
+      });
+    } finally {
+      setSavingKind(null);
+    }
+  };
 
   const [draft, setDraft] = useState<Draft>({
     type: "price_above",
@@ -156,6 +181,52 @@ export default function AlertSetupSheet({ visible, onClose, symbol, currentPrice
           )}
 
           <ScrollView contentContainerStyle={{ paddingBottom: 32 }} showsVerticalScrollIndicator={false}>
+            {/* ── News + earnings notifications (Phase 3.3) ───────────────── */}
+            {notify.enabled && (
+              <View style={{ marginTop: 4, marginBottom: 4 }}>
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
+                  NOTIFICATIONS
+                </Text>
+                {(
+                  [
+                    { kind: "news" as NotifyKind, label: "News alerts", icon: "rss" as const, sub: newsEffective },
+                    { kind: "earnings" as NotifyKind, label: "Earnings alerts", icon: "calendar" as const, sub: earningsEffective },
+                  ]
+                ).map(({ kind, label, icon, sub }) => {
+                  const on = sub?.status === "active";
+                  const isPerSymbol = sub?.symbol === symbol.toUpperCase();
+                  return (
+                    <View
+                      key={kind}
+                      style={[
+                        styles.alertRow,
+                        { backgroundColor: colors.secondary, borderColor: colors.border },
+                      ]}
+                    >
+                      <Feather name={icon} size={16} color={on ? colors.primary : colors.mutedForeground} />
+                      <View style={{ flex: 1, gap: 2 }}>
+                        <Text style={[styles.alertTitle, { color: colors.foreground }]}>{label}</Text>
+                        <Text style={[styles.alertMeta, { color: colors.mutedForeground }]}>
+                          {on ? "On" : "Off"}
+                          {sub ? (isPerSymbol ? " · per stock" : " · using default") : " · using default"}
+                        </Text>
+                      </View>
+                      {savingKind === kind ? (
+                        <ActivityIndicator color={colors.primary} />
+                      ) : (
+                        <Switch
+                          value={on}
+                          onValueChange={(v) => handleNotifyToggle(kind, v)}
+                          trackColor={{ false: colors.border, true: colors.primary }}
+                          thumbColor="#fff"
+                        />
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
             {/* ── Existing alerts ─────────────────────────────────────────── */}
             {existing.length > 0 && (
               <View style={{ marginTop: 4 }}>

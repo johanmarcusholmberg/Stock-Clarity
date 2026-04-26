@@ -141,12 +141,15 @@ export async function registerPushToken(
   userId: string,
   token: string,
   platform: string,
+  timezone?: string | null,
 ): Promise<boolean> {
   try {
+    const body: Record<string, unknown> = { userId, token, platform };
+    if (typeof timezone === "string" && timezone.length > 0) body.timezone = timezone;
     const res = await fetch(`${API_BASE}/push-tokens`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId, token, platform }),
+      body: JSON.stringify(body),
     });
     return res.ok;
   } catch {

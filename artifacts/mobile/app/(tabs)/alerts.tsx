@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Platform,
   RefreshControl,
@@ -14,9 +14,12 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { useAlerts } from "@/context/AlertsContext";
+import { useNotify } from "@/context/NotifyContext";
 import { useWatchlist } from "@/context/WatchlistContext";
 import AlertSetupSheet from "@/components/AlertSetupSheet";
+import NotifyOptInSheet from "@/components/NotifyOptInSheet";
 import type { UserAlert, AlertType } from "@/services/alertsApi";
+import { isEventSuppressed, type NotifyEvent } from "@/services/notifyApi";
 
 const TYPE_LABEL: Record<AlertType, string> = {
   price_above: "Above",
@@ -40,10 +43,31 @@ export default function AlertsScreen() {
   const insets = useSafeAreaInsets();
   const { stocks } = useWatchlist();
   const { enabled, evaluatorHealthy, alerts, events, loading, refresh } = useAlerts();
+  const notify = useNotify();
   const [symbolSheet, setSymbolSheet] = useState<string | null>(null);
+  const [optInVisible, setOptInVisible] = useState(false);
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 + 84 : insets.bottom + 84;
+
+  // First-time opt-in: show the sheet exactly once per device when notify is
+  // enabled AND the user has no defaults yet AND the AsyncStorage flag is
+  // unset. We wait for AsyncStorage hydration to avoid a one-frame flash on
+  // launch when the flag was previously set. Choosing any option (incl.
+  // "Off") writes muted defaults so this never fires twice.
+  useEffect(() => {
+    if (!notify.enabled) return;
+    if (!notify.firstTimeHydrated) return;
+    if (notify.firstTimeShown) return;
+    if (notify.defaults.news || notify.defaults.earnings) return;
+    setOptInVisible(true);
+  }, [
+    notify.enabled,
+    notify.firstTimeHydrated,
+    notify.firstTimeShown,
+    notify.defaults.news,
+    notify.defaults.earnings,
+  ]);
 
   const groupedAlerts = useMemo(() => {
     const map = new Map<string, UserAlert[]>();
@@ -55,7 +79,34 @@ export default function AlertsScreen() {
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [alerts]);
 
-  const recentFires = events.slice(0, 10);
+  // Combined inbox: alert_events (price fires) UNION notification_events
+  // (news + earnings), grouped by symbol, ordered by fired_at DESC inside
+  // each group. Cap each symbol so the screen stays scannable.
+  const inboxBySymbol = useMemo(() => {
+    type Item =
+      | { kind: "price"; firedAt: string; symbol: string; data: typeof events[number] }
+      | { kind: "notify"; firedAt: string; symbol: string; data: NotifyEvent };
+    const items: Item[] = [];
+    for (const e of events) {
+      items.push({ kind: "price", firedAt: e.firedAt, symbol: e.symbol, data: e });
+    }
+    for (const n of notify.events) {
+      items.push({ kind: "notify", firedAt: n.fired_at, symbol: n.symbol, data: n });
+    }
+    items.sort((a, b) => +new Date(b.firedAt) - +new Date(a.firedAt));
+    const map = new Map<string, Item[]>();
+    for (const it of items) {
+      const list = map.get(it.symbol) ?? [];
+      list.push(it);
+      map.set(it.symbol, list);
+    }
+    return Array.from(map.entries())
+      .map(([symbol, list]) => [symbol, list.slice(0, 6)] as const)
+      .sort(
+        (a, b) =>
+          +new Date(b[1][0]?.firedAt ?? 0) - +new Date(a[1][0]?.firedAt ?? 0),
+      );
+  }, [events, notify.events]);
 
   return (
     <ScrollView
@@ -180,32 +231,99 @@ export default function AlertsScreen() {
         </>
       )}
 
-      {recentFires.length > 0 && (
+      {inboxBySymbol.length > 0 && (
         <>
           <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 20 }]}>
             RECENT FIRES
           </Text>
-          {recentFires.map((e) => (
-            <TouchableOpacity
-              key={e.id}
-              style={[styles.fireRow, { backgroundColor: colors.card, borderColor: colors.border }]}
-              onPress={() => router.push({ pathname: "/stock/[ticker]", params: { ticker: e.symbol } })}
+          {inboxBySymbol.map(([symbol, items]) => (
+            <View
+              key={symbol}
+              style={[styles.inboxCard, { backgroundColor: colors.card, borderColor: colors.border }]}
             >
-              <View style={[styles.fireIcon, { backgroundColor: colors.primary + "22" }]}>
-                <Feather name="bell" size={14} color={colors.primary} />
-              </View>
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={[styles.fireSymbol, { color: colors.foreground }]}>
-                  {e.symbol} {TYPE_LABEL[e.type]} {e.threshold}
-                  {e.type === "pct_change_day" ? "%" : ""}
-                </Text>
-                <Text style={[styles.fireMeta, { color: colors.mutedForeground }]}>
-                  price {e.priceAtFire.toFixed(2)} · {formatRelative(e.firedAt)}
-                  {e.deliveredVia ? ` · ${e.deliveredVia}` : ""}
-                </Text>
-              </View>
-              <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.inboxHeader}
+                onPress={() =>
+                  router.push({ pathname: "/stock/[ticker]", params: { ticker: symbol } })
+                }
+              >
+                <Text style={[styles.inboxSymbol, { color: colors.foreground }]}>{symbol}</Text>
+                <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+              </TouchableOpacity>
+              {items.map((it) => {
+                if (it.kind === "price") {
+                  const e = it.data;
+                  return (
+                    <View
+                      key={`p-${e.id}`}
+                      style={[styles.inboxRow, { borderTopColor: colors.border }]}
+                    >
+                      <View style={[styles.fireIcon, { backgroundColor: colors.primary + "22" }]}>
+                        <Feather name="bell" size={12} color={colors.primary} />
+                      </View>
+                      <View style={{ flex: 1, gap: 2 }}>
+                        <Text style={[styles.fireSymbol, { color: colors.foreground }]}>
+                          {TYPE_LABEL[e.type]} {e.threshold}
+                          {e.type === "pct_change_day" ? "%" : ""}
+                        </Text>
+                        <Text style={[styles.fireMeta, { color: colors.mutedForeground }]}>
+                          price {e.priceAtFire.toFixed(2)} · {formatRelative(e.firedAt)}
+                          {e.deliveredVia ? ` · ${e.deliveredVia}` : ""}
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                }
+                const n = it.data;
+                const suppressed = isEventSuppressed(n);
+                const tone = suppressed ? colors.mutedForeground : colors.foreground;
+                const subTone = colors.mutedForeground;
+                const reason = suppressed
+                  ? n.delivered_via === "suppressed:cap"
+                    ? "held — daily cap"
+                    : n.delivered_via === "suppressed:quiet_hours"
+                      ? "held — quiet hours"
+                      : "held"
+                  : n.delivered_via ?? "queued";
+                return (
+                  <View
+                    key={`n-${n.id}`}
+                    style={[
+                      styles.inboxRow,
+                      { borderTopColor: colors.border, opacity: suppressed ? 0.55 : 1 },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.fireIcon,
+                        {
+                          backgroundColor: suppressed
+                            ? colors.mutedForeground + "22"
+                            : colors.primary + "22",
+                        },
+                      ]}
+                    >
+                      <Feather
+                        name={n.kind === "news" ? "rss" : "calendar"}
+                        size={12}
+                        color={suppressed ? colors.mutedForeground : colors.primary}
+                      />
+                    </View>
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text
+                        style={[styles.fireSymbol, { color: tone }]}
+                        numberOfLines={1}
+                      >
+                        {n.title}
+                      </Text>
+                      <Text style={[styles.fireMeta, { color: subTone }]} numberOfLines={1}>
+                        {formatRelative(n.fired_at)} · {reason}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
           ))}
         </>
       )}
@@ -218,6 +336,7 @@ export default function AlertsScreen() {
           currentPrice={stocks[symbolSheet]?.price}
         />
       )}
+      <NotifyOptInSheet visible={optInVisible} onClose={() => setOptInVisible(false)} />
     </ScrollView>
   );
 }
@@ -266,4 +385,16 @@ const styles = StyleSheet.create({
   fireIcon: { width: 28, height: 28, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   fireSymbol: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   fireMeta: { fontSize: 11, fontFamily: "Inter_400Regular" },
+  inboxCard: {
+    borderRadius: 14, borderWidth: 1, marginBottom: 10, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 6,
+  },
+  inboxHeader: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingBottom: 8,
+  },
+  inboxSymbol: { fontSize: 14, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
+  inboxRow: {
+    flexDirection: "row", alignItems: "center", gap: 10, paddingTop: 8, paddingBottom: 8,
+    borderTopWidth: 1,
+  },
 });
