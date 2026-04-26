@@ -31,3 +31,10 @@ export function alertsEnabledFor(userId: string | null | undefined): boolean {
   // ALERTS_ROLLOUT_PCT=50 etc. Set to 100 to open it to everyone.
   return isInRollout(userId, "ALERTS_ROLLOUT_PCT", 10);
 }
+
+/** True when the news/earnings notify feature is available for this user. */
+export function notifyEnabledFor(userId: string | null | undefined): boolean {
+  // Default 100 — Phase 3.3 PR 6 opens the rollout. Override with
+  // NOTIFY_ROLLOUT_PCT=10 (or any 0..99) to gate by hash bucket.
+  return isInRollout(userId, "NOTIFY_ROLLOUT_PCT", 100);
+}

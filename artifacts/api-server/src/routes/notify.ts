@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { execute, query, queryOne } from "../db";
 import { notifySchemaReady } from "../lib/notifySchema";
+import { notifyEnabledFor } from "../lib/featureFlags";
 
 const router = Router();
 
@@ -17,8 +18,14 @@ router.use(async (_req, _res, next) => {
 });
 
 // ── Feature flag exposure for the mobile client ─────────────────────────────
-router.get("/status", (_req, res) => {
-  const enabled = (process.env.NOTIFY_ENABLED ?? "").toLowerCase() === "true";
+// Two-layer gate: server-level NOTIFY_ENABLED kill switch AND per-user
+// NOTIFY_ROLLOUT_PCT bucket. The mobile client passes ?userId so the UI hides
+// for users outside the rollout window — defence-in-depth alongside the
+// evaluator's own rollout check (notifyEvaluator.ts fan-out).
+router.get("/status", (req, res) => {
+  const enabledServer = (process.env.NOTIFY_ENABLED ?? "").toLowerCase() === "true";
+  const userId = typeof req.query.userId === "string" ? req.query.userId : null;
+  const enabled = enabledServer && notifyEnabledFor(userId);
   res.json({ enabled });
 });
 

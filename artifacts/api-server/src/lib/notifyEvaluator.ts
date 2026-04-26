@@ -2,6 +2,7 @@ import { execute, query, queryOne } from "../db";
 import { notifySchemaReady } from "./notifySchema";
 import { EARNINGS_KEYWORDS_RE } from "./newsImpact";
 import { sendExpoPush } from "./pushDelivery";
+import { notifyEnabledFor } from "./featureFlags";
 import { logger } from "./logger";
 
 // Notification evaluator.
@@ -38,6 +39,15 @@ const TICK_INTERVAL_MS = 60 * 1000;
 const NEWS_DAILY_CAP = 5;
 const NEWS_BATCH_LIMIT = 500;
 const PUSH_BODY_MAX_CHARS = 178; // Expo push body soft cap
+const PRUNE_BATCH_LIMIT = 1000;
+const PRUNE_AGE_DAYS = 90;
+
+// CTR (push tap-through rate) is intentionally not tracked in PR 6.
+// Per the design doc (proposals/alerts.md §6.1, §7 PR 6): if measured CTR
+// drops below ~10% we'll add per-news-row AI summaries as PR 7. Tracking
+// CTR requires a deep-link receipt from the mobile client back to the
+// server (notification opened) — separate plumbing, deferred until the
+// number is worth optimising against.
 
 function isEnabled(): boolean {
   return (process.env.NOTIFY_ENABLED ?? "").toLowerCase() === "true";
@@ -292,6 +302,10 @@ async function fanOutNewsRow(news: NewsRow): Promise<void> {
   const subs = await resolveSubscribers(news.symbol, "news");
   for (const sub of subs) {
     if (sub.status === "muted") continue;
+    // Defence-in-depth rollout gate. The /status endpoint hides the UI for
+    // out-of-bucket users, but a stale subscription row could still fan-out
+    // to one — so we re-check here before firing.
+    if (!notifyEnabledFor(sub.user_id)) continue;
     const minImpact = sub.min_impact_score ?? 60;
     if ((news.impact_score ?? 0) < minImpact) continue;
     try {
@@ -581,6 +595,7 @@ async function fanOutEarningsRow(
   const subs = await resolveSubscribers(earnings.symbol, "earnings");
   for (const sub of subs) {
     if (sub.status === "muted") continue;
+    if (!notifyEnabledFor(sub.user_id)) continue;
     try {
       await fireEarningsOne(earnings, sub, window, newsHint);
     } catch (err: any) {
@@ -641,9 +656,30 @@ async function processEarningsWindows(): Promise<void> {
   }
 }
 
+// 90-day retention. Per-tick batched delete keeps the row count bounded
+// without ever blocking the worker on a long-running statement. At 1k/min
+// the worst case (cold start with millions of stale rows) drains in well
+// under a day; the steady-state load is far below the cap.
+async function pruneStaleEvents(): Promise<void> {
+  try {
+    await execute(
+      `DELETE FROM notification_events
+        WHERE id IN (
+          SELECT id FROM notification_events
+           WHERE fired_at < NOW() - INTERVAL '${PRUNE_AGE_DAYS} days'
+           ORDER BY id ASC
+           LIMIT ${PRUNE_BATCH_LIMIT}
+        )`,
+    );
+  } catch (err: any) {
+    logger.warn({ err: err?.message }, "notify prune failed");
+  }
+}
+
 async function tick(): Promise<void> {
   await processNewsCursor();
   await processEarningsWindows();
+  await pruneStaleEvents();
   await touchHeartbeat();
 }
 

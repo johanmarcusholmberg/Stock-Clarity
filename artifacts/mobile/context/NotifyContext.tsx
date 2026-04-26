@@ -97,7 +97,7 @@ export function NotifyProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     try {
       const [statusRes, subsRes, eventsRes] = await Promise.all([
-        getNotifyStatus(),
+        getNotifyStatus(userId),
         listSubscriptions(userId),
         listNotifyEvents(userId, 50),
       ]);
