@@ -28,6 +28,29 @@ function isAdminEmail(email: string): boolean {
   return getAdminEmails().includes(email.toLowerCase().trim());
 }
 
+// ── Premium feature → tier (mirror of FEATURE_TIER_REQUIREMENT) ──────────────
+// Source of truth: artifacts/mobile/components/PremiumGate.tsx. Mirrored here
+// so the admin conversion dashboard can annotate each feature row with its
+// tier without reaching across packages. Drift risk is low — the map rarely
+// changes — but if a new PremiumFeature is added there, add it here too.
+// Unknown keys render as "—" in the dashboard, no errors.
+const FEATURE_TIER_LOOKUP: Record<string, "pro" | "premium"> = {
+  performance_rankings: "pro",
+  sector_breakdown: "pro",
+  fifty_two_week_range: "pro",
+  risk_metrics: "premium",
+  benchmark_comparison: "premium",
+  export_pdf_csv: "premium",
+  dividend_calendar: "premium",
+  correlation_matrix: "premium",
+  scenario_analysis: "premium",
+  monte_carlo: "premium",
+  tax_lot_view: "premium",
+  geo_currency_exposure: "premium",
+  rebalancing_suggestions: "premium",
+  full_brief_archive: "premium",
+};
+
 // ── Check if a userId is an admin (by email) ─────────────────────────────────
 // GET /api/admin/check?userId=...&email=...
 // The email from Clerk (verified by auth) is used to check admin status.
@@ -187,6 +210,18 @@ button{width:100%;padding:12px;border-radius:8px;border:none;background:#14b8a6;
   // notifyEvaluator.ts header.
   let notifyTotals = { news_sent: 0, earnings_sent: 0 };
   let notifySuppressed: any[] = [];
+  // Phase 3.4 PR 1 — premium gate conversion telemetry (last 30 days). Per-
+  // feature totals + daily impression series for the Unicode sparkline.
+  // Drives Phase 3.4 PR-order decisions; see docs/proposals/premium-insights.md.
+  let conversionRows: Array<{
+    feature: string;
+    impressions: number;
+    cta_clicks: number;
+    paywall_opens: number;
+    first_uses: number;
+  }> = [];
+  // feature → 30-day daily impression counts (oldest → newest, zero-filled).
+  const conversionSparklines = new Map<string, number[]>();
 
   try {
     const [
@@ -200,6 +235,8 @@ button{width:100%;padding:12px;border-radius:8px;border:none;background:#14b8a6;
       usersListRes,
       notifySentRes,
       notifySuppressedRes,
+      conversionTotalsRes,
+      conversionDailyRes,
     ] = await Promise.all([
       query("SELECT COUNT(*) as c FROM users"),
       query("SELECT COUNT(*) as c FROM user_events WHERE created_at > NOW() - INTERVAL '24 hours'"),
@@ -234,6 +271,42 @@ button{width:100%;padding:12px;border-radius:8px;border:none;background:#14b8a6;
         GROUP BY event_type
         ORDER BY c DESC
       `),
+      // Phase 3.4 PR 1 — per-feature gate conversion totals, last 30 days.
+      // Excludes paywall opens with no feature (manual triggers) since we
+      // group by feature; manual opens would otherwise become a phantom row.
+      query(`
+        SELECT
+          payload->>'feature' AS feature,
+          COUNT(*) FILTER (WHERE event_type = 'premium_lock_impression')   AS impressions,
+          COUNT(*) FILTER (WHERE event_type = 'premium_lock_cta_click')    AS cta_clicks,
+          COUNT(*) FILTER (WHERE event_type = 'premium_paywall_opened')    AS paywall_opens,
+          COUNT(*) FILTER (WHERE event_type = 'premium_feature_first_use') AS first_uses
+        FROM user_events
+        WHERE created_at > NOW() - INTERVAL '30 days'
+          AND event_type IN (
+            'premium_lock_impression',
+            'premium_lock_cta_click',
+            'premium_paywall_opened',
+            'premium_feature_first_use'
+          )
+          AND payload->>'feature' IS NOT NULL
+        GROUP BY 1
+        ORDER BY cta_clicks DESC, impressions DESC
+      `),
+      // Daily impression counts per feature for the sparkline. Bounded:
+      // ~14 features × 30 days = ≤420 rows. Days with zero impressions
+      // are absent from the result and zero-filled in JS.
+      query(`
+        SELECT
+          payload->>'feature' AS feature,
+          DATE(created_at)    AS day,
+          COUNT(*)            AS c
+        FROM user_events
+        WHERE event_type = 'premium_lock_impression'
+          AND created_at > NOW() - INTERVAL '30 days'
+          AND payload->>'feature' IS NOT NULL
+        GROUP BY 1, 2
+      `),
     ]);
     stats.users = parseInt(usersRes[0]?.c ?? "0");
     stats.events_today = parseInt(eventsRes[0]?.c ?? "0");
@@ -248,6 +321,41 @@ button{width:100%;padding:12px;border-radius:8px;border:none;background:#14b8a6;
     notifyTotals.news_sent = parseInt(notifySentRes[0]?.news_sent ?? "0");
     notifyTotals.earnings_sent = parseInt(notifySentRes[0]?.earnings_sent ?? "0");
     notifySuppressed = notifySuppressedRes;
+
+    conversionRows = conversionTotalsRes.map((r: any) => ({
+      feature: String(r.feature),
+      impressions: parseInt(r.impressions ?? "0"),
+      cta_clicks: parseInt(r.cta_clicks ?? "0"),
+      paywall_opens: parseInt(r.paywall_opens ?? "0"),
+      first_uses: parseInt(r.first_uses ?? "0"),
+    }));
+
+    // Build a feature → 30-element daily-count array. We anchor on UTC
+    // midnight today and walk back 29 days so day index 0 = 29 days ago,
+    // index 29 = today. Server-local timezone differences from the DB's
+    // DATE() truncation are acceptable for a sparkline trend display.
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const dayIndex = new Map<string, number>();
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(today);
+      d.setUTCDate(d.getUTCDate() - (29 - i));
+      dayIndex.set(d.toISOString().slice(0, 10), i);
+    }
+    for (const row of conversionDailyRes as any[]) {
+      const feature = String(row.feature);
+      const dayKey = (row.day instanceof Date)
+        ? row.day.toISOString().slice(0, 10)
+        : String(row.day).slice(0, 10);
+      const idx = dayIndex.get(dayKey);
+      if (idx === undefined) continue;
+      let arr = conversionSparklines.get(feature);
+      if (!arr) {
+        arr = new Array(30).fill(0);
+        conversionSparklines.set(feature, arr);
+      }
+      arr[idx] = parseInt(row.c ?? "0");
+    }
   } catch {}
 
   const style = `<style>
@@ -308,6 +416,45 @@ button{width:100%;padding:12px;border-radius:8px;border:none;background:#14b8a6;
       </tr>`).join("")
     : '<tr><td colspan="8" style="color:#64748b;padding:20px">No users yet</td></tr>';
 
+  // Phase 3.4 PR 1 — premium gate conversion rows + Unicode sparkline.
+  // Sparkline uses 9 chars (zero = "·" for visibility, then ▁..█ for 8
+  // non-zero levels). Each row is independently scaled to its own per-
+  // feature max — see column header + subtitle for the reader-facing note.
+  const sparkChars = ["·", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+  const sparkline = (arr: number[]): string => {
+    const max = arr.reduce((m, v) => Math.max(m, v), 0);
+    if (max === 0) return "·".repeat(30);
+    return arr
+      .map(v => {
+        if (v === 0) return "·";
+        const lvl = Math.min(8, Math.max(1, Math.ceil((v / max) * 8)));
+        return sparkChars[lvl];
+      })
+      .join("");
+  };
+  const conversionRowsHtml = conversionRows.length
+    ? conversionRows.map(r => {
+        const tier = FEATURE_TIER_LOOKUP[r.feature];
+        const tierBadge = tier
+          ? `<span class="badge badge-${tier}">${tier}</span>`
+          : '<span style="color:#64748b">—</span>';
+        const series = conversionSparklines.get(r.feature) ?? new Array(30).fill(0);
+        const peak = series.reduce((m, v) => Math.max(m, v), 0);
+        const sparkTitle = peak > 0
+          ? `Daily impressions, last 30 days. Peak day: ${peak}. Scale is relative to this feature only.`
+          : "No daily impressions in the last 30 days.";
+        return `<tr>
+          <td><code style="font-size:12px;color:#e2e8f0">${r.feature}</code></td>
+          <td>${tierBadge}</td>
+          <td style="text-align:right">${r.impressions}</td>
+          <td style="text-align:right;font-weight:600;color:#14b8a6">${r.cta_clicks}</td>
+          <td style="text-align:right">${r.paywall_opens}</td>
+          <td style="text-align:right">${r.first_uses}</td>
+          <td title="${sparkTitle}"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:1px;color:#14b8a6">${sparkline(series)}</span></td>
+        </tr>`;
+      }).join("")
+    : '<tr><td colspan="7" style="color:#64748b;padding:20px">No premium gate impressions in the last 30 days</td></tr>';
+
   res.send(`<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>StockClarify Admin</title>${style}</head>
@@ -354,6 +501,25 @@ button{width:100%;padding:12px;border-radius:8px;border:none;background:#14b8a6;
       <tr><th>Suppressed (reason)</th><th style="text-align:right">Count</th></tr>
       ${suppressedRows}
     </table>
+  </div>
+
+  <div class="section">
+    <h2>🔓 Premium Insights Conversion (30d)</h2>
+    <p style="color:#64748b;font-size:12px;margin:-8px 0 16px 0">Which locked features users tried to open. Drives Phase 3.4 PR-order decisions. Sparkline trend is <b>relative per feature</b> — heights are not comparable across rows.</p>
+    <div style="overflow-x:auto">
+      <table>
+        <tr>
+          <th>Feature</th>
+          <th>Tier</th>
+          <th style="text-align:right">Impressions</th>
+          <th style="text-align:right">CTA Clicks</th>
+          <th style="text-align:right">Paywall Opens</th>
+          <th style="text-align:right">First Uses</th>
+          <th title="Daily impressions over the last 30 days. Each row is scaled to its own peak — do not compare heights across rows.">Trend (30d, relative per feature)</th>
+        </tr>
+        ${conversionRowsHtml}
+      </table>
+    </div>
   </div>
 
   <div class="section">
