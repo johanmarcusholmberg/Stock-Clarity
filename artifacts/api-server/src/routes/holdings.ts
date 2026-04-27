@@ -7,6 +7,7 @@ import { isProOrBetter as isProOrBetterPure } from "../lib/holdingsTier";
 import { YF2, yfFetch } from "../lib/newsSources";
 import { fxToUsd, newFxCache } from "../lib/fxConvert";
 import { logger } from "../lib/logger";
+import { computeCostBasis, type LotInput, type SaleEvent } from "../lib/costBasis";
 
 const router = Router();
 
@@ -440,6 +441,103 @@ router.get("/:userId/export/csv", async (req, res) => {
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.send(csv);
   } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Realized + unrealized P&L (Pro+) ──────────────────────────────────────
+// Sale events have no storage yet — there's no UI for recording a sale and
+// no sale_events table. Until that lands, sales: [] for every user, so
+// ytdRealized and lifetimeRealized are always 0. The shape is in place so
+// the response lights up the moment sale storage is added.
+//
+// FX policy mirrors the CSV export above: lot currency drives the FX rate
+// applied to both lot cost AND current price (assumes lot.currency matches
+// the quote currency, which is true when users enter lots in the stock's
+// native trading currency).
+router.get("/:userId/pnl", async (req, res) => {
+  const { userId } = req.params;
+  if (!userId) return void res.status(400).json({ error: "Missing userId" });
+
+  if (!(await isProOrBetter(userId))) {
+    return void res.status(403).json({ error: "pro_required" });
+  }
+
+  try {
+    const rows = await query<{
+      ticker: string;
+      qty: string;
+      cost_per_share: string;
+      purchased_at: string;
+      currency: string;
+    }>(
+      `SELECT h.ticker,
+              l.qty::text AS qty,
+              l.cost_per_share::text AS cost_per_share,
+              to_char(l.purchased_at, 'YYYY-MM-DD') AS purchased_at,
+              l.currency
+         FROM holdings h
+         JOIN lots l ON l.holding_id = h.id
+        WHERE h.user_id = $1
+        ORDER BY h.ticker ASC, l.purchased_at ASC, l.created_at ASC`,
+      [userId],
+    );
+
+    const distinct = Array.from(new Set(rows.map((r) => r.ticker.toUpperCase())));
+    const quoteByTicker = new Map<string, QuoteSnapshot>();
+    await Promise.all(
+      distinct.map(async (t) => {
+        quoteByTicker.set(t, await fetchHoldingQuote(t));
+      }),
+    );
+
+    const fxCache = newFxCache();
+    const lotsByTicker = new Map<string, LotInput[]>();
+    const fxByTicker = new Map<string, number>();
+    for (const r of rows) {
+      const ticker = r.ticker.toUpperCase();
+      const lotCurrency = r.currency || "USD";
+      const fx = await fxToUsd(lotCurrency, fxCache);
+      fxByTicker.set(ticker, fx);
+      const arr = lotsByTicker.get(ticker) ?? [];
+      arr.push({
+        qty: Number(r.qty),
+        // Cost normalised to USD up front. The engine is FX-agnostic — this
+        // matches how the CSV export does it so both stay aligned.
+        cost_per_share: Number(r.cost_per_share) * fx,
+        currency: "USD",
+        purchased_at: r.purchased_at,
+      });
+      lotsByTicker.set(ticker, arr);
+    }
+
+    let unrealized = 0;
+    let totalCostBasis = 0;
+    const sales: SaleEvent[] = [];
+    for (const [ticker, lots] of lotsByTicker) {
+      const quote = quoteByTicker.get(ticker) ?? { price: null, currency: null };
+      const fx = fxByTicker.get(ticker) ?? 1;
+      const currentPriceUsd = quote.price != null ? quote.price * fx : null;
+      const result = computeCostBasis({
+        lots,
+        sales,
+        currentPrice: currentPriceUsd,
+        method: "FIFO",
+      });
+      unrealized += result.unrealizedPnl;
+      totalCostBasis += result.totalCostBasis;
+    }
+
+    res.json({
+      ytdRealized: 0,
+      lifetimeRealized: 0,
+      unrealized,
+      totalCostBasis,
+      currency: "USD",
+      method: "FIFO",
+    });
+  } catch (e: any) {
+    logger.warn({ err: e?.message, userId }, "holdings pnl failed");
     res.status(500).json({ error: e.message });
   }
 });
