@@ -68,6 +68,7 @@ export async function requestNotificationPermission(): Promise<boolean> {
 }
 
 export async function scheduleWatchlistNotification(prefs: NotificationPrefs, tickers: string[]): Promise<void> {
+  if (Platform.OS === "web") return;
   if (!prefs.enabled || !tickers.length) {
     await Notifications.cancelAllScheduledNotificationsAsync();
     return;
@@ -119,6 +120,7 @@ export async function scheduleWatchlistNotification(prefs: NotificationPrefs, ti
 }
 
 export async function cancelAllNotifications(): Promise<void> {
+  if (Platform.OS === "web") return;
   await Notifications.cancelAllScheduledNotificationsAsync();
 }
 
