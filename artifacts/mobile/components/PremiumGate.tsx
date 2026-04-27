@@ -17,14 +17,15 @@ export const FEATURE_TIER_REQUIREMENT: Record<PremiumFeature, Tier> = {
   risk_metrics: "premium",
   benchmark_comparison: "premium",
   export_pdf_csv: "premium",
-  dividend_calendar: "premium",
+  dividend_calendar: "pro",
   correlation_matrix: "premium",
   scenario_analysis: "premium",
   monte_carlo: "premium",
   tax_lot_view: "premium",
-  geo_currency_exposure: "premium",
+  geo_currency_exposure: "pro",
   rebalancing_suggestions: "premium",
   full_brief_archive: "premium",
+  csv_export_basic: "pro",
 };
 
 const TIER_RANK: Record<Tier, number> = { free: 0, pro: 1, premium: 2 };

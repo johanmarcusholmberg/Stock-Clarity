@@ -1,7 +1,12 @@
 import { Router } from "express";
 import { execute, query, queryOne } from "../db";
 import { holdingsSchemaReady } from "../lib/holdingsSchema";
+import { dividendSchemaReady } from "../lib/dividendSchema";
 import { computeEffectiveTier } from "../lib/tierService";
+import { isProOrBetter as isProOrBetterPure } from "../lib/holdingsTier";
+import { YF2, yfFetch } from "../lib/newsSources";
+import { fxToUsd, newFxCache } from "../lib/fxConvert";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -9,6 +14,7 @@ const FREE_HOLDINGS_LIMIT = 5;
 
 router.use(async (_req, _res, next) => {
   await holdingsSchemaReady;
+  await dividendSchemaReady;
   next();
 });
 
@@ -26,6 +32,7 @@ interface HoldingRow {
   user_id: string;
   ticker: string;
   currency: string;
+  country: string | null;
   created_at: string;
 }
 
@@ -76,9 +83,11 @@ async function holdingsCountFor(userId: string): Promise<number> {
   return Number(row?.count ?? 0);
 }
 
-async function isProOrBetter(userId: string): Promise<boolean> {
-  const eff = await computeEffectiveTier(userId);
-  return eff.tier === "pro" || eff.tier === "premium";
+// Bind the effective-tier resolver here. The pure check lives in
+// holdingsTier.ts so tests can stub the resolver without booting the tier
+// service or DB.
+function isProOrBetter(userId: string): Promise<boolean> {
+  return isProOrBetterPure(userId, computeEffectiveTier);
 }
 
 // ── List holdings + lots for a user ────────────────────────────────────────
@@ -87,7 +96,7 @@ router.get("/:userId", async (req, res) => {
   if (!userId) return void res.status(400).json({ error: "Missing userId" });
   try {
     const holdings = await query<HoldingRow>(
-      `SELECT id, user_id, ticker, currency, created_at
+      `SELECT id, user_id, ticker, currency, country, created_at
          FROM holdings
         WHERE user_id = $1
         ORDER BY ticker ASC`,
@@ -121,6 +130,40 @@ router.get("/:userId", async (req, res) => {
   }
 });
 
+// ── Upcoming dividend events for the user's held tickers ────────────────────
+// Returns rows from dividend_events filtered to ex_date >= today, ordered
+// soonest first. No tier gate at the API level — the data is per-user-owned
+// tickers; the mobile card is what wraps this in the Pro PremiumGate.
+router.get("/:userId/dividends", async (req, res) => {
+  const { userId } = req.params;
+  if (!userId) return void res.status(400).json({ error: "Missing userId" });
+  try {
+    const rows = await query<{
+      ticker: string;
+      ex_date: string;
+      pay_date: string | null;
+      amount: string | null;
+      currency: string | null;
+    }>(
+      `SELECT d.ticker,
+              to_char(d.ex_date, 'YYYY-MM-DD') AS ex_date,
+              to_char(d.pay_date, 'YYYY-MM-DD') AS pay_date,
+              d.amount::text AS amount,
+              d.currency
+         FROM dividend_events d
+         JOIN holdings h
+           ON UPPER(h.ticker) = d.ticker
+          AND h.user_id = $1
+        WHERE d.ex_date >= CURRENT_DATE
+        ORDER BY d.ex_date ASC, d.ticker ASC`,
+      [userId],
+    );
+    res.json({ dividends: rows });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Add a holding + first lot (Free-tier capped at 5 holdings) ─────────────
 router.post("/:userId", async (req, res) => {
   const { userId } = req.params;
@@ -146,7 +189,7 @@ router.post("/:userId", async (req, res) => {
     // index on holdings rules out duplicate holdings, and we re-check the
     // count *after* insert for new tickers to fail fast on overflow.
     const existing = await queryOne<HoldingRow>(
-      "SELECT id, user_id, ticker, currency, created_at FROM holdings WHERE user_id = $1 AND ticker = $2",
+      "SELECT id, user_id, ticker, currency, country, created_at FROM holdings WHERE user_id = $1 AND ticker = $2",
       [userId, ticker],
     );
 
@@ -169,7 +212,7 @@ router.post("/:userId", async (req, res) => {
       `INSERT INTO holdings (user_id, ticker, currency)
        VALUES ($1, $2, $3)
        ON CONFLICT (user_id, ticker) DO UPDATE SET ticker = EXCLUDED.ticker
-       RETURNING id, user_id, ticker, currency, created_at`,
+       RETURNING id, user_id, ticker, currency, country, created_at`,
       [userId, ticker, currency],
     );
     if (!holding) return void res.status(500).json({ error: "failed to create holding" });
@@ -269,6 +312,133 @@ router.delete("/:userId/:holdingId/lots/:lotId", async (req, res) => {
     if (!lot) return void res.status(404).json({ error: "lot not found" });
     await execute("DELETE FROM lots WHERE id = $1", [lotId]);
     res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── CSV export (Pro+) — one row per lot ────────────────────────────────────
+// Mirrors the lot granularity tax users want for their accountant. Aggregated
+// per-holding rollup can land later if asked. Tier check uses
+// computeEffectiveTier (admin grants STACK on Stripe, see tierService).
+function csvCell(v: unknown): string {
+  if (v == null) return "";
+  const s = String(v);
+  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+interface QuoteSnapshot {
+  price: number | null;
+  currency: string | null;
+}
+
+async function fetchHoldingQuote(symbol: string): Promise<QuoteSnapshot> {
+  try {
+    const url = `${YF2}/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=5m&includePrePost=false`;
+    const data = await yfFetch(url);
+    const meta = data?.chart?.result?.[0]?.meta;
+    if (!meta) return { price: null, currency: null };
+    const price = typeof meta.regularMarketPrice === "number" ? meta.regularMarketPrice : null;
+    const currency = typeof meta.currency === "string" ? meta.currency.toUpperCase() : null;
+    return { price, currency };
+  } catch (err: any) {
+    logger.warn({ err: err?.message, symbol }, "holdings export quote fetch failed");
+    return { price: null, currency: null };
+  }
+}
+
+router.get("/:userId/export/csv", async (req, res) => {
+  const { userId } = req.params;
+  if (!userId) return void res.status(400).json({ error: "Missing userId" });
+
+  if (!(await isProOrBetter(userId))) {
+    return void res.status(403).json({ error: "pro_required" });
+  }
+
+  try {
+    const rows = await query<{
+      ticker: string;
+      qty: string;
+      cost_per_share: string;
+      purchased_at: string;
+      currency: string;
+    }>(
+      `SELECT h.ticker,
+              l.qty::text AS qty,
+              l.cost_per_share::text AS cost_per_share,
+              to_char(l.purchased_at, 'YYYY-MM-DD') AS purchased_at,
+              l.currency
+         FROM holdings h
+         JOIN lots l ON l.holding_id = h.id
+        WHERE h.user_id = $1
+        ORDER BY h.ticker ASC, l.purchased_at ASC, l.created_at ASC`,
+      [userId],
+    );
+
+    // Quote every distinct ticker once. Cache survives only this request.
+    const distinct = Array.from(new Set(rows.map((r) => r.ticker.toUpperCase())));
+    const quoteByTicker = new Map<string, QuoteSnapshot>();
+    await Promise.all(
+      distinct.map(async (t) => {
+        quoteByTicker.set(t, await fetchHoldingQuote(t));
+      }),
+    );
+
+    const fxCache = newFxCache();
+    const header = [
+      "ticker",
+      "qty",
+      "cost_per_share",
+      "purchased_at",
+      "currency",
+      "current_price",
+      "current_value_usd",
+      "unrealized_pnl",
+    ];
+    const lines: string[] = [header.map(csvCell).join(",")];
+
+    for (const r of rows) {
+      const tickerKey = r.ticker.toUpperCase();
+      const quote = quoteByTicker.get(tickerKey) ?? { price: null, currency: null };
+      const qty = Number(r.qty);
+      const cost = Number(r.cost_per_share);
+      const lotCurrency = r.currency || "USD";
+      const fx = await fxToUsd(lotCurrency, fxCache);
+      const currentPriceNative = quote.price;
+
+      const currentValueUsd =
+        currentPriceNative != null && Number.isFinite(qty)
+          ? currentPriceNative * qty * fx
+          : null;
+      const costBasisUsd =
+        Number.isFinite(qty) && Number.isFinite(cost) ? qty * cost * fx : null;
+      const unrealizedPnl =
+        currentValueUsd != null && costBasisUsd != null
+          ? currentValueUsd - costBasisUsd
+          : null;
+
+      lines.push(
+        [
+          r.ticker,
+          r.qty,
+          r.cost_per_share,
+          r.purchased_at,
+          lotCurrency,
+          currentPriceNative != null ? currentPriceNative.toFixed(4) : "",
+          currentValueUsd != null ? currentValueUsd.toFixed(2) : "",
+          unrealizedPnl != null ? unrealizedPnl.toFixed(2) : "",
+        ]
+          .map(csvCell)
+          .join(","),
+      );
+    }
+
+    const csv = lines.join("\r\n");
+    const filename = `stockclarify-holdings-${new Date().toISOString().slice(0, 10)}.csv`;
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(csv);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }

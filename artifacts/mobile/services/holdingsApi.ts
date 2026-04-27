@@ -22,11 +22,27 @@ export interface HoldingRow {
   user_id: string;
   ticker: string;
   currency: string;
+  /** Denormalised from Yahoo summaryProfile by the dividendWorker daily tick.
+   *  Null until the worker first sees the ticker — the Exposure card buckets
+   *  null entries into "Unknown" so coverage is explicit. */
+  country: string | null;
   created_at: string;
 }
 
 export interface Holding extends HoldingRow {
   lots: Lot[];
+}
+
+export interface DividendEvent {
+  ticker: string;
+  ex_date: string;
+  pay_date: string | null;
+  amount: string | null; // numeric → string from pg
+  currency: string | null;
+}
+
+export interface DividendsResponse {
+  dividends: DividendEvent[];
 }
 
 export interface HoldingsListResponse {
@@ -138,4 +154,23 @@ export async function deleteLot(
   const data = await res.json().catch(() => ({}));
   if (!res.ok) return { error: data?.error ?? `HTTP ${res.status}` };
   return data as { ok: true };
+}
+
+export async function getDividends(userId: string): Promise<DividendsResponse> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/holdings/${encodeURIComponent(userId)}/dividends`,
+    );
+    if (!res.ok) return { dividends: [] };
+    return (await res.json()) as DividendsResponse;
+  } catch {
+    return { dividends: [] };
+  }
+}
+
+// CSV export URL for the holdings/lots dataset. Pro+ only — server returns
+// 403 if Free. The mobile button gates on the same tier client-side via
+// PremiumGate, but the server check is the authoritative one.
+export function holdingsCsvExportUrl(userId: string): string {
+  return `${API_BASE}/holdings/${encodeURIComponent(userId)}/export/csv`;
 }

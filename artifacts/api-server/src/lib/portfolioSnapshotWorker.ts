@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { execute, query, queryOne } from "../db";
 import { holdingsSchemaReady } from "./holdingsSchema";
 import { YF2, yfFetch } from "./newsSources";
+import { fxToUsd, newFxCache, type FxCache } from "./fxConvert";
 import { logger } from "./logger";
 
 // Daily portfolio snapshot. For each user with holdings, fetch current quotes
@@ -103,33 +104,11 @@ async function fetchQuote(symbol: string): Promise<QuoteResult | null> {
   }
 }
 
-// FX rates to USD. cur=USD returns 1.0. Failures fall back to 1.0 with a warn
-// so the snapshot still gets written; value_usd will self-correct on the next
-// successful tick.
-const fxCache = new Map<string, number>();
-
-async function fxToUsd(currency: string): Promise<number> {
-  const cur = currency.toUpperCase();
-  if (cur === "USD") return 1.0;
-  if (fxCache.has(cur)) return fxCache.get(cur)!;
-  try {
-    const url = `${YF2}/v8/finance/chart/${encodeURIComponent(`${cur}USD=X`)}?range=1d&interval=5m`;
-    const data = await yfFetch(url);
-    const meta = data?.chart?.result?.[0]?.meta;
-    const rate = meta?.regularMarketPrice;
-    if (typeof rate === "number" && rate > 0) {
-      fxCache.set(cur, rate);
-      return rate;
-    }
-    logger.warn({ currency: cur }, "FX rate unavailable, falling back to 1.0");
-    fxCache.set(cur, 1.0);
-    return 1.0;
-  } catch (err: any) {
-    logger.warn({ err: err?.message, currency: cur }, "FX rate fetch failed, falling back to 1.0");
-    fxCache.set(cur, 1.0);
-    return 1.0;
-  }
-}
+// FX rates to USD via the shared fxConvert helper — same fallback (1.0 + warn
+// log) as the holdings CSV export uses, so both stay aligned on Yahoo failure.
+// Cache is per-tick (cleared at the top of tick()) so a stale rate doesn't
+// outlive the worker run.
+let fxCache: FxCache = newFxCache();
 
 interface SnapshotComputed {
   valueUsd: number;
@@ -166,7 +145,7 @@ async function computeSnapshot(user: UserHoldings): Promise<SnapshotComputed | n
     // If they disagree, the quote wins (e.g. user mistyped currency on add).
     const cur = quote.currency || holdingCurrency || "USD";
     perCurrency.set(cur, (perCurrency.get(cur) ?? 0) + native);
-    const fx = await fxToUsd(cur);
+    const fx = await fxToUsd(cur, fxCache);
     valueUsd += native * fx;
   }
 
@@ -176,7 +155,7 @@ async function computeSnapshot(user: UserHoldings): Promise<SnapshotComputed | n
   let dominantCur = "USD";
   let dominantUsd = -1;
   for (const [cur, native] of perCurrency) {
-    const fx = await fxToUsd(cur);
+    const fx = await fxToUsd(cur, fxCache);
     const usd = native * fx;
     if (usd > dominantUsd) {
       dominantUsd = usd;
@@ -234,7 +213,7 @@ async function tick(): Promise<void> {
   }
 
   quoteCache.clear();
-  fxCache.clear();
+  fxCache = newFxCache();
 
   const users = await loadAllHoldings();
   if (!users.length) {

@@ -23,6 +23,15 @@ export const holdingsSchemaReady: Promise<void> = (async () => {
     )
   `);
 
+  // Phase 3.4 PR 3 — country denormalised onto holdings, populated by the
+  // dividendWorker daily tick from Yahoo's summaryProfile module. Nullable
+  // so existing rows don't need a backfill; mobile renders "Unknown" until
+  // the next worker tick fills it in. Same per-ticker value across users —
+  // refactor to ticker_metadata if a third feature needs the same data.
+  await execute(`
+    ALTER TABLE holdings ADD COLUMN IF NOT EXISTS country TEXT
+  `);
+
   await execute(`
     CREATE TABLE IF NOT EXISTS lots (
       id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),

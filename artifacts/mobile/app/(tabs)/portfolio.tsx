@@ -1,11 +1,13 @@
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { useAuth } from "@clerk/expo";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   FlatList,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   RefreshControl,
@@ -21,7 +23,14 @@ import { useColors } from "@/hooks/useColors";
 import { useHoldings } from "@/context/HoldingsContext";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { getQuotes, type QuoteResult } from "@/services/stockApi";
-import type { Holding } from "@/services/holdingsApi";
+import {
+  getDividends,
+  holdingsCsvExportUrl,
+  type DividendEvent,
+  type Holding,
+} from "@/services/holdingsApi";
+import { PremiumGate } from "@/components/PremiumGate";
+import { computeExposure } from "@/lib/geoMath";
 
 type Colors = ReturnType<typeof useColors>;
 
@@ -80,6 +89,7 @@ export default function PortfolioScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { tier } = useSubscription();
+  const { userId } = useAuth();
   const {
     enabled,
     hydrated,
@@ -93,6 +103,7 @@ export default function PortfolioScreen() {
   const [quotes, setQuotes] = useState<Map<string, QuoteResult>>(new Map());
   const [quotesLoading, setQuotesLoading] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [dividends, setDividends] = useState<DividendEvent[]>([]);
 
   const isProOrBetter = tier === "pro" || tier === "premium";
   const atFreeCap = !isProOrBetter && holdings.length >= FREE_HOLDINGS_LIMIT;
@@ -116,9 +127,35 @@ export default function PortfolioScreen() {
     }
   }, [holdings]);
 
+  const loadDividends = useCallback(async () => {
+    if (!userId || !holdings.length) {
+      setDividends([]);
+      return;
+    }
+    const res = await getDividends(userId);
+    setDividends(res.dividends);
+  }, [userId, holdings.length]);
+
   useEffect(() => {
     loadQuotes();
   }, [loadQuotes]);
+
+  useEffect(() => {
+    loadDividends();
+  }, [loadDividends]);
+
+  const exposure = useMemo(
+    () => computeExposure(holdings, quotes),
+    [holdings, quotes],
+  );
+
+  const handleExportCsv = useCallback(() => {
+    if (!userId) return;
+    const url = holdingsCsvExportUrl(userId);
+    Linking.openURL(url).catch(() => {
+      Alert.alert("Could not open CSV", "Open the link in your browser instead.");
+    });
+  }, [userId]);
 
   const totals = useMemo(() => {
     let value = 0;
@@ -138,8 +175,8 @@ export default function PortfolioScreen() {
 
   const handleRefresh = useCallback(async () => {
     await refresh();
-    await loadQuotes();
-  }, [refresh, loadQuotes]);
+    await Promise.all([loadQuotes(), loadDividends()]);
+  }, [refresh, loadQuotes, loadDividends]);
 
   const handleDelete = useCallback(
     (h: Holding) => {
@@ -309,6 +346,55 @@ export default function PortfolioScreen() {
               </TouchableOpacity>
             );
           }}
+          ListFooterComponent={
+            <View style={styles.footerStack}>
+              <PremiumGate
+                feature="dividend_calendar"
+                title="Dividend Calendar"
+                pitch="See upcoming ex-dates and payouts for the stocks you own."
+                surface="insights"
+                style={styles.footerCard}
+              >
+                <DividendCard
+                  dividends={dividends}
+                  holdings={holdings}
+                  colors={colors}
+                />
+              </PremiumGate>
+
+              <PremiumGate
+                feature="geo_currency_exposure"
+                title="Exposure"
+                pitch="Country and currency mix across your portfolio."
+                surface="insights"
+                style={styles.footerCard}
+              >
+                <ExposureCard breakdown={exposure} colors={colors} />
+              </PremiumGate>
+
+              <PremiumGate
+                feature="csv_export_basic"
+                title="Export CSV"
+                pitch="Download holdings + lots for your accountant or spreadsheet."
+                surface="insights"
+                style={styles.footerCard}
+              >
+                <TouchableOpacity
+                  style={[
+                    styles.exportBtn,
+                    { backgroundColor: colors.card, borderColor: colors.border },
+                  ]}
+                  onPress={handleExportCsv}
+                  activeOpacity={0.7}
+                >
+                  <Feather name="download" size={16} color={colors.foreground} />
+                  <Text style={[styles.exportBtnText, { color: colors.foreground }]}>
+                    Export CSV
+                  </Text>
+                </TouchableOpacity>
+              </PremiumGate>
+            </View>
+          }
         />
       )}
 
@@ -513,6 +599,147 @@ function Field({
   );
 }
 
+// ── Dividend calendar card ────────────────────────────────────────────────
+// Sums each upcoming ex-date's amount × user-held qty. The amount is per-
+// share (Yahoo summaryDetail.lastDividendValue), so multiplying by qty gives
+// an estimated total payout for the user. Empty list shows a friendly note
+// instead of an empty card.
+function DividendCard({
+  dividends,
+  holdings,
+  colors,
+}: {
+  dividends: DividendEvent[];
+  holdings: Holding[];
+  colors: Colors;
+}) {
+  const qtyByTicker = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const h of holdings) {
+      let q = 0;
+      for (const lot of h.lots) {
+        const n = Number(lot.qty);
+        if (Number.isFinite(n)) q += n;
+      }
+      m.set(h.ticker.toUpperCase(), q);
+    }
+    return m;
+  }, [holdings]);
+
+  return (
+    <View style={[styles.cardSurface, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <Text style={[styles.cardTitle, { color: colors.foreground }]}>Dividend Calendar</Text>
+      {dividends.length === 0 ? (
+        <Text style={[styles.cardEmpty, { color: colors.mutedForeground }]}>
+          No upcoming ex-dates for your tickers yet.
+        </Text>
+      ) : (
+        dividends.slice(0, 8).map((d, i) => {
+          const qty = qtyByTicker.get(d.ticker.toUpperCase()) ?? 0;
+          const amt = d.amount != null ? Number(d.amount) : null;
+          const total = amt != null && qty > 0 ? amt * qty : null;
+          return (
+            <View key={`${d.ticker}-${d.ex_date}-${i}`} style={styles.divRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.divTicker, { color: colors.foreground }]}>{d.ticker}</Text>
+                <Text style={[styles.divMeta, { color: colors.mutedForeground }]}>
+                  Ex {d.ex_date}
+                  {d.pay_date ? ` · Pays ${d.pay_date}` : ""}
+                </Text>
+              </View>
+              <View style={{ alignItems: "flex-end" }}>
+                <Text style={[styles.divAmount, { color: colors.foreground }]}>
+                  {amt != null
+                    ? formatMoney(amt, d.currency || "USD")
+                    : "—"}
+                </Text>
+                <Text style={[styles.divMeta, { color: colors.mutedForeground }]}>
+                  {total != null
+                    ? `~${formatMoney(total, d.currency || "USD")}`
+                    : `${qty.toLocaleString()} sh`}
+                </Text>
+              </View>
+            </View>
+          );
+        })
+      )}
+    </View>
+  );
+}
+
+// ── Exposure card ─────────────────────────────────────────────────────────
+// Two stacked bar lists: country and currency. Bar width tracks the % of
+// portfolio value. Sorted descending so the dominant exposures land on top.
+function ExposureCard({
+  breakdown,
+  colors,
+}: {
+  breakdown: { byCountry: Record<string, number>; byCurrency: Record<string, number> };
+  colors: Colors;
+}) {
+  const countries = Object.entries(breakdown.byCountry).sort((a, b) => b[1] - a[1]);
+  const currencies = Object.entries(breakdown.byCurrency).sort((a, b) => b[1] - a[1]);
+  const isEmpty = countries.length === 0 && currencies.length === 0;
+
+  return (
+    <View style={[styles.cardSurface, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <Text style={[styles.cardTitle, { color: colors.foreground }]}>Exposure</Text>
+      {isEmpty ? (
+        <Text style={[styles.cardEmpty, { color: colors.mutedForeground }]}>
+          Live quotes are loading — check back in a moment.
+        </Text>
+      ) : (
+        <>
+          <Text style={[styles.exposureSubhead, { color: colors.mutedForeground }]}>
+            By country
+          </Text>
+          {countries.map(([name, pct]) => (
+            <ExposureRow key={`c-${name}`} label={name} pct={pct} colors={colors} />
+          ))}
+          <Text
+            style={[
+              styles.exposureSubhead,
+              { color: colors.mutedForeground, marginTop: 12 },
+            ]}
+          >
+            By currency
+          </Text>
+          {currencies.map(([name, pct]) => (
+            <ExposureRow key={`x-${name}`} label={name} pct={pct} colors={colors} />
+          ))}
+        </>
+      )}
+    </View>
+  );
+}
+
+function ExposureRow({
+  label,
+  pct,
+  colors,
+}: {
+  label: string;
+  pct: number;
+  colors: Colors;
+}) {
+  const width = `${Math.max(0, Math.min(100, pct))}%` as const;
+  return (
+    <View style={styles.exposureRow}>
+      <View style={{ flex: 1 }}>
+        <View style={styles.exposureRowHead}>
+          <Text style={[styles.exposureLabel, { color: colors.foreground }]}>{label}</Text>
+          <Text style={[styles.exposurePct, { color: colors.mutedForeground }]}>
+            {pct.toFixed(1)}%
+          </Text>
+        </View>
+        <View style={[styles.exposureBarBg, { backgroundColor: colors.muted }]}>
+          <View style={[styles.exposureBarFill, { backgroundColor: colors.primary, width }]} />
+        </View>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24 },
@@ -569,6 +796,64 @@ const styles = StyleSheet.create({
   rowMeta: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
   rowValue: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   rowReturn: { fontSize: 12, fontFamily: "Inter_500Medium", marginTop: 2 },
+  footerStack: {
+    marginTop: 8,
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  footerCard: {
+    borderRadius: 12,
+  },
+  cardSurface: {
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  cardTitle: { fontSize: 15, fontFamily: "Inter_700Bold", marginBottom: 10 },
+  cardEmpty: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  divRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 6,
+  },
+  divTicker: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  divMeta: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 2 },
+  divAmount: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  exposureSubhead: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  exposureRow: { paddingVertical: 4 },
+  exposureRowHead: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  exposureLabel: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  exposurePct: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  exposureBarBg: {
+    height: 6,
+    borderRadius: 3,
+    overflow: "hidden",
+  },
+  exposureBarFill: {
+    height: "100%",
+    borderRadius: 3,
+  },
+  exportBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 8,
+  },
+  exportBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
 });
 
 const modalStyles = StyleSheet.create({
