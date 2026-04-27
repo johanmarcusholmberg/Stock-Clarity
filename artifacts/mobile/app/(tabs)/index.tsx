@@ -382,10 +382,10 @@ export default function WatchlistScreen() {
       <View style={{ paddingTop: topPadding + 16 }}>
         <View style={[styles.titleRow, { paddingHorizontal: 16 }]}>
           <View>
+            <Text style={[styles.appTitle, { color: colors.foreground }]}>StockClarify</Text>
             <Text style={[styles.greeting, { color: colors.mutedForeground }]}>
               {greeting}
             </Text>
-            <Text style={[styles.appTitle, { color: colors.foreground }]}>StockClarify</Text>
           </View>
           <View style={styles.headerButtons}>
             <TouchableOpacity

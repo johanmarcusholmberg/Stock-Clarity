@@ -22,6 +22,7 @@ import { SubscriptionProvider, useSubscription } from "@/context/SubscriptionCon
 import { AlertsProvider } from "@/context/AlertsContext";
 import { NotifyProvider } from "@/context/NotifyContext";
 import { HoldingsProvider } from "@/context/HoldingsContext";
+import { DigestProvider } from "@/context/DigestContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { FirstTimeNameModal } from "@/components/FirstTimeNameModal";
 
@@ -95,11 +96,13 @@ export default function RootLayout() {
                     <AlertsProvider>
                       <NotifyProvider>
                         <HoldingsProvider>
-                          <GestureHandlerRootView>
-                            <KeyboardProvider>
-                              <RootLayoutNav />
-                            </KeyboardProvider>
-                          </GestureHandlerRootView>
+                          <DigestProvider>
+                            <GestureHandlerRootView>
+                              <KeyboardProvider>
+                                <RootLayoutNav />
+                              </KeyboardProvider>
+                            </GestureHandlerRootView>
+                          </DigestProvider>
                         </HoldingsProvider>
                       </NotifyProvider>
                     </AlertsProvider>

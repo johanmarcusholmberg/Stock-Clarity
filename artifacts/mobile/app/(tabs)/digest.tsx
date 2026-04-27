@@ -1,6 +1,5 @@
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Haptics from "expo-haptics";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   ActivityIndicator,
@@ -20,7 +19,9 @@ import { useSubscription } from "@/context/SubscriptionContext";
 import { getEvents, type EventPeriod, type StockEvent } from "@/services/stockApi";
 import ExpandableEventCard from "@/components/ExpandableEventCard";
 import { PaywallSheet } from "@/components/PaywallSheet";
+import { PortfolioPicker } from "@/components/PortfolioPicker";
 import { TabHintPopup } from "@/components/TabHintPopup";
+import { useDigest } from "@/context/DigestContext";
 
 type Colors = ReturnType<typeof useColors>;
 
@@ -29,14 +30,9 @@ type Tab = "daily" | "weekly";
 // Cache keys are versioned — v2 invalidates older caches that stored
 // pre-refactor DigestEntry shapes with sourceUrl fields. New entries use
 // the StockEvent shape (with event.url) fetched through getEvents().
-const DAILY_CACHE_KEY = "@stockclarify_digest_daily_v2";
+// Daily cache lives in DigestContext now (eager-loaded at app root).
 const WEEKLY_CACHE_KEY = "@stockclarify_digest_weekly_v2";
-const DAILY_DATE_KEY = "@stockclarify_digest_daily_date_v2";
 const WEEKLY_DATE_KEY = "@stockclarify_digest_weekly_date_v2";
-
-function todayString() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function weekString() {
   const d = new Date();
@@ -51,7 +47,7 @@ interface FilterState {
 /**
  * Stock-level filter for the Digest.  Narrows the events shown to a subset
  * of the active portfolio's tickers.  Portfolio *switching* is handled by
- * the portfolio pill + PortfolioSheet — this sheet is ticker-only.
+ * the PortfolioPicker chip — this sheet is ticker-only.
  */
 function FilterPanel({
   visible,
@@ -156,88 +152,6 @@ function FilterPanel({
   );
 }
 
-/**
- * Portfolio selector sheet — opened by tapping the pill under the screen
- * title.  Lets the user switch between "My Watchlist" (the default folder
- * aka "All stocks" in the user's mental model) and any named portfolios
- * they've created.  Tapping a row switches the active portfolio and
- * closes the sheet.
- */
-function PortfolioSheet({
-  visible,
-  onClose,
-  folders,
-  activeFolderId,
-  onSelect,
-  colors,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  folders: { id: string; name: string; tickers: string[] }[];
-  activeFolderId: string;
-  onSelect: (id: string) => void;
-  colors: Colors;
-}) {
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      presentationStyle="overFullScreen"
-      onRequestClose={onClose}
-    >
-      <View style={ps.overlay}>
-        <TouchableOpacity style={ps.backdrop} activeOpacity={1} onPress={onClose} />
-        <View style={[ps.sheet, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <View style={[ps.handle, { backgroundColor: colors.border }]} />
-          <View style={ps.header}>
-            <Text style={[ps.title, { color: colors.foreground }]}>Switch portfolio</Text>
-          </View>
-          <ScrollView style={ps.scroll} showsVerticalScrollIndicator={false}>
-            {folders.map((folder) => {
-              const selected = folder.id === activeFolderId;
-              const isDefault = folder.id === "default";
-              return (
-                <TouchableOpacity
-                  key={folder.id}
-                  style={[ps.row, {
-                    backgroundColor: selected ? `${colors.primary}15` : "transparent",
-                    borderColor: selected ? `${colors.primary}44` : colors.border,
-                  }]}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    onSelect(folder.id);
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Feather
-                    name={isDefault ? "eye" : "folder"}
-                    size={14}
-                    color={selected ? colors.primary : colors.mutedForeground}
-                  />
-                  <View style={ps.rowText}>
-                    <Text
-                      style={[ps.rowName, { color: selected ? colors.primary : colors.foreground }]}
-                      numberOfLines={1}
-                    >
-                      {folder.name}
-                    </Text>
-                    <Text style={[ps.rowCount, { color: colors.mutedForeground }]}>
-                      {folder.tickers.length} {folder.tickers.length === 1 ? "stock" : "stocks"}
-                    </Text>
-                  </View>
-                  {selected && <Feather name="check" size={16} color={colors.primary} />}
-                </TouchableOpacity>
-              );
-            })}
-            <View style={{ height: 32 }} />
-          </ScrollView>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
 const fp = StyleSheet.create({
   overlay: { flex: 1, justifyContent: "flex-end" },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.55)" },
@@ -258,37 +172,14 @@ const fp = StyleSheet.create({
   check: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
 });
 
-const ps = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: "flex-end" },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.55)" },
-  sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, borderBottomWidth: 0, maxHeight: "70%", minHeight: 260 },
-  handle: { width: 40, height: 4, borderRadius: 2, alignSelf: "center", marginTop: 12, marginBottom: 4 },
-  header: { paddingHorizontal: 20, paddingVertical: 14 },
-  title: { fontSize: 18, fontFamily: "Inter_700Bold" },
-  scroll: { flex: 1, paddingHorizontal: 16 },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 8,
-    gap: 12,
-  },
-  rowText: { flex: 1, minWidth: 0 },
-  rowName: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
-  rowCount: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
-});
-
 export default function DigestScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { stocks, folders, activeFolderId, setActiveFolderId } = useWatchlist();
+  const { stocks, folders, activeFolderId } = useWatchlist();
   const { tier } = useSubscription();
+  const { dailyEntries, dailyLoading, loadDaily } = useDigest();
   const [activeTab, setActiveTab] = useState<Tab>("daily");
   const [filterVisible, setFilterVisible] = useState(false);
-  const [portfolioSheetVisible, setPortfolioSheetVisible] = useState(false);
   const [showPaywall, setShowPaywall] = useState(false);
   const [paywallReason, setPaywallReason] = useState<"ai_limit" | "stock_daily_limit">("ai_limit");
   const [filterState, setFilterState] = useState<FilterState>({ tickers: new Set() });
@@ -299,9 +190,7 @@ export default function DigestScreen() {
     setFilterState({ tickers: new Set() });
   }, [activeFolderId]);
 
-  const [dailyEntries, setDailyEntries] = useState<StockEvent[]>([]);
   const [weeklyEntries, setWeeklyEntries] = useState<StockEvent[]>([]);
-  const [dailyLoading, setDailyLoading] = useState(false);
   const [weeklyLoading, setWeeklyLoading] = useState(false);
   const [dailyRefreshing, setDailyRefreshing] = useState(false);
   const [weeklyRefreshing, setWeeklyRefreshing] = useState(false);
@@ -339,35 +228,6 @@ export default function DigestScreen() {
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }, [stocks]);
 
-  const loadDaily = useCallback(async (force = false) => {
-    const cached = await AsyncStorage.getItem(DAILY_CACHE_KEY);
-    const cachedDate = await AsyncStorage.getItem(DAILY_DATE_KEY);
-
-    if (!force && cached && cachedDate === todayString()) {
-      try {
-        const parsed = JSON.parse(cached) as StockEvent[];
-        if (parsed.length > 0) {
-          setDailyEntries(parsed);
-          return;
-        }
-      } catch {}
-    }
-
-    setDailyLoading(true);
-    try {
-      const entries = await fetchForPeriod("day");
-      setDailyEntries(entries);
-      await AsyncStorage.setItem(DAILY_CACHE_KEY, JSON.stringify(entries));
-      await AsyncStorage.setItem(DAILY_DATE_KEY, todayString());
-    } catch {
-      if (cached) {
-        try { setDailyEntries(JSON.parse(cached)); } catch {}
-      }
-    } finally {
-      setDailyLoading(false);
-    }
-  }, [fetchForPeriod]);
-
   const loadWeekly = useCallback(async (force = false) => {
     const cached = await AsyncStorage.getItem(WEEKLY_CACHE_KEY);
     const cachedDate = await AsyncStorage.getItem(WEEKLY_DATE_KEY);
@@ -396,12 +256,6 @@ export default function DigestScreen() {
       setWeeklyLoading(false);
     }
   }, [fetchForPeriod]);
-
-  useEffect(() => {
-    if (tickers.length > 0) {
-      loadDaily();
-    }
-  }, [tickers.join(",")]);
 
   useEffect(() => {
     if (activeTab === "weekly" && tickers.length > 0 && weeklyEntries.length === 0) {
@@ -461,36 +315,7 @@ export default function DigestScreen() {
         <View style={styles.titleRow}>
           <View style={styles.titleBlock}>
             <Text style={[styles.screenTitle, { color: colors.foreground }]}>Market Digest</Text>
-            {!isEmpty && activeFolder ? (
-              <TouchableOpacity
-                style={[
-                  styles.portfolioChip,
-                  {
-                    backgroundColor: `${colors.primary}18`,
-                    borderColor: `${colors.primary}44`,
-                  },
-                ]}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setPortfolioSheetVisible(true);
-                }}
-                activeOpacity={0.7}
-                accessibilityLabel={`Switch portfolio. Current: ${activeFolder.name}`}
-              >
-                <Feather
-                  name={isDefaultFolder ? "eye" : "folder"}
-                  size={12}
-                  color={colors.primary}
-                />
-                <Text
-                  style={[styles.portfolioChipText, { color: colors.primary }]}
-                  numberOfLines={1}
-                >
-                  {activeFolder.name}
-                </Text>
-                <Feather name="chevron-down" size={12} color={colors.primary} />
-              </TouchableOpacity>
-            ) : null}
+            {!isEmpty && activeFolder ? <PortfolioPicker /> : null}
           </View>
           {!isEmpty && !portfolioEmpty && (
             <TouchableOpacity
@@ -675,17 +500,6 @@ export default function DigestScreen() {
         onChange={setFilterState}
         colors={colors}
       />
-      <PortfolioSheet
-        visible={portfolioSheetVisible}
-        onClose={() => setPortfolioSheetVisible(false)}
-        folders={folders}
-        activeFolderId={activeFolderId}
-        onSelect={(id) => {
-          setActiveFolderId(id);
-          setPortfolioSheetVisible(false);
-        }}
-        colors={colors}
-      />
       <PaywallSheet
         visible={showPaywall}
         onClose={() => setShowPaywall(false)}
@@ -719,22 +533,6 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontFamily: "Inter_700Bold",
     letterSpacing: -0.5,
-  },
-  portfolioChip: {
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    maxWidth: "100%",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  portfolioChipText: {
-    fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
-    flexShrink: 1,
   },
   filterButton: {
     flexDirection: "row",
