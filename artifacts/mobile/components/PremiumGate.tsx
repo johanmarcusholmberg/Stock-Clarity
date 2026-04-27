@@ -131,11 +131,16 @@ export function PremiumGate({
         {previewReal ? children : null}
       </View>
 
-      {/* Blur overlay — BlurView on native, solid fallback on web. */}
+      {/* Blur overlay — BlurView on native, solid fallback on web.
+       * Intensity is high and we layer a semi-opaque mask on top so a free
+       * user can't read the underlying numbers. */}
       {previewReal && Platform.OS !== "web" ? (
-        <BlurView intensity={16} tint={colors.card === "#000" ? "dark" : "light"} style={styles.blur} />
+        <>
+          <BlurView intensity={60} tint={colors.card === "#000" ? "dark" : "light"} style={styles.blur} />
+          <View style={[styles.blur, { backgroundColor: colors.card + "B3" }]} />
+        </>
       ) : (
-        <View style={[styles.blur, { backgroundColor: colors.background + "CC" }]} />
+        <View style={[styles.blur, { backgroundColor: colors.background + "EE" }]} />
       )}
 
       <View style={styles.centre} pointerEvents="box-none">

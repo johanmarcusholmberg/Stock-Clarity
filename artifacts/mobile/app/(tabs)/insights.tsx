@@ -22,6 +22,7 @@ import { useWatchlist, Stock } from "@/context/WatchlistContext";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { PremiumGate } from "@/components/PremiumGate";
 import { PaywallSheet } from "@/components/PaywallSheet";
+import { PortfolioPicker } from "@/components/PortfolioPicker";
 import { TabHintPopup } from "@/components/TabHintPopup";
 import { trackPremiumEvent } from "@/lib/premiumTelemetry";
 import {
@@ -268,18 +269,12 @@ export default function InsightsScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
-        <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, gap: 12 }}>
+        <Text style={{ color: colors.foreground, fontSize: 28, fontFamily: "Inter_700Bold", letterSpacing: -0.5, marginBottom: 12 }}>
+          Insights
+        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 20, gap: 12 }}>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={{ color: colors.foreground, fontSize: 28, fontFamily: "Inter_700Bold", letterSpacing: -0.5, marginBottom: 4 }}>
-              Insights
-            </Text>
-            <Text
-              style={{ color: colors.mutedForeground, fontSize: 13, fontFamily: "Inter_400Regular" }}
-              numberOfLines={1}
-              ellipsizeMode="tail"
-            >
-              Analytics for your portfolio: {activePortfolioName}
-            </Text>
+            <PortfolioPicker />
           </View>
           <TouchableOpacity
             style={[s.changeToggle, { backgroundColor: colors.secondary, borderColor: colors.border }]}
@@ -359,6 +354,7 @@ export default function InsightsScreen() {
                   abs={getPerformanceAbs(stock, charts[stock.ticker] ?? [], period)}
                   currency={stock.currency}
                   showPercent={showPercent}
+                  style={s.perfValue}
                 />
               </View>
             ))}
@@ -374,6 +370,7 @@ export default function InsightsScreen() {
                   abs={getPerformanceAbs(stock, charts[stock.ticker] ?? [], period)}
                   currency={stock.currency}
                   showPercent={showPercent}
+                  style={s.perfValue}
                 />
               </View>
             ))}
@@ -683,4 +680,8 @@ const s = StyleSheet.create({
     borderRadius: 12,
   },
   exportBtnText: { fontSize: 14, fontFamily: "Inter_700Bold" },
+  // Anchored value column for the Performance section. minWidth prevents the
+  // adjacent name/ticker columns from shifting when the user toggles between
+  // % and currency rendering, since the label width changes between the two.
+  perfValue: { minWidth: 88, textAlign: "right", fontVariant: ["tabular-nums"] },
 });
