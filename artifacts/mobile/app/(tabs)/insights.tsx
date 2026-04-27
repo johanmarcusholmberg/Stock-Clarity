@@ -269,7 +269,7 @@ export default function InsightsScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
-        <Text style={{ color: colors.foreground, fontSize: 28, fontFamily: "Inter_700Bold", letterSpacing: -0.5, marginBottom: 12 }}>
+        <Text style={{ color: colors.foreground, fontSize: 28, fontFamily: "Inter_700Bold", letterSpacing: -0.5, marginBottom: 6 }}>
           Insights
         </Text>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 20, gap: 12 }}>
