@@ -13,17 +13,19 @@ export type PremiumFeature =
   | "performance_rankings"
   | "sector_breakdown"
   | "fifty_two_week_range"
+  // Pro-required (Phase 3.4 PR 3 — moved up from Premium)
+  | "dividend_calendar"
+  | "geo_currency_exposure"
+  | "csv_export_basic"
   // Premium-required (Phase 2)
   | "risk_metrics"
   | "benchmark_comparison"
   | "export_pdf_csv"
   // Premium-required (deferred to Phase 3, listed for the map)
-  | "dividend_calendar"
   | "correlation_matrix"
   | "scenario_analysis"
   | "monte_carlo"
   | "tax_lot_view"
-  | "geo_currency_exposure"
   | "rebalancing_suggestions"
   | "full_brief_archive";
 

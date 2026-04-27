@@ -9,6 +9,7 @@ import { startGrantExpiryWarningWorker } from "./lib/grantExpiryWarningWorker";
 import { startEarningsCalendarWorker } from "./lib/earningsCalendarWorker";
 import { startNotifyEvaluator } from "./lib/notifyEvaluator";
 import { startPortfolioSnapshotWorker } from "./lib/portfolioSnapshotWorker";
+import { startDividendWorker } from "./lib/dividendWorker";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
@@ -86,4 +87,9 @@ app.listen(port, async (err) => {
   startPortfolioSnapshotWorker().catch((e) =>
     logger.warn(e, "Portfolio snapshot worker start error"),
   );
+
+  // Phase 3.4 PR 3 — daily Yahoo metadata refresh for held tickers. Pulls
+  // upcoming dividend events and country into dividend_events / holdings.
+  // Same HOLDINGS_ENABLED gate as the snapshot worker.
+  startDividendWorker().catch((e) => logger.warn(e, "Dividend worker start error"));
 });

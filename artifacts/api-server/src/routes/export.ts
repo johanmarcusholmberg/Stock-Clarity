@@ -1,17 +1,18 @@
 import { Router } from "express";
 import { queryOne } from "../db";
-import { storage } from "../storage";
+import { computeEffectiveTier } from "../lib/tierService";
 
 const router = Router();
 
 // Tier gate — Export is a Premium feature. We verify server-side so a
 // determined user who discovers the URL still can't bypass the paywall.
+// Uses computeEffectiveTier so admin-granted Premium (which stacks on top
+// of Stripe) sees the export, matching how the holdings routes gate access.
 async function requirePremium(userId: string): Promise<boolean> {
   if (!userId) return false;
   try {
-    const user = await storage.getUserByClerkId(userId);
-    if (!user) return false;
-    return user.tier === "premium";
+    const eff = await computeEffectiveTier(userId);
+    return eff.tier === "premium";
   } catch {
     return false;
   }
