@@ -17,6 +17,8 @@ export type PremiumFeature =
   | "dividend_calendar"
   | "geo_currency_exposure"
   | "csv_export_basic"
+  // Pro-required (Phase 3.4 PR 4)
+  | "realized_pnl"
   // Premium-required (Phase 2)
   | "risk_metrics"
   | "benchmark_comparison"

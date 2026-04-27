@@ -41,6 +41,7 @@ const FEATURE_TIER_LOOKUP: Record<string, "pro" | "premium"> = {
   dividend_calendar: "pro",
   geo_currency_exposure: "pro",
   csv_export_basic: "pro",
+  realized_pnl: "pro",
   risk_metrics: "premium",
   benchmark_comparison: "premium",
   export_pdf_csv: "premium",

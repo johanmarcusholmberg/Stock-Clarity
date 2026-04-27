@@ -26,6 +26,7 @@ export const FEATURE_TIER_REQUIREMENT: Record<PremiumFeature, Tier> = {
   rebalancing_suggestions: "premium",
   full_brief_archive: "premium",
   csv_export_basic: "pro",
+  realized_pnl: "pro",
 };
 
 const TIER_RANK: Record<Tier, number> = { free: 0, pro: 1, premium: 2 };

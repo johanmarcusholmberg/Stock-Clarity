@@ -174,3 +174,22 @@ export async function getDividends(userId: string): Promise<DividendsResponse> {
 export function holdingsCsvExportUrl(userId: string): string {
   return `${API_BASE}/holdings/${encodeURIComponent(userId)}/export/csv`;
 }
+
+export interface PnlResponse {
+  ytdRealized: number;
+  lifetimeRealized: number;
+  unrealized: number;
+  totalCostBasis: number;
+  currency: string;
+  method: string;
+}
+
+export async function getPnl(userId: string): Promise<PnlResponse | null> {
+  try {
+    const res = await fetch(`${API_BASE}/holdings/${encodeURIComponent(userId)}/pnl`);
+    if (!res.ok) return null;
+    return (await res.json()) as PnlResponse;
+  } catch {
+    return null;
+  }
+}

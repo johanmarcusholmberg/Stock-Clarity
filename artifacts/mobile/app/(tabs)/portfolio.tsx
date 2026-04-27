@@ -25,9 +25,11 @@ import { useSubscription } from "@/context/SubscriptionContext";
 import { getQuotes, type QuoteResult } from "@/services/stockApi";
 import {
   getDividends,
+  getPnl,
   holdingsCsvExportUrl,
   type DividendEvent,
   type Holding,
+  type PnlResponse,
 } from "@/services/holdingsApi";
 import { PremiumGate } from "@/components/PremiumGate";
 import { computeExposure } from "@/lib/geoMath";
@@ -104,6 +106,7 @@ export default function PortfolioScreen() {
   const [quotesLoading, setQuotesLoading] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [dividends, setDividends] = useState<DividendEvent[]>([]);
+  const [pnl, setPnl] = useState<PnlResponse | null>(null);
 
   const isProOrBetter = tier === "pro" || tier === "premium";
   const atFreeCap = !isProOrBetter && holdings.length >= FREE_HOLDINGS_LIMIT;
@@ -136,6 +139,15 @@ export default function PortfolioScreen() {
     setDividends(res.dividends);
   }, [userId, holdings.length]);
 
+  const loadPnl = useCallback(async () => {
+    if (!userId || !holdings.length) {
+      setPnl(null);
+      return;
+    }
+    const res = await getPnl(userId);
+    setPnl(res);
+  }, [userId, holdings.length]);
+
   useEffect(() => {
     loadQuotes();
   }, [loadQuotes]);
@@ -143,6 +155,10 @@ export default function PortfolioScreen() {
   useEffect(() => {
     loadDividends();
   }, [loadDividends]);
+
+  useEffect(() => {
+    loadPnl();
+  }, [loadPnl]);
 
   const exposure = useMemo(
     () => computeExposure(holdings, quotes),
@@ -175,8 +191,8 @@ export default function PortfolioScreen() {
 
   const handleRefresh = useCallback(async () => {
     await refresh();
-    await Promise.all([loadQuotes(), loadDividends()]);
-  }, [refresh, loadQuotes, loadDividends]);
+    await Promise.all([loadQuotes(), loadDividends(), loadPnl()]);
+  }, [refresh, loadQuotes, loadDividends, loadPnl]);
 
   const handleDelete = useCallback(
     (h: Holding) => {
@@ -348,6 +364,16 @@ export default function PortfolioScreen() {
           }}
           ListFooterComponent={
             <View style={styles.footerStack}>
+              <PremiumGate
+                feature="realized_pnl"
+                title="Performance"
+                pitch="Realized + unrealized P&L across your holdings, FIFO cost basis."
+                surface="insights"
+                style={styles.footerCard}
+              >
+                <PerformanceCard pnl={pnl} colors={colors} />
+              </PremiumGate>
+
               <PremiumGate
                 feature="dividend_calendar"
                 title="Dividend Calendar"
@@ -740,6 +766,68 @@ function ExposureRow({
   );
 }
 
+// ── Performance card (Realized + unrealized P&L) ─────────────────────────
+// Server returns USD-normalised totals via the FIFO cost-basis engine. Sale
+// recording UI is out of scope for this PR — until that lands, ytdRealized
+// and lifetimeRealized stay at 0 and only the unrealized + cost-basis rows
+// show movement.
+function PerformanceCard({
+  pnl,
+  colors,
+}: {
+  pnl: PnlResponse | null;
+  colors: Colors;
+}) {
+  const currency = pnl?.currency ?? "USD";
+  return (
+    <View style={[styles.cardSurface, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <Text style={[styles.cardTitle, { color: colors.foreground }]}>Performance</Text>
+      {pnl == null ? (
+        <Text style={[styles.cardEmpty, { color: colors.mutedForeground }]}>
+          Live quotes are loading — check back in a moment.
+        </Text>
+      ) : (
+        <>
+          <PnlRow label="YTD Realized" value={pnl.ytdRealized} currency={currency} colors={colors} />
+          <PnlRow label="Lifetime Realized" value={pnl.lifetimeRealized} currency={currency} colors={colors} />
+          <PnlRow label="Unrealized" value={pnl.unrealized} currency={currency} colors={colors} />
+          <PnlRow label="Cost Basis" value={pnl.totalCostBasis} currency={currency} colors={colors} neutral />
+        </>
+      )}
+    </View>
+  );
+}
+
+function PnlRow({
+  label,
+  value,
+  currency,
+  colors,
+  neutral = false,
+}: {
+  label: string;
+  value: number;
+  currency: string;
+  colors: Colors;
+  neutral?: boolean;
+}) {
+  const valueColor = neutral
+    ? colors.foreground
+    : value > 0
+    ? colors.positive
+    : value < 0
+    ? colors.negative
+    : colors.foreground;
+  return (
+    <View style={styles.pnlRow}>
+      <Text style={[styles.pnlLabel, { color: colors.mutedForeground }]}>{label}</Text>
+      <Text style={[styles.pnlValue, { color: valueColor }]}>
+        {formatMoney(value, currency)}
+      </Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24 },
@@ -819,6 +907,14 @@ const styles = StyleSheet.create({
   divTicker: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
   divMeta: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 2 },
   divAmount: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  pnlRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 6,
+  },
+  pnlLabel: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  pnlValue: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   exposureSubhead: {
     fontSize: 11,
     fontFamily: "Inter_500Medium",
