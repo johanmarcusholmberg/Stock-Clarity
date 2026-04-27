@@ -166,23 +166,33 @@ export function PremiumGate({
       ) : null}
 
       <View style={styles.centre} pointerEvents="box-none">
-        <View style={[styles.badge, { backgroundColor: colors.warning + "22" }]}>
-          <Feather name="lock" size={14} color={colors.warning} />
-          <Text style={[styles.badgeText, { color: colors.warning }]}>
-            {required.toUpperCase()}
-          </Text>
-        </View>
-        <Text style={[styles.title, { color: colors.foreground }]}>{title}</Text>
-        <Text style={[styles.pitch, { color: colors.mutedForeground }]}>{pitch}</Text>
-        <Pressable
-          onPress={handleUpgrade}
-          style={({ pressed }) => [
-            styles.cta,
-            { backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 },
+        <View
+          style={[
+            styles.panel,
+            mutedPreview && [
+              styles.panelMuted,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ],
           ]}
         >
-          <Text style={[styles.ctaText, { color: colors.primaryForeground }]}>Unlock with {required[0].toUpperCase() + required.slice(1)}</Text>
-        </Pressable>
+          <View style={[styles.badge, { backgroundColor: colors.warning + "22" }]}>
+            <Feather name="lock" size={14} color={colors.warning} />
+            <Text style={[styles.badgeText, { color: colors.warning }]}>
+              {required.toUpperCase()}
+            </Text>
+          </View>
+          <Text style={[styles.title, { color: colors.foreground }]}>{title}</Text>
+          <Text style={[styles.pitch, { color: colors.mutedForeground }]}>{pitch}</Text>
+          <Pressable
+            onPress={handleUpgrade}
+            style={({ pressed }) => [
+              styles.cta,
+              { backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 },
+            ]}
+          >
+            <Text style={[styles.ctaText, { color: colors.primaryForeground }]}>Unlock with {required[0].toUpperCase() + required.slice(1)}</Text>
+          </Pressable>
+        </View>
       </View>
 
       <PaywallSheet
@@ -219,7 +229,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: 20,
+  },
+  panel: {
+    alignItems: "center",
     gap: 8,
+  },
+  panelMuted: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 18,
+    paddingHorizontal: 22,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 4,
   },
   badge: {
     flexDirection: "row",
