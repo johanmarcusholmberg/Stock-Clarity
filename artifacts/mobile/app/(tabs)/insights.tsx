@@ -20,7 +20,7 @@ import { useMiniCharts } from "@/hooks/useMiniCharts";
 import { useBenchmarkSeries, inferBenchmark, benchmarkLabel, type Benchmark } from "@/hooks/useBenchmarkSeries";
 import { useWatchlist, Stock } from "@/context/WatchlistContext";
 import { useSubscription } from "@/context/SubscriptionContext";
-import { PremiumGate } from "@/components/PremiumGate";
+import { PremiumGate, isFeatureLocked } from "@/components/PremiumGate";
 import { PaywallSheet } from "@/components/PaywallSheet";
 import { PortfolioPicker } from "@/components/PortfolioPicker";
 import { TabHintPopup } from "@/components/TabHintPopup";
@@ -45,6 +45,38 @@ const API_BASE = (() => {
   if (domain) return `https://${domain}/api`;
   return "http://localhost:8080/api";
 })();
+
+// ─── Dummy preview values ─────────────────────────────────────────────────────
+// Hardcoded placeholder numbers shown to non-premium users in the Risk Metrics
+// and Benchmarks sections. They must NEVER be derived from a real portfolio —
+// the substitution happens before render so the user's actual figures don't
+// reach the DOM when the section is locked.
+
+const DUMMY_RISK_PREVIEW = {
+  beta: "0.87",
+  maxDrawdown: "-8.4%",
+  sharpe: "1.24",
+  sortino: "1.62",
+  vol30: "14.2%",
+  vol90: "16.8%",
+  vol365: "19.5%",
+} as const;
+
+const DUMMY_BENCHMARK_PREVIEW = {
+  portfolioReturn: "12.4%",
+  benchmarkReturn: "9.1%",
+  alpha: "3.30%",
+  trackingError: "4.50%",
+} as const;
+
+// Synthetic 60-point series — portfolio drifts above benchmark with realistic
+// wobble. Deterministic sin/cos so the curves don't change between renders.
+const DUMMY_PORTFOLIO_SERIES = Array.from({ length: 60 }, (_, i) =>
+  100 + i * 0.21 + Math.sin(i / 3.5) * 1.8,
+);
+const DUMMY_BENCHMARK_SERIES = Array.from({ length: 60 }, (_, i) =>
+  100 + i * 0.14 + Math.cos(i / 4.2) * 1.3,
+);
 
 // ─── Helpers (retained from pre-Phase-2 insights screen) ──────────────────────
 
@@ -227,6 +259,11 @@ export default function InsightsScreen() {
   const portfolioSortino = sortinoRatio(portfolioSeries);
   const portfolioAlpha = alpha(portfolioSeries, benchmarkPrices);
   const portfolioTrackingError = trackingError(portfolioSeries, benchmarkPrices);
+
+  // Lock state for the two Premium-tier preview sections. When locked we swap
+  // in dummy figures below so the real numbers above never render to the DOM.
+  const riskLocked = isFeatureLocked(tier, "risk_metrics");
+  const benchmarkLocked = isFeatureLocked(tier, "benchmark_comparison");
 
   // ─── Empty state ───────────────────────────────────────────────────────────
   if (watchedStocks.length === 0) {
@@ -447,22 +484,52 @@ export default function InsightsScreen() {
           feature="risk_metrics"
           title="Risk metrics you can trust"
           pitch="Premium unlocks beta, volatility at 30/90/365 days, max drawdown, Sharpe and Sortino — all computed across your portfolio."
+          previewMode="muted-preview"
           style={{ marginTop: 14 }}
         >
           <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <SectionHeader title="Risk Metrics" icon="shield" />
             <View style={s.grid}>
-              <RiskStat label="Beta vs" sub={benchmarkLabel(benchmark)} value={portfolioBeta.toFixed(2)} />
-              <RiskStat label="Max drawdown" value={`${(portfolioDD * 100).toFixed(1)}%`} color={colors.negative} />
-              <RiskStat label="Sharpe" value={portfolioSharpe.toFixed(2)} />
-              <RiskStat label="Sortino" value={Number.isFinite(portfolioSortino) ? portfolioSortino.toFixed(2) : "—"} />
+              <RiskStat
+                label="Beta vs"
+                sub={benchmarkLabel(benchmark)}
+                value={riskLocked ? DUMMY_RISK_PREVIEW.beta : portfolioBeta.toFixed(2)}
+              />
+              <RiskStat
+                label="Max drawdown"
+                value={riskLocked ? DUMMY_RISK_PREVIEW.maxDrawdown : `${(portfolioDD * 100).toFixed(1)}%`}
+                color={colors.negative}
+              />
+              <RiskStat
+                label="Sharpe"
+                value={riskLocked ? DUMMY_RISK_PREVIEW.sharpe : portfolioSharpe.toFixed(2)}
+              />
+              <RiskStat
+                label="Sortino"
+                value={
+                  riskLocked
+                    ? DUMMY_RISK_PREVIEW.sortino
+                    : Number.isFinite(portfolioSortino)
+                    ? portfolioSortino.toFixed(2)
+                    : "—"
+                }
+              />
             </View>
             <View style={{ height: 12 }} />
             <Text style={s.riskSection}>VOLATILITY (ANNUALISED)</Text>
             <View style={s.grid}>
-              <RiskStat label="30-day" value={`${(portfolioVol30 * 100).toFixed(1)}%`} />
-              <RiskStat label="90-day" value={`${(portfolioVol90 * 100).toFixed(1)}%`} />
-              <RiskStat label="365-day" value={`${(portfolioVol365 * 100).toFixed(1)}%`} />
+              <RiskStat
+                label="30-day"
+                value={riskLocked ? DUMMY_RISK_PREVIEW.vol30 : `${(portfolioVol30 * 100).toFixed(1)}%`}
+              />
+              <RiskStat
+                label="90-day"
+                value={riskLocked ? DUMMY_RISK_PREVIEW.vol90 : `${(portfolioVol90 * 100).toFixed(1)}%`}
+              />
+              <RiskStat
+                label="365-day"
+                value={riskLocked ? DUMMY_RISK_PREVIEW.vol365 : `${(portfolioVol365 * 100).toFixed(1)}%`}
+              />
             </View>
           </View>
         </PremiumGate>
@@ -472,13 +539,14 @@ export default function InsightsScreen() {
           feature="benchmark_comparison"
           title="Benchmark your portfolio"
           pitch={`See how your holdings stack up against the ${benchmarkLabel(benchmark)} — total return, alpha, and tracking error.`}
+          previewMode="muted-preview"
           style={{ marginTop: 14 }}
         >
           <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <SectionHeader title={`Portfolio vs ${benchmarkLabel(benchmark)}`} icon="activity" />
             <TwoLineSparkline
-              a={portfolioSeries}
-              b={benchmarkPrices}
+              a={benchmarkLocked ? DUMMY_PORTFOLIO_SERIES : portfolioSeries}
+              b={benchmarkLocked ? DUMMY_BENCHMARK_SERIES : benchmarkPrices}
               colorA={colors.primary}
               colorB={colors.mutedForeground}
             />
@@ -489,16 +557,42 @@ export default function InsightsScreen() {
             <View style={s.grid}>
               <RiskStat
                 label={`1Y return (${activePortfolioName})`}
-                value={`${(portfolioTotalReturn * 100).toFixed(1)}%`}
-                color={portfolioTotalReturn >= 0 ? colors.positive : colors.negative}
+                value={
+                  benchmarkLocked
+                    ? DUMMY_BENCHMARK_PREVIEW.portfolioReturn
+                    : `${(portfolioTotalReturn * 100).toFixed(1)}%`
+                }
+                color={
+                  benchmarkLocked || portfolioTotalReturn >= 0 ? colors.positive : colors.negative
+                }
               />
               <RiskStat
                 label={`1Y return (${benchmarkLabel(benchmark)})`}
-                value={`${(benchmarkTotalReturn * 100).toFixed(1)}%`}
-                color={benchmarkTotalReturn >= 0 ? colors.positive : colors.negative}
+                value={
+                  benchmarkLocked
+                    ? DUMMY_BENCHMARK_PREVIEW.benchmarkReturn
+                    : `${(benchmarkTotalReturn * 100).toFixed(1)}%`
+                }
+                color={
+                  benchmarkLocked || benchmarkTotalReturn >= 0 ? colors.positive : colors.negative
+                }
               />
-              <RiskStat label="Alpha" value={`${(portfolioAlpha * 100).toFixed(2)}%`} />
-              <RiskStat label="Tracking error" value={`${(portfolioTrackingError * 100).toFixed(2)}%`} />
+              <RiskStat
+                label="Alpha"
+                value={
+                  benchmarkLocked
+                    ? DUMMY_BENCHMARK_PREVIEW.alpha
+                    : `${(portfolioAlpha * 100).toFixed(2)}%`
+                }
+              />
+              <RiskStat
+                label="Tracking error"
+                value={
+                  benchmarkLocked
+                    ? DUMMY_BENCHMARK_PREVIEW.trackingError
+                    : `${(portfolioTrackingError * 100).toFixed(2)}%`
+                }
+              />
             </View>
             <Text style={s.footnote}>
               Computed using current-weight back-applied returns. Rebalancing history is not tracked in v1.

@@ -35,6 +35,12 @@ function satisfiesTier(current: Tier, required: Tier): boolean {
   return TIER_RANK[current] >= TIER_RANK[required];
 }
 
+/** Whether `tier` lacks access to `feature`. Exported so parents can branch on
+ *  lock state to swap real data for dummy previews before render. */
+export function isFeatureLocked(tier: Tier, feature: PremiumFeature): boolean {
+  return !satisfiesTier(tier, FEATURE_TIER_REQUIREMENT[feature]);
+}
+
 // ── First-use tracking ───────────────────────────────────────────────────────
 // In-session Set so we fire the first-use event once per app launch even if the
 // user navigates into the same Premium card multiple times. For a persistent
@@ -53,6 +59,12 @@ interface PremiumGateProps extends Omit<ViewProps, "children"> {
   surface?: PremiumSurface;
   /** Render real content under a blur overlay when locked. Default true. */
   previewReal?: boolean;
+  /** "blur" (default) layers a heavy blur+mask over `children` so the values
+   *  are unreadable. "muted-preview" drops the blur and lowers the children's
+   *  opacity instead, so a dummy preview can be read behind the same centered
+   *  badge+CTA overlay. The parent is responsible for swapping in dummy data
+   *  before passing children when using "muted-preview". */
+  previewMode?: "blur" | "muted-preview";
   /** Override the default behaviour of opening the paywall when unlocking. */
   onUpgrade?: () => void;
   children: React.ReactNode;
@@ -64,6 +76,7 @@ export function PremiumGate({
   pitch,
   surface = "insights",
   previewReal = true,
+  previewMode = "blur",
   onUpgrade,
   children,
   style,
@@ -122,26 +135,35 @@ export function PremiumGate({
     setPaywallVisible(false);
   };
 
+  const mutedPreview = previewMode === "muted-preview";
+
   return (
     <View
       style={[styles.container, { borderColor: colors.border, backgroundColor: colors.card }, style]}
       {...viewProps}
     >
-      <View style={previewReal ? styles.preview : styles.previewEmpty} pointerEvents="none">
-        {previewReal ? children : null}
+      <View
+        style={
+          mutedPreview ? styles.mutedPreview : previewReal ? styles.preview : styles.previewEmpty
+        }
+        pointerEvents="none"
+      >
+        {mutedPreview || previewReal ? children : null}
       </View>
 
       {/* Blur overlay — BlurView on native, solid fallback on web.
        * Intensity is high and we layer a semi-opaque mask on top so a free
-       * user can't read the underlying numbers. */}
-      {previewReal && Platform.OS !== "web" ? (
+       * user can't read the underlying numbers. Skipped in "muted-preview"
+       * mode, where the parent has already swapped real data for dummy values
+       * and we want the preview to remain readable. */}
+      {!mutedPreview && previewReal && Platform.OS !== "web" ? (
         <>
           <BlurView intensity={60} tint={colors.card === "#000" ? "dark" : "light"} style={styles.blur} />
           <View style={[styles.blur, { backgroundColor: colors.card + "B3" }]} />
         </>
-      ) : (
+      ) : !mutedPreview ? (
         <View style={[styles.blur, { backgroundColor: colors.background + "EE" }]} />
-      )}
+      ) : null}
 
       <View style={styles.centre} pointerEvents="box-none">
         <View style={[styles.badge, { backgroundColor: colors.warning + "22" }]}>
@@ -182,6 +204,9 @@ const styles = StyleSheet.create({
   },
   preview: {
     opacity: 0.6,
+  },
+  mutedPreview: {
+    opacity: 0.45,
   },
   previewEmpty: {
     minHeight: 180,
