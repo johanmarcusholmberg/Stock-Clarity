@@ -1,10 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const API_BASE = (() => {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (domain) return `https://${domain}/api`;
-  return "http://localhost:8080/api";
-})();
+const API_BASE =
+  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
+  "http://localhost:8080/api";
 
 // TTLs mirror the backend cache so the client doesn't re-fetch while the
 // server would have returned the same data anyway.

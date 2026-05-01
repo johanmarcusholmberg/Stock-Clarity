@@ -3,11 +3,9 @@
 // the mapping trivial (these come straight out of pg). The one camelCase
 // alias we keep is at the consumer layer in NotifyContext.
 
-const API_BASE = (() => {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (domain) return `https://${domain}/api`;
-  return "http://localhost:8080/api";
-})();
+const API_BASE =
+  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
+  "http://localhost:8080/api";
 
 export type NotifyKind = "news" | "earnings";
 export type NotifyStatus = "active" | "muted";

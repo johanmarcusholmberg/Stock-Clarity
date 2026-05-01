@@ -6,10 +6,8 @@ import { computeEffectiveTier } from "../lib/tierService";
 
 const router = Router();
 
-const APP_BASE = () => {
-  const domain = process.env.REPLIT_DOMAINS?.split(",")[0];
-  return domain ? `https://${domain}` : "http://localhost:3000";
-};
+const APP_BASE = () =>
+  process.env.APP_BASE_URL ?? "http://localhost:3000";
 
 // Payment return page (redirect target from Stripe)
 router.get("/return", (req, res) => {
@@ -110,7 +108,7 @@ router.get("/plans", async (_req, res) => {
 // Get publishable key (for frontend)
 router.get("/config", async (_req, res) => {
   try {
-    const publishableKey = await getStripePublishableKey();
+    const publishableKey = getStripePublishableKey();
     res.json({ publishableKey });
   } catch {
     res.status(500).json({ error: "Stripe not configured" });
@@ -123,7 +121,7 @@ router.post("/checkout", async (req, res) => {
   if (!priceId) return void res.status(400).json({ error: "priceId required" });
 
   try {
-    const stripe = await getUncachableStripeClient();
+    const stripe = getUncachableStripeClient();
     const base = APP_BASE();
 
     // Find or create customer
@@ -172,7 +170,7 @@ router.post("/portal", async (req, res) => {
     const user = await storage.getUserByClerkId(userId);
     if (!user?.stripe_customer_id) return void res.status(404).json({ error: "No subscription found" });
 
-    const stripe = await getUncachableStripeClient();
+    const stripe = getUncachableStripeClient();
     const session = await stripe.billingPortal.sessions.create({
       customer: user.stripe_customer_id,
       return_url: APP_BASE() + "/api/payment/return?status=success",
@@ -219,6 +217,26 @@ router.get("/subscription/:userId", async (req, res) => {
     });
   } catch (err: any) {
     logger.error(err, "Subscription fetch failed");
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/payment/sync-tier — called by mobile after successful IAP. The
+// RevenueCat webhook is authoritative for tier changes; this endpoint is a
+// best-effort optimistic sync to avoid a UI lag if the webhook is delayed.
+router.post("/sync-tier", async (req, res) => {
+  const { userId, tier } = req.body ?? {};
+  if (typeof userId !== "string" || !userId) {
+    return void res.status(400).json({ error: "userId required" });
+  }
+  if (tier !== "free" && tier !== "pro" && tier !== "premium") {
+    return void res.status(400).json({ error: "Invalid tier" });
+  }
+  try {
+    await storage.updateUserTier(userId, tier);
+    res.json({ ok: true });
+  } catch (err: any) {
+    logger.error(err, "sync-tier failed");
     res.status(500).json({ error: err.message });
   }
 });

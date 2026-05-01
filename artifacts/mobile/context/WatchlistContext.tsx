@@ -8,11 +8,9 @@ import { isMarketOpen } from "@/utils/marketHours";
 // Re-export StockEvent so components can import it from here
 export type { StockEvent } from "@/services/stockApi";
 
-const API_BASE = (() => {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (domain) return `https://${domain}/api`;
-  return "http://localhost:8080/api";
-})();
+const API_BASE =
+  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
+  "http://localhost:8080/api";
 
 export interface Stock {
   ticker: string;

@@ -6,8 +6,8 @@ import { readCachedNews, upsertNewsItem, type CachedNewsRow, type NewsSource } f
 const router = Router();
 
 const openai = new OpenAI({
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+  ...(process.env.OPENAI_BASE_URL && { baseURL: process.env.OPENAI_BASE_URL }),
+  apiKey: process.env.OPENAI_API_KEY ?? "",
 });
 
 // ─── Cache ────────────────────────────────────────────────────────────────────

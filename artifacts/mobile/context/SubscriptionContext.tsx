@@ -1,15 +1,20 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
-import { Linking } from "react-native";
+import { Linking, Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@clerk/expo";
 import { useUser } from "@clerk/expo";
 import { applyEventExpansion } from "@/utils/aiQuota";
+import {
+  initPurchases,
+  getOfferings,
+  purchasePackage,
+  entitlementsToTier,
+  syncTierToBackend,
+} from "@/services/PurchasesService";
 
-const API_BASE = (() => {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (domain) return `https://${domain}/api`;
-  return "http://localhost:8080/api";
-})();
+const API_BASE =
+  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
+  "http://localhost:8080/api";
 
 export type Tier = "free" | "pro" | "premium";
 
@@ -152,6 +157,16 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const lastResetDate = useRef<string>("");
 
   const email = user?.primaryEmailAddress?.emailAddress;
+
+  // Initialise RevenueCat once we have a userId. No-op on web. The
+  // PurchasesService warns and skips if API keys aren't set, so this is
+  // safe to run unconditionally.
+  useEffect(() => {
+    if (Platform.OS === "web" || !userId) return;
+    initPurchases(userId).catch((err) => {
+      console.error("Failed to init RevenueCat:", err);
+    });
+  }, [userId]);
 
   const tierLimits = TIER_LIMITS[tier];
   const stocksLimit = tierLimits.stocksPerDay;
@@ -314,6 +329,40 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   }, [plansLoading, plans.length]);
 
   const startCheckout = useCallback(async (priceId: string): Promise<string | null> => {
+    // Native: route subscription purchases through RevenueCat (StoreKit on
+    // iOS, Play Billing on Android). Apple and Google both mandate IAP for
+    // in-app subscriptions, so the Stripe Checkout URL flow is web-only.
+    if (Platform.OS !== "web") {
+      if (!userId) return null;
+
+      // Map the Stripe priceId back to a tier via the loaded plans, then
+      // look up the matching RevenueCat package by product identifier.
+      const plan = plans.find((p) => p.prices.some((pr) => pr.id === priceId));
+      const planTier = plan?.metadata?.tier;
+      if (!planTier || planTier === "free") return null;
+
+      const packages = await getOfferings();
+      const target = packages.find((p) =>
+        p.product.identifier.toLowerCase().includes(planTier),
+      );
+      if (!target) {
+        console.error("No IAP package found for tier:", planTier);
+        return null;
+      }
+
+      const result = await purchasePackage(target);
+      if (result.success && result.customerInfo) {
+        const newTier = entitlementsToTier(result.customerInfo);
+        setTier(newTier);
+        // Mirror the tier change to our backend; the RevenueCat webhook is
+        // authoritative but this avoids a UI lag if the webhook is delayed.
+        await syncTierToBackend(userId, newTier);
+      }
+      // Native flow: no URL to open. PaywallSheet should observe the tier
+      // change to dismiss; null preserves the existing return type.
+      return null;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/payment/checkout`, {
         method: "POST",
@@ -326,7 +375,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       }
     } catch {}
     return null;
-  }, [userId, email]);
+  }, [userId, email, plans]);
 
   const openPortal = useCallback(async (): Promise<{ url: string | null; error?: string }> => {
     try {

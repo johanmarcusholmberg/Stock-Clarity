@@ -2,11 +2,9 @@
 // All writes are best-effort and non-blocking — the /api/analytics/track
 // endpoint already swallows errors on the server side.
 
-const API_BASE = (() => {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (domain) return `https://${domain}/api`;
-  return "http://localhost:8080/api";
-})();
+const API_BASE =
+  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
+  "http://localhost:8080/api";
 
 export type PremiumFeature =
   // Pro-required (Phase 1)

@@ -5,11 +5,9 @@
 // Server-side auth accepts requesterEmail via body/query/x-admin-email header,
 // preferring body when present (see resolveAdminEmail in routes/admin.ts).
 
-const API_BASE = (() => {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (domain) return `https://${domain}/api`;
-  return "http://localhost:8080/api";
-})();
+const API_BASE =
+  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
+  "http://localhost:8080/api";
 
 export type SubscriptionSource = "stripe" | "apple_iap" | "google_play" | "manual" | "none";
 export type GrantStatus = "active" | "revoked" | "expired";

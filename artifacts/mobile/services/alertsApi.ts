@@ -1,11 +1,9 @@
 // Client for the /api/alerts endpoints. Types intentionally mirror the DB
 // shape — camelCased on the client, snake_cased in the payload.
 
-const API_BASE = (() => {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (domain) return `https://${domain}/api`;
-  return "http://localhost:8080/api";
-})();
+const API_BASE =
+  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
+  "http://localhost:8080/api";
 
 export type AlertType = "price_above" | "price_below" | "pct_change_day";
 export type AlertStatus = "active" | "snoozed" | "triggered" | "disabled";

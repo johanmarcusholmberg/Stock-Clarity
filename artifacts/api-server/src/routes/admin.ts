@@ -1143,7 +1143,7 @@ router.post("/users/:userId/cancel", async (req, res) => {
       });
     }
 
-    const stripe = await getUncachableStripeClient();
+    const stripe = getUncachableStripeClient();
     const idempotencyKey = `admin-cancel-${userId}-${subscriptionId}-${mode}`;
 
     let stripeResult: Stripe.Subscription;
@@ -1277,7 +1277,7 @@ router.post("/users/:userId/refund", async (req, res) => {
         .json({ error: "User has no Stripe customer — nothing to refund" });
     }
 
-    const stripe = await getUncachableStripeClient();
+    const stripe = getUncachableStripeClient();
 
     // Ask Stripe directly for the latest paid invoice. Querying the synced
     // stripe.* tables would be faster but could miss an invoice paid in the

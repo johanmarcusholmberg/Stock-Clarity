@@ -166,9 +166,9 @@ export default function SignUpScreen() {
       if (result.status === "complete" && result.createdSessionId) {
         // Record initial password in history (non-blocking)
         try {
-          const domain = process.env.EXPO_PUBLIC_DOMAIN;
-          if (domain) {
-            await fetch(`https://${domain}/api/auth/record-password`, {
+          const apiBase = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "");
+          if (apiBase) {
+            await fetch(`${apiBase}/auth/record-password`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ email, password }),
