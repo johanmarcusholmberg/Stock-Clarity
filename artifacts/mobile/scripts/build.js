@@ -55,22 +55,18 @@ function stripProtocol(domain) {
 }
 
 function getDeploymentDomain() {
-  if (process.env.REPLIT_INTERNAL_APP_DOMAIN) {
-    return stripProtocol(process.env.REPLIT_INTERNAL_APP_DOMAIN);
+  const candidates = [
+    process.env.APP_BASE_URL,
+    process.env.EXPO_PUBLIC_DOMAIN,
+    process.env.REPLIT_INTERNAL_APP_DOMAIN, // legacy fallback
+    process.env.REPLIT_DEV_DOMAIN,          // legacy fallback
+  ];
+  const found = candidates.find(Boolean);
+  if (!found) {
+    console.error("ERROR: Set APP_BASE_URL to your deployed API domain.");
+    process.exit(1);
   }
-
-  if (process.env.REPLIT_DEV_DOMAIN) {
-    return stripProtocol(process.env.REPLIT_DEV_DOMAIN);
-  }
-
-  if (process.env.EXPO_PUBLIC_DOMAIN) {
-    return stripProtocol(process.env.EXPO_PUBLIC_DOMAIN);
-  }
-
-  console.error(
-    "ERROR: No deployment domain found. Set REPLIT_INTERNAL_APP_DOMAIN, REPLIT_DEV_DOMAIN, or EXPO_PUBLIC_DOMAIN",
-  );
-  process.exit(1);
+  return stripProtocol(found);
 }
 
 function prepareDirectories(timestamp) {

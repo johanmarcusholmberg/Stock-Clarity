@@ -4,6 +4,7 @@ import pinoHttp from "pino-http";
 import { clerkMiddleware } from "@clerk/express";
 import router from "./routes";
 import adminRouter from "./routes/admin";
+import legalRouter from "./routes/legal";
 import { logger } from "./lib/logger";
 import { CLERK_PROXY_PATH, clerkProxyMiddleware } from "./middlewares/clerkProxyMiddleware";
 import { WebhookHandlers } from "./webhookHandlers";
@@ -54,6 +55,9 @@ app.use(clerkMiddleware());
 
 // ── Admin dashboard at /admin ────────────────────────────────────────────────
 app.use("/admin", adminRouter);
+
+// ── Legal pages at /legal ────────────────────────────────────────────────────
+app.use("/legal", legalRouter);
 
 // ── All other API routes ─────────────────────────────────────────────────────
 app.use("/api", router);

@@ -17,6 +17,7 @@ import { useAuth } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription, Plan } from "@/context/SubscriptionContext";
 import { trackPremiumEvent } from "@/lib/premiumTelemetry";
+import { restorePurchases } from "@/services/PurchasesService";
 
 interface Props {
   visible: boolean;
@@ -58,10 +59,38 @@ const PLAN_FEATURES: Record<string, PlanFeature[]> = {
 export function PaywallSheet({ visible, onClose, triggerReason = "general", currentTier = "free" }: Props) {
   const colors = useColors();
   const { userId } = useAuth();
-  const { plans, plansLoading, fetchPlans, startCheckout } = useSubscription();
+  const { plans, plansLoading, fetchPlans, startCheckout, refresh } = useSubscription();
   const [selectedInterval, setSelectedInterval] = useState<"month" | "year">("month");
   const [loadingPriceId, setLoadingPriceId] = useState<string | null>(null);
+  const [isRestoring, setIsRestoring] = useState(false);
   const { width } = Dimensions.get("window");
+
+  const handleRestore = async () => {
+    if (isRestoring) return;
+    setIsRestoring(true);
+    try {
+      const customerInfo = await restorePurchases();
+      const hasEntitlements =
+        customerInfo &&
+        Object.keys(customerInfo.entitlements?.active ?? {}).length > 0;
+      // Re-pull tier from the server. The RevenueCat webhook is the
+      // authoritative path; refresh() picks up whatever it has synced.
+      refresh();
+      if (hasEntitlements) {
+        Alert.alert(
+          "Purchases Restored",
+          "Your subscription has been restored. It may take a moment to refresh.",
+        );
+      } else {
+        Alert.alert(
+          "No Active Subscription",
+          "We couldn't find an active subscription on this account.",
+        );
+      }
+    } finally {
+      setIsRestoring(false);
+    }
+  };
 
   useEffect(() => {
     if (visible) {
@@ -161,6 +190,8 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general", curr
     subscribeBtnTextSecondary: { color: colors.foreground },
     footer: { paddingHorizontal: 24, paddingTop: 8 },
     footerText: { color: colors.mutedForeground, fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "center" },
+    restoreBtn: { paddingVertical: 10, marginTop: 8, alignItems: "center" },
+    restoreBtnText: { color: colors.primary, fontSize: 14, fontFamily: "Inter_600SemiBold" },
   });
 
   const title = currentTier === "pro" ? "Upgrade to Premium" : "Unlock StockClarify";
@@ -288,7 +319,22 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general", curr
             <Text style={[s.footerText, { color: colors.accent, marginBottom: 6, fontFamily: "Inter_600SemiBold" }]}>
               Early subscribers keep this price for 12 months.
             </Text>
-            <Text style={s.footerText}>Cancel anytime · Secure payment via Stripe · Restore purchases on sign in</Text>
+            <Text style={s.footerText}>
+              Subscriptions automatically renew unless cancelled at least 24 hours before
+              the end of the current period. Manage subscriptions in your Account Settings.
+              By purchasing, you agree to our Terms of Service and Privacy Policy.
+            </Text>
+            <TouchableOpacity
+              onPress={handleRestore}
+              disabled={isRestoring}
+              style={s.restoreBtn}
+            >
+              {isRestoring ? (
+                <ActivityIndicator color={colors.primary} />
+              ) : (
+                <Text style={s.restoreBtnText}>Restore Purchases</Text>
+              )}
+            </TouchableOpacity>
           </View>
         </View>
       </View>

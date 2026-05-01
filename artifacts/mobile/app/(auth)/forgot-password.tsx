@@ -144,9 +144,9 @@ export default function ForgotPasswordScreen() {
 
     // Check password history against backend
     try {
-      const domain = process.env.EXPO_PUBLIC_DOMAIN;
-      if (domain) {
-        const historyRes = await fetch(`https://${domain}/api/auth/check-password-history`, {
+      const apiBase = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "");
+      if (apiBase) {
+        const historyRes = await fetch(`${apiBase}/auth/check-password-history`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email, password }),
@@ -172,9 +172,9 @@ export default function ForgotPasswordScreen() {
 
       // Record the new password hash in backend history
       try {
-        const domain = process.env.EXPO_PUBLIC_DOMAIN;
-        if (domain) {
-          await fetch(`https://${domain}/api/auth/record-password`, {
+        const apiBase = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "");
+        if (apiBase) {
+          await fetch(`${apiBase}/auth/record-password`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ email, password }),

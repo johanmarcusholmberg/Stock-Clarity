@@ -40,11 +40,9 @@ import {
 type FeatherIconName = React.ComponentProps<typeof Feather>["name"];
 type PerfPeriod = "today" | "1w" | "1m";
 
-const API_BASE = (() => {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (domain) return `https://${domain}/api`;
-  return "http://localhost:8080/api";
-})();
+const API_BASE =
+  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
+  "http://localhost:8080/api";
 
 // ─── Dummy preview values ─────────────────────────────────────────────────────
 // Hardcoded placeholder numbers shown to non-premium users in the Risk Metrics

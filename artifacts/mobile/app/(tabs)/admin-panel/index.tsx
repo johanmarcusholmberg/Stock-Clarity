@@ -17,10 +17,14 @@ import { useAuth, useUser } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription, Tier } from "@/context/SubscriptionContext";
 
-const API_BASE = (() => {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (domain) return `https://${domain}/api`;
-  return "http://localhost:8080/api";
+const API_BASE =
+  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
+  "http://localhost:8080/api";
+
+const ADMIN_URL: string | null = (() => {
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "");
+  if (!apiUrl) return null;
+  return apiUrl.replace(/\/api$/, "") + "/admin";
 })();
 
 interface UserRow {
@@ -515,15 +519,13 @@ export default function AdminPanelScreen() {
               </Text>
               <TouchableOpacity
                 onPress={() => {
-                  const url = process.env.EXPO_PUBLIC_DOMAIN
-                    ? `https://${process.env.EXPO_PUBLIC_DOMAIN}/admin`
-                    : null;
+                  const url = ADMIN_URL;
                   if (url) Linking.openURL(url);
                 }}
-                disabled={!process.env.EXPO_PUBLIC_DOMAIN}
+                disabled={!ADMIN_URL}
               >
                 <Text style={{ color: colors.primary, fontFamily: "Inter_600SemiBold", fontSize: 13, textDecorationLine: "underline" }}>
-                  {process.env.EXPO_PUBLIC_DOMAIN ? `https://${process.env.EXPO_PUBLIC_DOMAIN}/admin` : "your-domain/admin"}
+                  {ADMIN_URL ?? "your-domain/admin"}
                 </Text>
               </TouchableOpacity>
             </View>
