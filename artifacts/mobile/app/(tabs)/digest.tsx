@@ -405,13 +405,6 @@ export default function DigestScreen() {
             {/* Daily Brief */}
             {activeTab === "daily" && (
               <View style={styles.contentSection}>
-                <View style={[styles.infoBanner, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]}>
-                  <Feather name="sun" size={14} color={colors.primary} />
-                  <Text style={[styles.infoText, { color: colors.primary }]} numberOfLines={1} ellipsizeMode="tail">
-                    Today's top headlines across your stocks.
-                  </Text>
-                </View>
-
                 {dailyLoading ? (
                   <View style={styles.loadingContainer}>
                     <ActivityIndicator color={colors.primary} size="small" />
@@ -448,13 +441,6 @@ export default function DigestScreen() {
             {/* Weekly Brief */}
             {activeTab === "weekly" && (
               <View style={styles.contentSection}>
-                <View style={[styles.infoBanner, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]}>
-                  <Feather name="calendar" size={14} color={colors.primary} />
-                  <Text style={[styles.infoText, { color: colors.primary }]} numberOfLines={1} ellipsizeMode="tail">
-                    Key highlights from the last 7 days.
-                  </Text>
-                </View>
-
                 {weeklyLoading ? (
                   <View style={styles.loadingContainer}>
                     <ActivityIndicator color={colors.primary} size="small" />
