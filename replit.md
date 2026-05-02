@@ -41,6 +41,13 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
   - `BenchmarkContext` (`@stockclarify_benchmark_v1`): user-selected market index for Insights ("auto" + 12 indices: SPX/NDX/DJI/RUT/OMXS30/STOXX/FTSE/DAX/CAC/N225/HSI/TSX); hydration is guarded by a `userTouched` ref so a late AsyncStorage read never overwrites a user's in-session choice; cleared on sign-out
 - **Insights tab market selector**: pill below the portfolio picker reads "Compared to: <label> · Auto" and opens `MarketPickerSheet` (bottom-sheet modal). Drives both the "Beta vs ..." Risk Metrics row and the Benchmark Comparison section.
 - **Cross-platform confirm helper** (`utils/confirm.ts`): `confirmAsync(title, msg, {confirmText, cancelText, destructive})` returns `Promise<boolean>`. Uses `window.confirm()` on web (multi-button `Alert.alert` silently no-ops on react-native-web). Used by `account.tsx` (sign-out, "no billing account" → View Plans) and `portfolio.tsx` (delete holding, free-plan-limit upgrade prompt).
+- **Portfolio Export** (Premium, `components/ExportSheet.tsx` → `/api/export/...`): single "Choose format…" CTA on Insights opens a bottom-sheet with 5 options:
+  - **xlsx** (recommended) — `exceljs`-built workbook with two sheets (Holdings: frozen header + autofilter + green/red color-coded change cols + percent format; Summary: portfolio aggregates + notes footer). Filename: `stockclarify-<slug>-<date>.xlsx`.
+  - **csv comma** — for US/UK Excel + Google Sheets / Numbers.
+  - **csv semicolon** — for EU Excel locales (Sweden, Germany, France); numerics emitted with **comma decimals** (`1234,56`) so Excel imports them as numbers, not text.
+  - **tsv** — tab-separated, `.tsv` extension, `text/tab-separated-values` MIME.
+  - **PDF** — printable HTML page (browser save-as-PDF).
+  All CSV variants prepend a UTF-8 BOM (`\ufeff`) so Excel auto-detects encoding for non-ASCII tickers/company names, plus a 5-row preamble (portfolio name, generated time UTC, holdings count + up/down/flat split, source, blank) before the table header. Cell quoting follows RFC 4180 generalised to the active delimiter. All endpoints gated server-side via `computeEffectiveTier === "premium"` (admin grants stack on Stripe).
 - **Global Stock Universe** (11 exchanges): NASDAQ/NYSE, LSE, XETRA, TSE, HKEX, TSX, ASX, SIX, Euronext, NSE
 
 ### API Server (`artifacts/api-server`)

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import ExcelJS from "exceljs";
 import { queryOne } from "../db";
 import { computeEffectiveTier } from "../lib/tierService";
 
@@ -94,11 +95,68 @@ async function buildExport(userId: string, folderId?: string): Promise<{ name: s
   return { name: activeFolder.name, rows };
 }
 
+// ── Aggregates used in both the xlsx Summary sheet and CSV preamble ─────────
+function aggregate(rows: ExportRow[]) {
+  const priced = rows.filter((r) => r.price != null);
+  const positive = priced.filter((r) => (r.changePercent ?? 0) > 0);
+  const negative = priced.filter((r) => (r.changePercent ?? 0) < 0);
+  const flat = priced.filter((r) => (r.changePercent ?? 0) === 0);
+  // Top mover by abs % change (only consider rows where we have a quote)
+  const sortedByAbs = [...priced].sort(
+    (a, b) => Math.abs(b.changePercent ?? 0) - Math.abs(a.changePercent ?? 0),
+  );
+  const topMover = sortedByAbs[0];
+  // Distinct currencies present (we don't FX-convert in v1)
+  const currencies = Array.from(new Set(priced.map((r) => r.currency).filter(Boolean)));
+  return {
+    totalCount: rows.length,
+    pricedCount: priced.length,
+    upCount: positive.length,
+    downCount: negative.length,
+    flatCount: flat.length,
+    topMover,
+    currencies,
+  };
+}
+
+function safeFilename(name: string, ext: string): string {
+  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "portfolio";
+  return `stockclarify-${base}-${new Date().toISOString().slice(0, 10)}.${ext}`;
+}
+
 // ── CSV ──────────────────────────────────────────────────────────────────────
-function csvCell(v: unknown): string {
+
+type Delimiter = "comma" | "semicolon" | "tab";
+
+function parseDelimiter(raw: unknown): Delimiter {
+  if (raw === "semicolon") return "semicolon";
+  if (raw === "tab") return "tab";
+  return "comma";
+}
+
+function delimiterChar(d: Delimiter): string {
+  if (d === "semicolon") return ";";
+  if (d === "tab") return "\t";
+  return ",";
+}
+
+// Format a number for CSV output. The semicolon variant exists specifically
+// for Excel locales where the comma is the decimal separator (Sweden, Germany,
+// France, etc.) — emitting "1234.56" there would import as text and break
+// sorting/sums. Comma/tab variants keep "." which is the universal default.
+function formatNum(n: number, d: Delimiter): string {
+  const s = n.toFixed(2);
+  return d === "semicolon" ? s.replace(".", ",") : s;
+}
+
+function csvCell(v: unknown, delim: string): string {
   if (v == null) return "";
   const s = String(v);
-  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  // Quote whenever the cell contains the active delimiter, a quote, or a
+  // newline — the rules from RFC 4180 generalised to alternate delimiters.
+  if (s.includes(delim) || s.includes('"') || /[\r\n]/.test(s)) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
   return s;
 }
 
@@ -111,8 +169,35 @@ router.get("/portfolio.csv", async (req, res) => {
   const data = await buildExport(userId, folderId);
   if (!data) return void res.status(404).json({ error: "Watchlist not found" });
 
-  const header = ["Ticker", "Name", "Sector", "Exchange", "Currency", "Price", "Day change", "Day change %"];
-  const lines = [header.map(csvCell).join(",")];
+  const delim = parseDelimiter(req.query.delimiter);
+  const sep = delimiterChar(delim);
+  const agg = aggregate(data.rows);
+  const generatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + " UTC";
+
+  const cell = (v: unknown) => csvCell(v, sep);
+
+  // Preamble — small metadata block followed by a blank line so Excel still
+  // parses the data table cleanly. Each preamble row is a single quoted cell
+  // so it spans only column A, regardless of delimiter.
+  const lines: string[] = [];
+  lines.push(cell(`StockClarify — ${data.name}`));
+  lines.push(cell(`Generated: ${generatedAt}`));
+  lines.push(cell(`Holdings: ${agg.totalCount} (${agg.upCount} up, ${agg.downCount} down, ${agg.flatCount} flat)`));
+  lines.push(cell(`Source: Yahoo Finance`));
+  lines.push("");
+
+  const header = [
+    "Ticker",
+    "Name",
+    "Sector",
+    "Exchange",
+    "Currency",
+    "Price",
+    "Day Change",
+    "Day Change %",
+  ];
+  lines.push(header.map(cell).join(sep));
+
   for (const r of data.rows) {
     lines.push(
       [
@@ -121,19 +206,162 @@ router.get("/portfolio.csv", async (req, res) => {
         r.sector,
         r.exchange,
         r.currency,
-        r.price ?? "",
-        r.change != null ? r.change.toFixed(2) : "",
-        r.changePercent != null ? r.changePercent.toFixed(2) : "",
+        r.price != null ? formatNum(r.price, delim) : "",
+        r.change != null ? formatNum(r.change, delim) : "",
+        r.changePercent != null ? formatNum(r.changePercent, delim) : "",
       ]
-        .map(csvCell)
-        .join(","),
+        .map(cell)
+        .join(sep),
     );
   }
-  const csv = lines.join("\r\n");
-  const filename = `stockclarify-${data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${new Date().toISOString().slice(0, 10)}.csv`;
-  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+
+  // \r\n line endings + UTF-8 BOM are what Excel (Windows + Mac) auto-detects
+  // to preserve non-ASCII characters in tickers/company names (e.g. "Café",
+  // "Atos SE", "Ørsted A/S"). Without the BOM, Excel mis-decodes as Latin-1.
+  const csv = "\ufeff" + lines.join("\r\n") + "\r\n";
+
+  const ext = delim === "tab" ? "tsv" : "csv";
+  const mime = delim === "tab" ? "text/tab-separated-values" : "text/csv";
+  const filename = safeFilename(data.name, ext);
+  res.setHeader("Content-Type", `${mime}; charset=utf-8`);
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
   res.send(csv);
+});
+
+// ── XLSX (Excel workbook) ────────────────────────────────────────────────────
+// Two sheets: Holdings (formatted table with conditional colors and totals),
+// Summary (portfolio-level stats). This is what most users actually want when
+// they ask to "export to Excel" — the CSV path is for power users and locale-
+// specific Excel setups.
+
+router.get("/portfolio.xlsx", async (req, res) => {
+  const userId = typeof req.query.userId === "string" ? req.query.userId : "";
+  const folderId = typeof req.query.folderId === "string" ? req.query.folderId : undefined;
+  if (!(await requirePremium(userId))) {
+    return void res.status(402).json({ error: "Premium subscription required" });
+  }
+  const data = await buildExport(userId, folderId);
+  if (!data) return void res.status(404).json({ error: "Watchlist not found" });
+
+  const agg = aggregate(data.rows);
+  const generatedAt = new Date();
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "StockClarify";
+  wb.created = generatedAt;
+
+  // ── Holdings sheet ────────────────────────────────────────────────────────
+  const holdings = wb.addWorksheet("Holdings", {
+    views: [{ state: "frozen", ySplit: 1 }],
+  });
+  holdings.columns = [
+    { header: "Ticker", key: "ticker", width: 12 },
+    { header: "Name", key: "name", width: 32 },
+    { header: "Exchange", key: "exchange", width: 22 },
+    { header: "Currency", key: "currency", width: 10 },
+    { header: "Price", key: "price", width: 14, style: { numFmt: "#,##0.00" } },
+    { header: "Day Change", key: "change", width: 14, style: { numFmt: "+#,##0.00;-#,##0.00;0.00" } },
+    { header: "Day Change %", key: "changePct", width: 14, style: { numFmt: "+0.00%;-0.00%;0.00%" } },
+  ];
+
+  // Header row styling
+  const headerRow = holdings.getRow(1);
+  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+  headerRow.alignment = { vertical: "middle", horizontal: "left" };
+  headerRow.height = 22;
+  headerRow.eachCell((cell) => {
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF0F172A" },
+    };
+  });
+
+  for (const r of data.rows) {
+    const row = holdings.addRow({
+      ticker: r.ticker,
+      name: r.name,
+      exchange: r.exchange,
+      currency: r.currency,
+      price: r.price ?? null,
+      change: r.change ?? null,
+      // Excel percent format expects fractional values (0.012 → 1.20%).
+      changePct: r.changePercent != null ? r.changePercent / 100 : null,
+    });
+    // Color the change columns by sign (green/red) to match the in-app palette.
+    const pct = r.changePercent ?? 0;
+    if (r.changePercent != null && pct !== 0) {
+      const argb = pct > 0 ? "FF0A8C63" : "FFDC2030";
+      row.getCell("change").font = { color: { argb }, bold: true };
+      row.getCell("changePct").font = { color: { argb }, bold: true };
+    }
+    row.getCell("ticker").font = { bold: true };
+  }
+
+  // Auto-filter on the header row so users can sort/filter immediately.
+  if (data.rows.length > 0) {
+    holdings.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: data.rows.length + 1, column: 7 },
+    };
+  }
+
+  // ── Summary sheet ─────────────────────────────────────────────────────────
+  const summary = wb.addWorksheet("Summary");
+  summary.columns = [
+    { header: "Metric", key: "metric", width: 28 },
+    { header: "Value", key: "value", width: 40 },
+  ];
+  const sHeader = summary.getRow(1);
+  sHeader.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+  sHeader.alignment = { vertical: "middle" };
+  sHeader.height = 22;
+  sHeader.eachCell((cell) => {
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF0F172A" },
+    };
+  });
+
+  const summaryRows: Array<[string, string | number]> = [
+    ["Portfolio", data.name],
+    ["Generated", generatedAt.toISOString().replace("T", " ").slice(0, 19) + " UTC"],
+    ["Source", "Yahoo Finance (delayed quotes)"],
+    ["Holdings (total)", agg.totalCount],
+    ["Holdings (priced)", agg.pricedCount],
+    ["Up today", agg.upCount],
+    ["Down today", agg.downCount],
+    ["Unchanged", agg.flatCount],
+    [
+      "Top mover today",
+      agg.topMover && agg.topMover.changePercent != null
+        ? `${agg.topMover.ticker} (${agg.topMover.changePercent >= 0 ? "+" : ""}${agg.topMover.changePercent.toFixed(2)}%)`
+        : "—",
+    ],
+    ["Currencies present", agg.currencies.join(", ") || "—"],
+  ];
+  for (const [metric, value] of summaryRows) {
+    const row = summary.addRow({ metric, value });
+    row.getCell("metric").font = { bold: true };
+  }
+
+  // Notes footer — explains what the export does NOT include, so users don't
+  // misread it as a complete tax-grade record.
+  summary.addRow([]);
+  const noteRow = summary.addRow(["Notes", "Quotes are end-of-day or last available from Yahoo Finance. Currencies are not FX-converted. Cost basis and lots are not included in this export."]);
+  noteRow.getCell(1).font = { bold: true, italic: true };
+  noteRow.getCell(2).alignment = { wrapText: true, vertical: "top" };
+  noteRow.height = 48;
+
+  const filename = safeFilename(data.name, "xlsx");
+  res.setHeader(
+    "Content-Type",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  );
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  const buffer = await wb.xlsx.writeBuffer();
+  res.send(Buffer.from(buffer));
 });
 
 // ── Printable HTML report ────────────────────────────────────────────────────

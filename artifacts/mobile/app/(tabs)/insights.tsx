@@ -25,6 +25,7 @@ import { PremiumGate, isFeatureLocked } from "@/components/PremiumGate";
 import { PaywallSheet } from "@/components/PaywallSheet";
 import { PortfolioPicker } from "@/components/PortfolioPicker";
 import { MarketPickerSheet } from "@/components/MarketPickerSheet";
+import { ExportSheet, type ExportFormat } from "@/components/ExportSheet";
 import { TabHintPopup } from "@/components/TabHintPopup";
 import { trackPremiumEvent } from "@/lib/premiumTelemetry";
 import {
@@ -231,6 +232,7 @@ export default function InsightsScreen() {
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [period, setPeriod] = useState<PerfPeriod>("today");
   const [marketPickerVisible, setMarketPickerVisible] = useState(false);
+  const [exportSheetVisible, setExportSheetVisible] = useState(false);
   const { selection: benchmarkSelection, resolve: resolveBenchmark } = useBenchmark();
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
@@ -361,10 +363,43 @@ export default function InsightsScreen() {
     );
   }
 
-  const handleExport = async (format: "csv" | "html") => {
+  const handleExportFormat = async (format: ExportFormat) => {
     if (!userId) return;
-    trackPremiumEvent("premium_lock_cta_click", userId, { feature: "export_pdf_csv", cta: "export", format });
-    const url = `${API_BASE}/export/portfolio.${format}?userId=${encodeURIComponent(userId)}&folderId=${encodeURIComponent(activeFolderId)}`;
+    trackPremiumEvent("premium_lock_cta_click", userId, {
+      feature: "export_pdf_csv",
+      cta: "export",
+      format,
+    });
+    // Map our UI-level format choice to a server URL. The xlsx and pdf paths
+    // each have their own endpoint; the three CSV variants share the
+    // /portfolio.csv endpoint and only differ by ?delimiter.
+    const params = new URLSearchParams({
+      userId,
+      folderId: activeFolderId,
+    });
+    let endpoint: "portfolio.xlsx" | "portfolio.csv" | "portfolio.html";
+    switch (format) {
+      case "xlsx":
+        endpoint = "portfolio.xlsx";
+        break;
+      case "csv-comma":
+        endpoint = "portfolio.csv";
+        params.set("delimiter", "comma");
+        break;
+      case "csv-semicolon":
+        endpoint = "portfolio.csv";
+        params.set("delimiter", "semicolon");
+        break;
+      case "csv-tab":
+        endpoint = "portfolio.csv";
+        params.set("delimiter", "tab");
+        break;
+      case "pdf":
+      default:
+        endpoint = "portfolio.html";
+        break;
+    }
+    const url = `${API_BASE}/export/${endpoint}?${params.toString()}`;
     await Linking.openURL(url);
   };
 
@@ -704,25 +739,23 @@ export default function InsightsScreen() {
         >
           <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <SectionHeader title="Export" icon="download" />
-            <Text style={{ color: colors.mutedForeground, fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 12, lineHeight: 19 }}>
-              Download a snapshot of the <Text style={{ fontFamily: "Inter_600SemiBold" }}>{activePortfolioName}</Text> portfolio with current prices.
+            <Text style={{ color: colors.mutedForeground, fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 14, lineHeight: 19 }}>
+              Download a snapshot of the <Text style={{ fontFamily: "Inter_600SemiBold" }}>{activePortfolioName}</Text> portfolio with current prices. Choose Excel for a formatted workbook, CSV for raw data, or PDF for a printable report.
             </Text>
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <TouchableOpacity
-                onPress={() => handleExport("csv")}
-                style={[s.exportBtn, { backgroundColor: colors.primary }]}
-              >
-                <Feather name="file" size={16} color={colors.primaryForeground} />
-                <Text style={[s.exportBtnText, { color: colors.primaryForeground }]}>CSV</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => handleExport("html")}
-                style={[s.exportBtn, { backgroundColor: colors.secondary, borderColor: colors.border, borderWidth: 1 }]}
-              >
-                <Feather name="printer" size={16} color={colors.foreground} />
-                <Text style={[s.exportBtnText, { color: colors.foreground }]}>Print / PDF</Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setExportSheetVisible(true);
+              }}
+              accessibilityLabel="Choose an export format"
+              accessibilityRole="button"
+              style={[s.exportBtn, { backgroundColor: colors.primary }]}
+            >
+              <Feather name="download" size={16} color={colors.primaryForeground} />
+              <Text style={[s.exportBtnText, { color: colors.primaryForeground }]}>
+                Choose format…
+              </Text>
+            </TouchableOpacity>
           </View>
         </PremiumGate>
       </ScrollView>
@@ -732,6 +765,12 @@ export default function InsightsScreen() {
         visible={marketPickerVisible}
         onClose={() => setMarketPickerVisible(false)}
         autoFallback={autoBenchmark}
+      />
+      <ExportSheet
+        visible={exportSheetVisible}
+        onClose={() => setExportSheetVisible(false)}
+        portfolioName={activePortfolioName}
+        onPick={handleExportFormat}
       />
       <TabHintPopup
         tabKey="insights"
