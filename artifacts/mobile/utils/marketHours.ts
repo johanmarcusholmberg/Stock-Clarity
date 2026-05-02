@@ -178,6 +178,17 @@ export function isMarketOpenWithBuffer(exchangeRaw: string, bufferMin: number): 
   return nowMins >= openMins && nowMins < closeMins;
 }
 
+/** Returns true if at least one of the supplied exchanges is open right now
+ * (with optional buffer minutes around the bell).  If no exchanges are
+ * provided, returns false — there is nothing to keep fresh. */
+export function anyMarketOpenWithBuffer(exchanges: string[], bufferMin: number): boolean {
+  if (!exchanges.length) return false;
+  for (const e of exchanges) {
+    if (e && isMarketOpenWithBuffer(e, bufferMin)) return true;
+  }
+  return false;
+}
+
 /** Returns the human-readable schedule label for a given exchange. */
 export function marketLabel(exchangeRaw: string): string {
   const key = normaliseExchange(exchangeRaw);

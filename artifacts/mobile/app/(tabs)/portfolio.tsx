@@ -23,6 +23,7 @@ import { useColors } from "@/hooks/useColors";
 import { useHoldings } from "@/context/HoldingsContext";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { getQuotes, type QuoteResult } from "@/services/stockApi";
+import { anyMarketOpenWithBuffer } from "@/utils/marketHours";
 import {
   getDividends,
   getPnl,
@@ -105,6 +106,12 @@ export default function PortfolioScreen() {
 
   const [quotes, setQuotes] = useState<Map<string, QuoteResult>>(new Map());
   const [quotesLoading, setQuotesLoading] = useState(false);
+  // Ref mirror of `quotes` so loadQuotes can read cached state without
+  // listing `quotes` in its deps (which would cause a refetch loop).
+  const quotesRef = React.useRef(quotes);
+  React.useEffect(() => {
+    quotesRef.current = quotes;
+  }, [quotes]);
   const [addOpen, setAddOpen] = useState(false);
   const [dividends, setDividends] = useState<DividendEvent[]>([]);
   const [pnl, setPnl] = useState<PnlResponse | null>(null);
@@ -116,6 +123,19 @@ export default function PortfolioScreen() {
     if (!holdings.length) {
       setQuotes(new Map());
       return;
+    }
+    // Skip the network call when every holding's market is closed (5 min
+    // buffer) AND we already have cached quotes — there's nothing fresh
+    // to pull, and we don't want background pulls outside trading hours.
+    // Holding rows don't carry an exchange, so we read it from the
+    // previously cached quote when present.
+    const cached = quotesRef.current;
+    const haveAllCached = holdings.every((h) => cached.has(h.ticker.toUpperCase()));
+    if (haveAllCached) {
+      const exchanges = holdings
+        .map((h) => cached.get(h.ticker.toUpperCase())?.fullExchangeName ?? "")
+        .filter(Boolean);
+      if (exchanges.length && !anyMarketOpenWithBuffer(exchanges, 5)) return;
     }
     setQuotesLoading(true);
     try {

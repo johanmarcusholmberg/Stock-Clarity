@@ -3,7 +3,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { useAuth } from "@clerk/expo";
 import { useUser } from "@clerk/expo";
 import { getQuotes } from "@/services/stockApi";
-import { isMarketOpenWithBuffer } from "@/utils/marketHours";
+import { anyMarketOpenWithBuffer, isMarketOpenWithBuffer } from "@/utils/marketHours";
 
 import { getApiBase } from "../lib/apiBase";
 // Re-export StockEvent so components can import it from here
@@ -179,6 +179,11 @@ export function WatchlistProvider({
   const [activeFolderId, setActiveFolderIdState] = useState<string>(DEFAULT_FOLDER_ID);
   const [stockData, setStockData] = useState<Record<string, Stock>>(SEED_STOCKS);
   const [initialized, setInitialized] = useState(false);
+  // Tickers known to have REAL quote data (loaded from AsyncStorage or
+  // refreshed from the network), as opposed to SEED_STOCKS defaults.
+  // Used to gate the closed-market init refresh so first-time loads still
+  // fetch even when the seed map happens to include the ticker.
+  const persistedTickersRef = useRef<Set<string>>(new Set());
   const [displayName, setDisplayNameState] = useState<string>("");
 
   const folderLimit = tier === "free" ? 2 : 10;
@@ -267,6 +272,10 @@ export function WatchlistProvider({
         try {
           const parsed = JSON.parse(sd);
           setStockData((prev) => ({ ...SEED_STOCKS, ...prev, ...parsed }));
+          // Track which tickers came from real persisted storage (vs the
+          // SEED defaults).  Used by the closed-market skip in the init
+          // refresh effect so we still fetch on first ever load.
+          for (const key of Object.keys(parsed)) persistedTickersRef.current.add(key);
         } catch {}
       }
       setInitialized(true);
@@ -333,6 +342,7 @@ export function WatchlistProvider({
         AsyncStorage.setItem(STOCKS_KEY, JSON.stringify(next));
         return next;
       });
+      for (const q of quotes) persistedTickersRef.current.add(q.symbol);
       return true;
     } catch {
       return false;
@@ -350,10 +360,25 @@ export function WatchlistProvider({
       AsyncStorage.setItem(STOCKS_KEY, JSON.stringify(next));
       return next;
     });
+    persistedTickersRef.current.add(ticker);
   }, []);
 
+  // Initial / ticker-change quote refresh.
+  // Skipped when ALL watched stocks' markets are closed (5 min buffer) AND
+  // every ticker has REAL persisted quote data (not just SEED defaults) —
+  // there's nothing fresh to fetch.  First-time fetches still run so the
+  // UI isn't stuck on seed prices.
   useEffect(() => {
-    if (initialized) refreshQuotes();
+    if (!initialized) return;
+    const exchanges = allTickers
+      .map((t) => stockDataRef.current[t]?.exchange ?? "")
+      .filter(Boolean);
+    const anyOpen = anyMarketOpenWithBuffer(exchanges, 5);
+    const allHavePersistedQuote = allTickers.every((t) =>
+      persistedTickersRef.current.has(t),
+    );
+    if (!anyOpen && allHavePersistedQuote) return;
+    refreshQuotes();
   }, [allTickers.join(","), initialized]);
 
   // ── 15-minute auto-refresh during market hours ────────────────

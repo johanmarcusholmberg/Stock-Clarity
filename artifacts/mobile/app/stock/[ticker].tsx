@@ -1155,7 +1155,7 @@ export default function StockDetailScreen() {
                     : refreshError
                     ? "Refresh failed — try again"
                     : !marketOpenBuffered
-                    ? "Market closed — refresh disabled"
+                    ? "Market closed"
                     : isOnCooldown
                     ? `Refreshes in ${cooldownMin} min`
                     : "Refresh Stock"}

@@ -21,6 +21,7 @@ import { useUser } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 import { useDisplayMode } from "@/hooks/useDisplayMode";
 import { useMiniCharts } from "@/hooks/useMiniCharts";
+import { anyMarketOpenWithBuffer } from "@/utils/marketHours";
 import { useWatchlist, Stock } from "@/context/WatchlistContext";
 import { useAlerts } from "@/context/AlertsContext";
 import StockCard from "@/components/StockCard";
@@ -220,7 +221,17 @@ export default function WatchlistScreen() {
   // Fetch real 1Y chart data for all visible tickers via TanStack Query.
   // Mini-charts display 1Y history; the progress number on each card uses
   // the 1D change from stock.changePercent (sourced from refreshQuotes).
-  const { charts: miniCharts } = useMiniCharts(watchlist);
+  // Gate mini-chart auto-refresh by market hours: when no watched stock's
+  // exchange is open (with 5 min buffer), don't pull fresh data.
+  const watchlistExchanges = useMemo(
+    () => allWatched.map((s) => s.exchange ?? "").filter(Boolean),
+    [allWatched],
+  );
+  const watchlistAnyOpen = useMemo(
+    () => anyMarketOpenWithBuffer(watchlistExchanges, 5),
+    [watchlistExchanges],
+  );
+  const { charts: miniCharts } = useMiniCharts(watchlist, { autoRefresh: watchlistAnyOpen });
   const gainers = allWatched.filter((s) => s.changePercent >= 0);
   const losers = allWatched.filter((s) => s.changePercent < 0);
 
@@ -268,6 +279,13 @@ export default function WatchlistScreen() {
       setPullRefreshing(false);
       return;
     }
+    // Don't pull new stock data when every watched market is closed
+    // (with a 5 min buffer either side of the bell).
+    if (!watchlistAnyOpen) {
+      toast.show("Markets are closed — no new data to pull", { variant: "info" });
+      setPullRefreshing(false);
+      return;
+    }
     try {
       // Invalidate all chart queries so mini-chart sparklines refresh too
       queryClient.invalidateQueries({ queryKey: ["chart"] });
@@ -279,7 +297,7 @@ export default function WatchlistScreen() {
       toast.show("Couldn't refresh — try again in a moment", { variant: "error" });
     }
     setPullRefreshing(false);
-  }, [refreshQuotes, queryClient, online, toast]);
+  }, [refreshQuotes, queryClient, online, toast, watchlistAnyOpen]);
 
   const handleDeleteFolder = useCallback(() => {
     if (!activeFolder || isDefaultFolder) return;

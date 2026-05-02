@@ -28,7 +28,14 @@ export interface MiniChartMap {
   isLoading: boolean;
 }
 
-export function useMiniCharts(tickers: string[]): MiniChartMap {
+export function useMiniCharts(
+  tickers: string[],
+  options: { autoRefresh?: boolean } = {},
+): MiniChartMap {
+  // When autoRefresh is false (e.g. all watched markets are closed) we
+  // keep cached mini-charts indefinitely and skip background refetches,
+  // so we don't pull new stock data outside trading hours.
+  const autoRefresh = options.autoRefresh ?? true;
   // Sort tickers so the hook identity is stable regardless of render-time
   // ordering.  useQueries is order-sensitive for its internal array, but
   // we always map back by ticker so the output is order-independent.
@@ -57,7 +64,9 @@ export function useMiniCharts(tickers: string[]): MiniChartMap {
         }
         return { prices: chart.prices, timestamps: chart.timestamps };
       },
-      staleTime: STALE_TIME,
+      staleTime: autoRefresh ? STALE_TIME : Infinity,
+      refetchOnWindowFocus: autoRefresh,
+      refetchOnReconnect: autoRefresh,
       // Keep previous data so charts don't blank on background refetch
       placeholderData: (prev: { prices: number[]; timestamps: number[] } | undefined) => prev,
       retry: 1,
