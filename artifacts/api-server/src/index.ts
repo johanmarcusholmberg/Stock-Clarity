@@ -12,6 +12,7 @@ import { startEarningsCalendarWorker } from "./lib/earningsCalendarWorker";
 import { startNotifyEvaluator } from "./lib/notifyEvaluator";
 import { startPortfolioSnapshotWorker } from "./lib/portfolioSnapshotWorker";
 import { startDividendWorker } from "./lib/dividendWorker";
+import { startReportsWorker } from "./lib/reportsWorker";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
@@ -66,4 +67,9 @@ app.listen(port, async (err) => {
   // upcoming dividend events and country into dividend_events / holdings.
   // Same HOLDINGS_ENABLED gate as the snapshot worker.
   startDividendWorker().catch((e) => logger.warn(e, "Dividend worker start error"));
+
+  // Reports notification worker. Polls SEC EDGAR per subscribed symbol and
+  // fans out push/email when a new 10-K / 10-Q drops. Gated on
+  // REPORTS_NOTIFY_ENABLED=true so it stays dark until explicitly turned on.
+  startReportsWorker().catch((e) => logger.warn(e, "Reports worker start error"));
 });

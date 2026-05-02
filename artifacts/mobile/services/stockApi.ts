@@ -210,9 +210,17 @@ export async function getReportFilings(ticker: string): Promise<Filing[]> {
 // AsyncStorage cache: avoid re-fetching the same accession's summary across
 // page opens. Per-accession key matches the spec
 // (`report_summary_{ticker}_{accessionNumber}`).
+export class PremiumRequiredError extends Error {
+  constructor(public readonly currentTier: string) {
+    super("premium_required");
+    this.name = "PremiumRequiredError";
+  }
+}
+
 export async function getReportSummary(
   ticker: string,
   accessionNumber: string,
+  userId?: string | null,
 ): Promise<SummaryResponse> {
   const cacheKey = `report_summary_${ticker}_${accessionNumber}`;
 
@@ -224,12 +232,21 @@ export async function getReportSummary(
     }
   } catch {}
 
-  const res = await fetch(
-    `${API_BASE}/reports?ticker=${encodeURIComponent(ticker)}&action=summary&accession=${encodeURIComponent(accessionNumber)}`,
-  );
+  const qs = new URLSearchParams({
+    ticker,
+    action: "summary",
+    accession: accessionNumber,
+  });
+  if (userId) qs.set("userId", userId);
+
+  const res = await fetch(`${API_BASE}/reports?${qs.toString()}`);
+  if (res.status === 402) {
+    const errBody = await res.json().catch(() => ({ tier: "free" }));
+    throw new PremiumRequiredError((errBody as any)?.tier ?? "free");
+  }
   if (!res.ok) {
     const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-    throw new Error(errBody?.error ?? `HTTP ${res.status}`);
+    throw new Error((errBody as any)?.error ?? `HTTP ${res.status}`);
   }
   const data = (await res.json()) as SummaryResponse;
 
@@ -238,6 +255,54 @@ export async function getReportSummary(
   } catch {}
 
   return data;
+}
+
+// ── Report subscriptions (notify on new 10-K / 10-Q) ─────────────────────
+export interface ReportSubscription {
+  id: string;
+  symbol: string;
+  delivery_channel: "push" | "email" | "both";
+}
+
+export async function getReportSubscription(
+  userId: string,
+  symbol: string,
+): Promise<ReportSubscription | null> {
+  const res = await fetch(
+    `${API_BASE}/reports/subscriptions/${encodeURIComponent(userId)}/${encodeURIComponent(symbol)}`,
+  );
+  if (!res.ok) return null;
+  const data = (await res.json()) as { subscribed: boolean; subscription: ReportSubscription | null };
+  return data.subscription;
+}
+
+export async function setReportSubscription(
+  userId: string,
+  symbol: string,
+  channel: "push" | "email" | "both" = "push",
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/reports/subscriptions/${encodeURIComponent(userId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol, channel }),
+    },
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+    throw new Error((err as any)?.error ?? `HTTP ${res.status}`);
+  }
+}
+
+export async function deleteReportSubscription(
+  userId: string,
+  symbol: string,
+): Promise<void> {
+  await fetch(
+    `${API_BASE}/reports/subscriptions/${encodeURIComponent(userId)}/${encodeURIComponent(symbol)}`,
+    { method: "DELETE" },
+  );
 }
 
 export function formatMarketCap(cap?: number): string {

@@ -6,6 +6,12 @@
 //
 // EDGAR ticker map and submissions are slow-changing — both are cached in
 // process memory so a warm server hits SEC at most once per ticker per restart.
+// Generated summaries are persisted in `report_summaries` (see reportsSchema)
+// so they survive restart and are shared across users.
+
+import { execute, queryOne } from "../db";
+import { reportsSchemaReady } from "./reportsSchema";
+import { logger } from "./logger";
 
 const SEC_USER_AGENT = "StockClarity contact@stockclarity.app";
 
@@ -57,6 +63,14 @@ export interface ReportSummary {
   analystNote: string;
 }
 
+export interface PersistedSummary {
+  ticker: string;
+  accession: string;
+  type: FilingType;
+  filing: Filing;
+  summary: ReportSummary;
+}
+
 interface TickerEntry {
   cik_str: number;
   ticker: string;
@@ -68,8 +82,6 @@ let tickerMapPromise: Promise<Map<string, string>> | null = null;
 
 const filingsCache = new Map<string, { filings: Filing[]; expiresAt: number }>();
 const FILINGS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
-
-const summaryCache = new Map<string, ReportSummary>();
 
 async function loadTickerMap(): Promise<Map<string, string>> {
   if (tickerMapCache) return tickerMapCache;
@@ -105,7 +117,7 @@ export async function getCIKFromTicker(ticker: string): Promise<string> {
   return cik;
 }
 
-export async function getFilings(cik: string, limit = 8): Promise<Filing[]> {
+export async function getFilings(cik: string, limit = 20): Promise<Filing[]> {
   const cached = filingsCache.get(cik);
   if (cached && Date.now() < cached.expiresAt) {
     return cached.filings.slice(0, limit);
@@ -159,8 +171,6 @@ export async function getFilingText(
 ): Promise<string> {
   const parsedCik = cik.replace(/^0+/, "");
   const accNoDashes = accessionNumber.replace(/-/g, "");
-  // www.sec.gov serves the Archives; data.sec.gov is for the submissions API only.
-  // The index JSON for a filing lives at .../index.json (no accession in the filename).
   const indexUrl = `https://www.sec.gov/Archives/edgar/data/${parsedCik}/${accNoDashes}/index.json`;
 
   const indexRes = await edgarFetch(indexUrl);
@@ -172,11 +182,7 @@ export async function getFilingText(
   };
   const items = indexData.directory?.item ?? [];
 
-  // The `type` field in the directory JSON is an icon hint (e.g. "text.gif"), not the
-  // form type. Find the primary document by name: prefer ticker-date.htm style names,
-  // and fall back to any .htm that isn't an index page, inline-XBRL R-file, or exhibit.
   const primary = items.find((it) => /\.html?$/i.test(it.name) && !/index|^R\d|exhibit/i.test(it.name));
-
   if (!primary) {
     throw new Error("No primary document found in filing");
   }
@@ -223,18 +229,70 @@ const SUMMARY_SYSTEM_PROMPT = `You are a senior equity analyst. Read the SEC fil
 }
 Never invent numbers not present in the source. Keep highlights under 15 words each.`;
 
+// Read a previously-generated summary from the DB. Returns null on miss or if
+// the table isn't ready yet (cold-boot before reportsSchema completes).
+export async function getPersistedSummary(
+  ticker: string,
+  accession: string,
+): Promise<PersistedSummary | null> {
+  try {
+    await reportsSchemaReady;
+    const row = await queryOne<{
+      ticker: string;
+      accession: string;
+      type: string;
+      filing: Filing | string;
+      summary: ReportSummary | string;
+    }>(
+      `SELECT ticker, accession, type, filing, summary
+         FROM report_summaries
+        WHERE ticker = $1 AND accession = $2`,
+      [ticker.toUpperCase(), accession],
+    );
+    if (!row) return null;
+    const filing = typeof row.filing === "string" ? JSON.parse(row.filing) : row.filing;
+    const summary = typeof row.summary === "string" ? JSON.parse(row.summary) : row.summary;
+    return {
+      ticker: row.ticker,
+      accession: row.accession,
+      type: row.type as FilingType,
+      filing,
+      summary,
+    };
+  } catch (err: any) {
+    logger.warn({ err: err?.message }, "report_summaries read failed");
+    return null;
+  }
+}
+
+export async function savePersistedSummary(p: PersistedSummary): Promise<void> {
+  try {
+    await reportsSchemaReady;
+    await execute(
+      `INSERT INTO report_summaries (ticker, accession, type, filing, summary)
+       VALUES ($1, $2, $3, $4::jsonb, $5::jsonb)
+       ON CONFLICT (ticker, accession) DO UPDATE
+         SET summary = EXCLUDED.summary,
+             filing = EXCLUDED.filing,
+             type = EXCLUDED.type`,
+      [
+        p.ticker.toUpperCase(),
+        p.accession,
+        p.type,
+        JSON.stringify(p.filing),
+        JSON.stringify(p.summary),
+      ],
+    );
+  } catch (err: any) {
+    logger.warn({ err: err?.message }, "report_summaries write failed");
+  }
+}
+
 export async function summarizeReport(
   rawText: string,
   ticker: string,
   reportType: string,
-  accessionNumber?: string,
 ): Promise<ReportSummary> {
-  const cacheKey = accessionNumber
-    ? `${ticker}:${accessionNumber}`
-    : `${ticker}:${reportType}:${rawText.slice(0, 64)}`;
-  const cached = summaryCache.get(cacheKey);
-  if (cached) return cached;
-
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     throw new Error("ANTHROPIC_API_KEY is not configured");
@@ -281,6 +339,5 @@ export async function summarizeReport(
     throw new Error("Failed to parse Anthropic JSON response");
   }
 
-  summaryCache.set(cacheKey, parsed);
   return parsed;
 }
