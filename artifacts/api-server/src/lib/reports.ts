@@ -15,6 +15,24 @@ const EDGAR_BASE_HEADERS: Record<string, string> = {
   "Accept-Encoding": "gzip, deflate",
 };
 
+// SEC allows 10 req/sec; 500 ms between requests stays well within that limit.
+const EDGAR_DELAY_MS = 500;
+let lastEdgarRequestAt = 0;
+
+async function edgarFetch(url: string): Promise<Response> {
+  const now = Date.now();
+  const wait = EDGAR_DELAY_MS - (now - lastEdgarRequestAt);
+  if (wait > 0) await new Promise<void>((r) => setTimeout(r, wait));
+  lastEdgarRequestAt = Date.now();
+  try {
+    return await fetch(url, { headers: EDGAR_BASE_HEADERS });
+  } catch (err) {
+    throw new Error(
+      `EDGAR network error for ${url}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
 export type FilingType = "10-K" | "10-Q";
 
 export interface Filing {
@@ -58,9 +76,7 @@ async function loadTickerMap(): Promise<Map<string, string>> {
   if (tickerMapPromise) return tickerMapPromise;
 
   tickerMapPromise = (async () => {
-    const res = await fetch("https://www.sec.gov/files/company_tickers.json", {
-      headers: EDGAR_BASE_HEADERS,
-    });
+    const res = await edgarFetch("https://www.sec.gov/files/company_tickers.json");
     if (!res.ok) {
       throw new Error(`SEC ticker map fetch failed: ${res.status}`);
     }
@@ -96,7 +112,7 @@ export async function getFilings(cik: string, limit = 8): Promise<Filing[]> {
   }
 
   const url = `https://data.sec.gov/submissions/CIK${cik}.json`;
-  const res = await fetch(url, { headers: EDGAR_BASE_HEADERS });
+  const res = await edgarFetch(url);
   if (!res.ok) {
     throw new Error(`SEC submissions fetch failed: ${res.status}`);
   }
@@ -143,9 +159,11 @@ export async function getFilingText(
 ): Promise<string> {
   const parsedCik = cik.replace(/^0+/, "");
   const accNoDashes = accessionNumber.replace(/-/g, "");
-  const indexUrl = `https://data.sec.gov/Archives/edgar/data/${parsedCik}/${accNoDashes}/${accessionNumber}-index.json`;
+  // www.sec.gov serves the Archives; data.sec.gov is for the submissions API only.
+  // The index JSON for a filing lives at .../index.json (no accession in the filename).
+  const indexUrl = `https://www.sec.gov/Archives/edgar/data/${parsedCik}/${accNoDashes}/index.json`;
 
-  const indexRes = await fetch(indexUrl, { headers: EDGAR_BASE_HEADERS });
+  const indexRes = await edgarFetch(indexUrl);
   if (!indexRes.ok) {
     throw new Error(`SEC filing index fetch failed: ${indexRes.status}`);
   }
@@ -154,18 +172,17 @@ export async function getFilingText(
   };
   const items = indexData.directory?.item ?? [];
 
-  const primary = items.find((it) => {
-    const t = (it.type ?? "").toUpperCase();
-    return (t === "10-K" || t === "10-Q") && /\.html?$/i.test(it.name);
-  })
-    ?? items.find((it) => /\.html?$/i.test(it.name) && !/index|^R\d/i.test(it.name));
+  // The `type` field in the directory JSON is an icon hint (e.g. "text.gif"), not the
+  // form type. Find the primary document by name: prefer ticker-date.htm style names,
+  // and fall back to any .htm that isn't an index page, inline-XBRL R-file, or exhibit.
+  const primary = items.find((it) => /\.html?$/i.test(it.name) && !/index|^R\d|exhibit/i.test(it.name));
 
   if (!primary) {
     throw new Error("No primary document found in filing");
   }
 
   const docUrl = `https://www.sec.gov/Archives/edgar/data/${parsedCik}/${accNoDashes}/${primary.name}`;
-  const docRes = await fetch(docUrl, { headers: EDGAR_BASE_HEADERS });
+  const docRes = await edgarFetch(docUrl);
   if (!docRes.ok) {
     throw new Error(`SEC primary document fetch failed: ${docRes.status}`);
   }

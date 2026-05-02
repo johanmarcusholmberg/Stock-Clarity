@@ -81,7 +81,11 @@ export default function ReportSummary({ ticker }: Props) {
         setSummary(data);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Failed to summarize report";
-        setSummaryError(message);
+        const isApiKeyMissing =
+          message.includes("ANTHROPIC_API_KEY") || message === "HTTP 503";
+        setSummaryError(
+          isApiKeyMissing ? "AI summaries unavailable — contact the admin" : message,
+        );
       } finally {
         setSummaryLoading(false);
       }
