@@ -17,7 +17,7 @@ import { useSubscription } from "@/context/SubscriptionContext";
 import { PaywallSheet } from "@/components/PaywallSheet";
 import {
   deleteReportSubscription,
-  getReportFilings,
+  getReportFilingsResult,
   getReportSubscription,
   getReportSummary,
   PremiumRequiredError,
@@ -56,22 +56,37 @@ export default function ReportSummary({ ticker }: Props) {
   const [filings, setFilings] = useState<Filing[]>([]);
   const [filingsLoading, setFilingsLoading] = useState(false);
   const [filingsError, setFilingsError] = useState<string | null>(null);
+  const [unsupported, setUnsupported] = useState<string | null>(null);
   const [latestType, setLatestType] = useState<string | null>(null);
   const [latestDate, setLatestDate] = useState<string | null>(null);
   const [subscribed, setSubscribed] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
   const [paywallOpen, setPaywallOpen] = useState(false);
 
+  // Reset per-ticker derived state when the route ticker changes.
+  useEffect(() => {
+    setFilings([]);
+    setLatestType(null);
+    setLatestDate(null);
+    setUnsupported(null);
+    setFilingsError(null);
+  }, [ticker]);
+
   // Pre-load only the latest-filing summary line for the inline row.
   useEffect(() => {
     let cancelled = false;
     setFilingsError(null);
-    getReportFilings(ticker)
-      .then((rows) => {
+    getReportFilingsResult(ticker)
+      .then((result) => {
         if (cancelled) return;
-        if (rows.length) {
-          setLatestType(rows[0].type);
-          setLatestDate(rows[0].reportDate || rows[0].filedAt);
+        if (result.unsupported) {
+          setUnsupported(result.message ?? "Reports not available for this exchange");
+          return;
+        }
+        setUnsupported(null);
+        if (result.filings.length) {
+          setLatestType(result.filings[0].type);
+          setLatestDate(result.filings[0].reportDate || result.filings[0].filedAt);
         }
       })
       .catch((err: unknown) => {
@@ -86,12 +101,17 @@ export default function ReportSummary({ ticker }: Props) {
   // When the modal opens, ensure full filings list is loaded and refresh
   // the user's subscription state for this ticker.
   const ensureLoaded = useCallback(async () => {
+    if (unsupported) return; // nothing to fetch
     if (!filings.length && !filingsLoading) {
       setFilingsLoading(true);
       setFilingsError(null);
       try {
-        const rows = await getReportFilings(ticker);
-        setFilings(rows);
+        const result = await getReportFilingsResult(ticker);
+        if (result.unsupported) {
+          setUnsupported(result.message ?? "Reports not available for this exchange");
+        } else {
+          setFilings(result.filings);
+        }
       } catch (err) {
         setFilingsError(err instanceof Error ? err.message : "Failed to load filings");
       } finally {
@@ -106,7 +126,7 @@ export default function ReportSummary({ ticker }: Props) {
         // non-fatal
       }
     }
-  }, [ticker, filings.length, filingsLoading, userId]);
+  }, [ticker, filings.length, filingsLoading, userId, unsupported]);
 
   const handleOpen = useCallback(() => {
     Haptics.selectionAsync();
@@ -148,16 +168,18 @@ export default function ReportSummary({ ticker }: Props) {
             <Text style={[styles.launcherTitle, { color: colors.foreground }]}>SEC Reports</Text>
             <Text
               style={[styles.launcherSub, { color: colors.mutedForeground }]}
-              numberOfLines={1}
+              numberOfLines={2}
             >
-              {filingsError
-                ? filingsError
-                : latestType && latestDate
-                  ? `Latest ${latestType} · ${formatDate(latestDate)}`
-                  : "10-K & 10-Q filings with AI summaries"}
+              {unsupported
+                ? "US-listed companies only"
+                : filingsError
+                  ? filingsError
+                  : latestType && latestDate
+                    ? `Latest ${latestType} · ${formatDate(latestDate)}`
+                    : "10-K & 10-Q filings with AI summaries"}
             </Text>
           </View>
-          {!isPremium && (
+          {!isPremium && !unsupported && (
             <View style={[styles.premiumPill, { borderColor: `${colors.primary}66`, backgroundColor: `${colors.primary}14` }]}>
               <Feather name="zap" size={10} color={colors.primary} />
               <Text style={[styles.premiumPillText, { color: colors.primary }]}>Premium</Text>
@@ -174,6 +196,7 @@ export default function ReportSummary({ ticker }: Props) {
         filings={filings}
         filingsLoading={filingsLoading}
         filingsError={filingsError}
+        unsupported={unsupported}
         isPremium={isPremium}
         userId={userId ?? null}
         subscribed={subscribed}
@@ -200,6 +223,7 @@ interface ModalProps {
   filings: Filing[];
   filingsLoading: boolean;
   filingsError: string | null;
+  unsupported: string | null;
   isPremium: boolean;
   userId: string | null;
   subscribed: boolean;
@@ -217,6 +241,7 @@ function ReportsModal({
   filings,
   filingsLoading,
   filingsError,
+  unsupported,
   isPremium,
   userId,
   subscribed,
@@ -403,7 +428,7 @@ function ReportsModal({
         </View>
 
         {/* Year tabs */}
-        {years.length > 0 && (
+        {!unsupported && years.length > 0 && (
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -445,7 +470,14 @@ function ReportsModal({
 
         {/* Body */}
         <ScrollView contentContainerStyle={styles.modalBody}>
-          {filingsLoading ? (
+          {unsupported ? (
+            <View style={[styles.emptyBox, { borderColor: colors.border }]}>
+              <Feather name="globe" size={22} color={colors.mutedForeground} style={{ marginBottom: 8 }} />
+              <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
+                {unsupported}
+              </Text>
+            </View>
+          ) : filingsLoading ? (
             <View style={styles.loadingRow}>
               <ActivityIndicator color={colors.primary} />
               <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>
@@ -847,15 +879,17 @@ const styles = StyleSheet.create({
   bellBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   closeBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: "center", justifyContent: "center" },
 
-  yearStrip: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
+  yearStrip: { paddingHorizontal: 16, paddingVertical: 8, gap: 6, alignItems: "center" },
   yearChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
     borderWidth: 1,
-    marginRight: 8,
+    marginRight: 6,
+    minWidth: 48,
+    alignItems: "center",
   },
-  yearChipText: { fontSize: 12, fontFamily: "Inter_700Bold" },
+  yearChipText: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.2 },
 
   modalBody: { padding: 16, gap: 8 },
 

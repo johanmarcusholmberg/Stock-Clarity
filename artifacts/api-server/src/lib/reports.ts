@@ -15,6 +15,60 @@ import { logger } from "./logger";
 
 const SEC_USER_AGENT = "StockClarity contact@stockclarity.app";
 
+// SEC EDGAR only indexes US-listed issuers. Yahoo-style tickers for foreign
+// exchanges carry a suffix (`.ST` Stockholm, `.L` London, `.DE` XETRA, `.TO`
+// Toronto, `.HK` Hong Kong, etc.) — detect those before hitting EDGAR so we
+// can return a friendly "unsupported" payload instead of "Unknown ticker".
+const NON_US_SUFFIXES: Record<string, string> = {
+  ST: "Stockholm (Nasdaq Stockholm)",
+  CO: "Copenhagen",
+  HE: "Helsinki",
+  OL: "Oslo",
+  L: "London",
+  DE: "XETRA / Frankfurt",
+  PA: "Euronext Paris",
+  AS: "Euronext Amsterdam",
+  BR: "Euronext Brussels",
+  LS: "Euronext Lisbon",
+  MI: "Borsa Italiana",
+  MC: "BME (Madrid)",
+  SW: "SIX Swiss Exchange",
+  VI: "Vienna",
+  WA: "Warsaw",
+  IS: "Istanbul",
+  TO: "Toronto",
+  V: "TSX Venture",
+  HK: "Hong Kong",
+  T: "Tokyo",
+  KS: "KRX (Korea)",
+  TW: "Taiwan",
+  SI: "Singapore",
+  AX: "ASX (Australia)",
+  NZ: "NZX (New Zealand)",
+  BO: "BSE (India)",
+  NS: "NSE (India)",
+  SA: "B3 (São Paulo)",
+  MX: "BMV (Mexico)",
+  JO: "JSE (Johannesburg)",
+};
+
+export function isLikelyUSTicker(ticker: string): boolean {
+  if (!ticker) return false;
+  const dot = ticker.lastIndexOf(".");
+  if (dot < 0) return true;
+  const suffix = ticker.slice(dot + 1).toUpperCase();
+  // A US-listed ticker can contain a dot (e.g. BRK.B). Anything that maps to
+  // a known non-US exchange suffix counts as foreign.
+  return !(suffix in NON_US_SUFFIXES);
+}
+
+export function nonUSExchangeMessage(ticker: string): string {
+  const dot = ticker.lastIndexOf(".");
+  const suffix = dot >= 0 ? ticker.slice(dot + 1).toUpperCase() : "";
+  const exchange = NON_US_SUFFIXES[suffix] ?? "this exchange";
+  return `SEC 10-K / 10-Q filings are only available for US-listed companies. ${ticker} trades on ${exchange}; check the issuer's investor-relations site or the local regulator for equivalent annual / interim reports.`;
+}
+
 const EDGAR_BASE_HEADERS: Record<string, string> = {
   "User-Agent": SEC_USER_AGENT,
   Accept: "application/json, text/html, */*",

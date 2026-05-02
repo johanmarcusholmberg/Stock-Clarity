@@ -195,6 +195,34 @@ export interface SummaryResponse {
   summary: ReportSummary;
 }
 
+export interface FilingsResult {
+  filings: Filing[];
+  unsupported: boolean;
+  message: string | null;
+}
+
+// Returns either filings or, for non-US tickers, an `unsupported` flag plus
+// a friendly message the UI can show in place of the list.
+export async function getReportFilingsResult(ticker: string): Promise<FilingsResult> {
+  const res = await fetch(
+    `${API_BASE}/reports?ticker=${encodeURIComponent(ticker)}&action=filings`,
+  );
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+    throw new Error((errBody as any)?.error ?? `HTTP ${res.status}`);
+  }
+  const data = (await res.json()) as {
+    filings?: Filing[];
+    unsupported?: boolean;
+    message?: string;
+  };
+  return {
+    filings: data.filings ?? [],
+    unsupported: !!data.unsupported,
+    message: data.message ?? null,
+  };
+}
+
 export async function getReportFilings(ticker: string): Promise<Filing[]> {
   const res = await fetch(
     `${API_BASE}/reports?ticker=${encodeURIComponent(ticker)}&action=filings`,
