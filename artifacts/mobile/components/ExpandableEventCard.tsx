@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   LayoutAnimation,
   Linking,
@@ -17,6 +17,9 @@ import { useSubscription } from "@/context/SubscriptionContext";
 import { computeEventBadge } from "@/utils/eventBadge";
 import type { StockEvent } from "@/services/stockApi";
 import TruncatedSummary from "./TruncatedSummary";
+import ShareableEventCard from "./ShareableEventCard";
+import { shareViewAsImage } from "@/utils/shareCard";
+import { useToast } from "./Toast";
 
 // LayoutAnimation needs one-time opt-in on Android.
 if (
@@ -74,6 +77,7 @@ export default function ExpandableEventCard({
   onNeedUpgrade,
 }: Props) {
   const colors = useColors();
+  const { show: showToast } = useToast();
   const {
     tier,
     aiSummariesRemaining,
@@ -83,6 +87,10 @@ export default function ExpandableEventCard({
     recordEventExpansion,
   } = useSubscription();
   const [expanded, setExpanded] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  // Offscreen ref used for view-shot capture. Mounted only when the card is
+  // expanded — keeps the React tree slim for the (common) collapsed state.
+  const shareRef = useRef<View>(null);
   const hasAI = !!(event.what || event.why || event.unusual);
   const alreadyExpanded = hasExpandedEvent(event.id);
   const isUnlimited = aiSummariesLimit === Infinity;
@@ -134,6 +142,26 @@ export default function ExpandableEventCard({
   };
 
   const validUrl = isValidUrl(event.url);
+
+  const handleShare = async () => {
+    if (sharing) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSharing(true);
+    try {
+      const result = await shareViewAsImage(
+        shareRef,
+        `${event.ticker}: ${event.title}\n\nSummarised by StockClarify`,
+      );
+      // Surface non-cancellation failures so users aren't left guessing why
+      // nothing happened. We treat anything containing "cancel" as the user's
+      // own decision and stay silent.
+      if (!result.shared && result.reason && !/cancel/i.test(result.reason)) {
+        showToast("Couldn't prepare share image — please try again", { variant: "error" });
+      }
+    } finally {
+      setSharing(false);
+    }
+  };
 
   // Footer: hidden for unlimited tier; otherwise shows one of three states.
   const showFooter = !expanded && hasAI && !isUnlimited;
@@ -241,20 +269,48 @@ export default function ExpandableEventCard({
               <Text style={[s.sectionText, { color: colors.foreground }]}>{event.unusual}</Text>
             </View>
           ) : null}
-          {validUrl ? (
-            <TouchableOpacity
-              style={[s.readMore, { borderColor: colors.border }]}
-              onPress={() => Linking.openURL(event.url)}
-            >
-              <Feather name="external-link" size={12} color={colors.primary} />
-              <Text style={[s.readMoreText, { color: colors.primary }]}>Read full article</Text>
-            </TouchableOpacity>
-          ) : (
-            <View style={[s.readMore, { borderColor: colors.border }]}>
-              <Feather name="alert-circle" size={12} color={colors.mutedForeground} />
-              <Text style={[s.readMoreText, { color: colors.mutedForeground }]}>Article unavailable</Text>
-            </View>
-          )}
+          <View style={s.actionRow}>
+            {validUrl ? (
+              <TouchableOpacity
+                style={[s.readMore, { borderColor: colors.border }]}
+                onPress={() => Linking.openURL(event.url)}
+              >
+                <Feather name="external-link" size={12} color={colors.primary} />
+                <Text style={[s.readMoreText, { color: colors.primary }]}>Read full article</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={[s.readMore, { borderColor: colors.border }]}>
+                <Feather name="alert-circle" size={12} color={colors.mutedForeground} />
+                <Text style={[s.readMoreText, { color: colors.mutedForeground }]}>Article unavailable</Text>
+              </View>
+            )}
+            {hasAI && (
+              <TouchableOpacity
+                style={[s.shareBtn, { borderColor: colors.border }]}
+                onPress={handleShare}
+                disabled={sharing}
+                activeOpacity={0.7}
+                accessibilityLabel="Share this insight"
+              >
+                <Feather
+                  name={sharing ? "loader" : "share-2"}
+                  size={12}
+                  color={colors.primary}
+                />
+                <Text style={[s.shareBtnText, { color: colors.primary }]}>
+                  {sharing ? "Preparing…" : "Share"}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Offscreen render target for view-shot. Positioned far off-screen
+              so it never affects layout but is still painted and capturable.
+              `pointerEvents=none` keeps it inert; `collapsable=false` (set
+              inside ShareableEventCard) ensures Android renders a real view. */}
+          <View pointerEvents="none" style={s.offscreen} accessibilityElementsHidden>
+            <ShareableEventCard ref={shareRef} event={event} stockName={stockName} />
+          </View>
           {showTicker && (
             <TouchableOpacity
               style={[s.viewStockBtn, { backgroundColor: colors.primary }]}
@@ -357,15 +413,39 @@ const s = StyleSheet.create({
   section: { marginBottom: 12 },
   sectionLabel: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.8, marginBottom: 4 },
   sectionText: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 19 },
+  actionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderTopWidth: 1,
+    borderTopColor: "transparent",
+    marginTop: 4,
+    gap: 12,
+  },
   readMore: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     paddingVertical: 8,
-    borderTopWidth: 1,
-    marginTop: 4,
+    flexShrink: 1,
   },
   readMoreText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  shareBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  shareBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  offscreen: {
+    position: "absolute",
+    left: -10000,
+    top: 0,
+    opacity: 0,
+  },
   viewStockBtn: {
     flexDirection: "row",
     alignItems: "center",

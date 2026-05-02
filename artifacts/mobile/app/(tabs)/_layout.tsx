@@ -6,6 +6,7 @@ import { useAuth } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { useHoldings } from "@/context/HoldingsContext";
+import { useOnboarding } from "@/hooks/useOnboarding";
 
 const ICON_SIZE = 23;
 
@@ -13,11 +14,16 @@ export default function TabLayout() {
   const { tier, isAdmin } = useSubscription();
   const { enabled: holdingsEnabled } = useHoldings();
   const { isSignedIn, isLoaded } = useAuth();
+  const onboardingStatus = useOnboarding();
   const colors = useColors();
   const isWeb = Platform.OS === "web";
 
   if (!isLoaded) return null;
   if (!isSignedIn) return <Redirect href="/(auth)/sign-in" />;
+  // Wait for the onboarding flag to hydrate so first-launch users don't see a
+  // flash of the tabs before the walkthrough.
+  if (onboardingStatus === "loading") return null;
+  if (onboardingStatus === "needed") return <Redirect href="/onboarding" />;
 
   return (
     <Tabs

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import OpenAI from "openai";
+import { dedupByEmbedding, isEmbeddingDedupEnabled } from "../lib/newsEmbedding";
 import { YF1, YF2, yfFetch, fetchGoogleNewsRSS, fetchYahooNews, type NewsItem } from "../lib/newsSources";
 import { readCachedNews, upsertNewsItem, type CachedNewsRow, type NewsSource } from "../lib/newsCache";
 
@@ -267,8 +268,8 @@ router.get("/events/:symbol", async (req, res) => {
         ...gnItems.map((item, i) => ({ ...item, sourceLabel: item.publisher, idx: yfItems.length + i })),
       ]
         .filter((a) => a.title.length > 10 && a.timestampMs >= cutoffMs)
-        // dedupe near-identical titles — keeps the LLM from summarising the
-        // same story twice across sources.
+        // Fast pre-filter: dedupe near-identical titles by word overlap.
+        // Keeps the embedding pass below cheap by bounding its input size.
         .reduce<Array<NewsItem & { sourceLabel: string; idx: number }>>((acc, a) => {
           const isDupe = acc.some((existing) => longestCommonWords(existing.title, a.title) >= 4);
           if (!isDupe) acc.push(a);
@@ -278,6 +279,25 @@ router.get("/events/:symbol", async (req, res) => {
     }
 
     if (allArticles.length === 0) return void res.json({ events: [] });
+
+    // Embedding-based second-pass dedup — catches paraphrased duplicates
+    // that share fewer than 4 long words across publishers. Applied to
+    // both the cache-hit and cold-cache paths so behaviour is uniform.
+    // No-op when EMBEDDING_DEDUP_ENABLED is off or no direct
+    // OPENAI_API_KEY is available; the word-overlap filter alone preserves
+    // existing behaviour.
+    if (isEmbeddingDedupEnabled() && allArticles.length > 1) {
+      const before = allArticles.length;
+      const { items: deduped, usedEmbeddings } = await dedupByEmbedding(allArticles);
+      if (usedEmbeddings) {
+        // Re-index so downstream LLM `combinedFrom` indices remain dense.
+        allArticles = deduped.map((a, i) => ({ ...a, idx: i }));
+        req.log?.info?.(
+          { symbol: symbolUpper, before, after: allArticles.length },
+          "embedding dedup applied",
+        );
+      }
+    }
 
     // ONE consolidated AI call: filter + group + summarise.
     //

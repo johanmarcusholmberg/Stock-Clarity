@@ -29,6 +29,8 @@ The project uses pnpm workspaces for a monorepo setup, with each package managin
 ## Mobile Application (`artifacts/mobile`)
 - **Framework**: Expo (React Native)
 - **Authentication**: Custom sign-in/sign-up flows using Clerk. Auth guard redirects unauthenticated users.
+- **Onboarding**: First-launch 3-screen walkthrough that teaches the "What / Why / Unusual" framing. Gated on a per-device AsyncStorage flag (`@stockclarify_onboarding_completed_v1`); managed by `hooks/useOnboarding.ts` and rendered at `app/onboarding.tsx`.
+- **Insight Sharing**: Every expanded `ExpandableEventCard` exposes a Share action that captures a branded PNG of the AI summary via `react-native-view-shot` and opens the native share sheet through `expo-sharing`. Implementation lives in `components/ShareableEventCard.tsx` and `utils/shareCard.ts`.
 - **Key Features**:
     - **Personalized Watchlist**: Stock cards with mini charts, price data.
     - **Daily Digest**: AI-powered summaries of market events (WHAT/WHY/UNUSUAL).
@@ -59,6 +61,7 @@ The project uses pnpm workspaces for a monorepo setup, with each package managin
 - **Database Interactions**: Manages `users`, `user_events`, `stock_views`, `error_logs`, and `feedback` tables in the `public` schema. Stripe-related tables are managed in the `stripe` schema by `stripe-replit-sync`.
 - **Email Service**: Provider-agnostic transactional email system (currently SendGrid) for welcome emails, payment receipts, dunning, and account deletion confirmations.
 - **AI Summaries**: Uses `gpt-4o-mini` for generating stock event summaries, with caching.
+- **News Deduplication**: Two-stage pipeline. Stage 1 is the existing fast word-overlap heuristic. Stage 2 is an embedding-based pass (`text-embedding-3-small`, cosine ≥ 0.82) implemented in `lib/newsEmbedding.ts`. Stage 2 is gated behind `EMBEDDING_DEDUP_ENABLED=true` AND requires a direct `OPENAI_API_KEY` (the AI Integrations proxy does not support the embeddings endpoint). When the flag is off, behavior is unchanged.
 - **Reports Feature**: Provides SEC filing lists and AI executive summaries for tickers via server-side processing to protect API keys and comply with EDGAR's `User-Agent` requirements.
 
 ## UI/UX Design
