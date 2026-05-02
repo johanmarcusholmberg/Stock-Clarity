@@ -128,35 +128,42 @@ export default function AccountScreen() {
     premium: "Premium",
   };
 
+  const performSignOut = async () => {
+    // Clear all user-specific cached data so the next user starts clean
+    try {
+      await AsyncStorage.multiRemove([
+        "@stockclarify_stocks_v2",
+        "@stockclarify_alerts_read",
+        "@stockclarify_folders_v1",
+        "@stockclarify_active_folder_v1",
+        "@stockclarify_digest_daily",
+        "@stockclarify_digest_weekly",
+        "@stockclarify_digest_daily_date",
+        "@stockclarify_digest_weekly_date",
+        "@stockclarify_show_percent",
+      ]);
+    } catch {}
+    // Terminate the Clerk session
+    try {
+      await signOut();
+    } catch {}
+    // Replace navigation history so back-button cannot return to the app
+    router.replace("/(auth)/sign-in");
+  };
+
   const handleSignOut = () => {
+    // React Native's Alert.alert with multiple buttons does not render on web.
+    // Use the browser's native confirm() on web, and Alert.alert on native.
+    if (Platform.OS === "web") {
+      const ok = typeof window !== "undefined"
+        ? window.confirm("Are you sure you want to sign out?")
+        : true;
+      if (ok) void performSignOut();
+      return;
+    }
     Alert.alert("Sign out", "Are you sure you want to sign out?", [
       { text: "Cancel", style: "cancel" },
-      {
-        text: "Sign out",
-        style: "destructive",
-        onPress: async () => {
-          // Clear all user-specific cached data so the next user starts clean
-          try {
-            await AsyncStorage.multiRemove([
-              "@stockclarify_stocks_v2",
-              "@stockclarify_alerts_read",
-              "@stockclarify_folders_v1",
-              "@stockclarify_active_folder_v1",
-              "@stockclarify_digest_daily",
-              "@stockclarify_digest_weekly",
-              "@stockclarify_digest_daily_date",
-              "@stockclarify_digest_weekly_date",
-              "@stockclarify_show_percent",
-            ]);
-          } catch {}
-          // Terminate the Clerk session
-          try {
-            await signOut();
-          } catch {}
-          // Replace navigation history so back-button cannot return to the app
-          router.replace("/(auth)/sign-in");
-        },
-      },
+      { text: "Sign out", style: "destructive", onPress: performSignOut },
     ]);
   };
 
