@@ -104,12 +104,22 @@ function fmtUpdatedAt(tsMs: number | null, now: number): string {
   return `Updated at ${hh}:${mm}`;
 }
 
-function fmtWeekdayDate(tsMs: number): string {
-  const d = new Date(tsMs);
-  const weekday = d.toLocaleDateString("en-US", { weekday: "short" });
-  const day = d.getDate();
-  const month = d.toLocaleDateString("en-US", { month: "short" });
-  return `${weekday} ${day} ${month}`;
+// Short weekday name only ("Mon", "Tue", …) — matches the convention used
+// by Yahoo Finance / Robinhood for the 5D range. Date context is provided
+// elsewhere (the "At close · Apr 30" freshness label below the chart), so
+// repeating it on every tick just causes label wrap on narrow screens.
+function fmtWeekdayShort(tsMs: number): string {
+  return new Date(tsMs).toLocaleDateString("en-US", { weekday: "short" });
+}
+
+// Closed-market freshness label — shows the date of the last actual data
+// point ("At close · Apr 30") instead of the misleading "Updated just now"
+// that would otherwise appear after the unavoidable initial fetch on page
+// open. Stock prices don't change outside trading hours, so the data IS the
+// last close — the UI should say so.
+function fmtAtClose(tsMs: number): string {
+  const date = new Date(tsMs).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return `At close · ${date}`;
 }
 
 function fmtMonthShort(tsMs: number): string {
@@ -192,7 +202,7 @@ function computeXLabels(
     return dayIndices.map((startIdx, di) => {
       const endIdx = di < dayCount - 1 ? dayIndices[di + 1] - 1 : n - 1;
       const midIdx = Math.round((startIdx + endIdx) / 2);
-      return { label: fmtWeekdayDate(timestamps[startIdx]), x: px(midIdx) };
+      return { label: fmtWeekdayShort(timestamps[startIdx]), x: px(midIdx) };
     });
   }
 
@@ -1108,11 +1118,34 @@ export default function StockDetailScreen() {
 
           {/* ── Manual refresh ── */}
           <View style={{ paddingHorizontal: 16, paddingBottom: 14, paddingTop: 4 }}>
-            {/* Freshness label — show the most recent fetch time across ALL
-                ranges so the text is consistent regardless of which range tab
-                the user has selected (1D vs 1Y showed wildly different times
-                because each range has its own stale-time / fetch cadence). */}
+            {/* Freshness label.
+                ─ Market open: show the most recent fetch time across ALL
+                  ranges so the text is consistent regardless of which range
+                  tab is selected (1D vs 1Y had wildly different times before
+                  because each range has its own stale-time / fetch cadence).
+                ─ Market closed: show the date of the last actual data point
+                  ("At close · Apr 30"). The initial fetch on page open still
+                  has to happen to render the chart at all, but its timestamp
+                  doesn't represent fresh price data — it's the same last
+                  close. Showing "Updated just now" in that situation is
+                  misleading, hence the dedicated closed-market label. */}
             {(() => {
+              if (!marketOpenBuffered) {
+                // Walk all ranges and pick the most recent real bar timestamp.
+                // 1D's last bar = last intraday tick = market close minute.
+                let lastBar = 0;
+                for (const rd of Object.values(chart.data)) {
+                  if (rd?.timestamps?.length) {
+                    const t = rd.timestamps[rd.timestamps.length - 1];
+                    if (t > lastBar) lastBar = t;
+                  }
+                }
+                return lastBar ? (
+                  <Text style={[styles.updatedAtNote, { color: colors.mutedForeground }]}>
+                    {fmtAtClose(lastBar)}
+                  </Text>
+                ) : null;
+              }
               const all = Object.values(chart.lastUpdatedAt).filter(
                 (v): v is number => typeof v === "number" && v > 0,
               );
