@@ -63,7 +63,7 @@ const KEYWORD_BUCKETS: Array<{ re: RegExp; weight: number }> = [
   // M&A / corporate actions.
   { re: /\b(acquisition|acquires?|merger|merge(?:s|d)?|buyout|takeover|divestiture|spin[-\s]?off)\b/i, weight: 22 },
   // Analyst rating changes.
-  { re: /\b(upgrade|downgrade|price target|overweight|underweight|buy rating|sell rating|initiates coverage)\b/i, weight: 18 },
+  { re: /\b(upgrades?|downgrades?|price target|overweight|underweight|buy rating|sell rating|initiates coverage)\b/i, weight: 18 },
   // Regulatory / legal.
   { re: /\b(sec|doj|ftc|antitrust|lawsuit|sued|investigation|probe|subpoena|fine|penalty)\b/i, weight: 18 },
   // Healthcare-specific but dominant when present.
