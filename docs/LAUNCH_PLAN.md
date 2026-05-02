@@ -106,9 +106,15 @@ These can all happen in parallel with Phase 1 account setups.
   - `EXPO_PUBLIC_SENTRY_DSN` — mobile DSN (DSNs are designed to be public; `EXPO_PUBLIC_` exposes it to the client bundle).
   - `SENTRY_DSN` — API server DSN.
   - Optional: `SENTRY_RELEASE` env var for git-sha-based release tagging on the server.
+- ✅ **Architect-driven hardening pass:**
+  - Server `sentryRequestContext` now uses `Sentry.withIsolationScope` (AsyncLocalStorage-backed) instead of `withScope` — `withScope` was popped synchronously when the callback returned, so request tags evaporated before downstream async errors fired. Now `req_id` + `userId` propagate through the entire request's async tree.
+  - Removed our custom `sentryErrorHandler` middleware — `setupExpressSentry(app)` (Sentry's official Express handler) is the SOLE error-capture path. Reads the active isolation scope so request tags stick, captures once (no double events), forwards to `logError`.
+  - Mobile `setSentryUser` now sends `{id}` only — email dropped. Clerk dashboard is the source of truth for `id → email` lookups; duplicating into Sentry just bloated PII surface without adding signal. `SentryUserSync` no longer reads `useUser()`.
+- ✅ **Collateral build fix (OTel bundling):** `@sentry/node` v9 eagerly imports many `@opentelemetry/*` packages at module load, but pnpm only links direct deps into a workspace package's `node_modules` — so transitive OTel deps weren't resolvable at runtime (`ERR_MODULE_NOT_FOUND`). Removed `"@opentelemetry/*"` from `build.mjs` externals (with explanatory code comment) so esbuild bundles them all. OTel packages are pure JS (no native bindings); only `@sentry/profiling-node` stays externalized. Server boots clean, `/api/healthz` returns 200.
+- ⚙️ **Server tracing**: deliberately disabled at launch (`integrations: []` in `instrument.ts`). Pino logs already cover request/latency observability, and OTel monkeypatching inside an esbuild bundle is fragile — silent partial-tracing was a real risk. Error capture works independently. Post-launch: drop `integrations: []` (or selectively enable `httpIntegration()` + `expressIntegration()`) to turn tracing on. `tracesSampleRate` left at `0.05` prod / `0.5` dev so flipping the switch later doesn't blow the free quota.
 - ⏭️ **Deferred:**
   - Source-map upload (requires `SENTRY_AUTH_TOKEN` + EAS build hook on mobile, esbuild plugin on server). Not a launch blocker; stack traces work without source maps but show minified names.
-  - Performance tracing on the server is set to `tracesSampleRate: 0.05` in prod (`0.5` in dev). OTel auto-instrumentation may be limited because the server is bundled via esbuild (with `@opentelemetry/*` and `@sentry/profiling-node` already externalized in `build.mjs`). Manual capture works regardless.
+  - Performance tracing on the server (see above).
 
 ### 2F — RevenueCat IAP integration 🤝 *(biggest single item)*
 - This is the BIG one. Apple/Google take 15–30% on in-app subscriptions and reject apps that bypass their billing for digital goods.

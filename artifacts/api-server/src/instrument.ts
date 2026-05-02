@@ -14,16 +14,25 @@ if (dsn) {
     environment: process.env.NODE_ENV ?? "development",
     // The bundled output is one big esm file — use the package version
     // baked at install time as a stable release identifier. Easy to swap
-    // for a git sha later if we ever wire up source-map upload via EAS.
+    // for a git sha later if we ever wire up source-map upload.
     release: process.env.SENTRY_RELEASE ?? "stockclarify-api@1.0.0",
     sendDefaultPii: false,
-    // Keep low so we don't blow through the free Sentry quota at launch.
+    // Tracing left at a low sample rate so flipping integrations on later
+    // doesn't suddenly blow through the free Sentry quota.
     tracesSampleRate: process.env.NODE_ENV === "production" ? 0.05 : 0.5,
-    // We ship via esbuild bundle with most @opentelemetry/* and
-    // @sentry/profiling-node externalized in build.mjs. Manual error
-    // capture (setupExpressErrorHandler, captureException) works
-    // regardless; auto-instrumentation may be limited until we either
-    // un-bundle Sentry or run via `--import` flag.
+    // LAUNCH MODE: error-capture only.
+    // We deliberately disable all default integrations (HTTP/Express OTel
+    // auto-instrumentation, console capture, etc) for launch. Reasons:
+    //   1. We're inside an esbuild bundle — even though @opentelemetry/*
+    //      is now bundled (see build.mjs comment), OTel's monkeypatch
+    //      hooks are fragile when many packages live in one module graph,
+    //      so silent partial-tracing is a real risk.
+    //   2. Performance tracing isn't a launch goal; pino logs cover
+    //      request/latency observability.
+    //   3. setupExpressErrorHandler() in app.ts + manual captureException
+    //      via captureSentryException() work independently of integrations.
+    // Post-launch: drop `integrations: []` (or selectively enable
+    // `httpIntegration()` + `expressIntegration()`) to turn tracing on.
     integrations: [],
     beforeSend(event, hint) {
       const err = hint?.originalException;

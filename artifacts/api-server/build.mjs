@@ -62,7 +62,13 @@ async function buildAll() {
       "@swc/*",
       "@aws-sdk/*",
       "@azure/*",
-      "@opentelemetry/*",
+      // NOTE: do NOT externalize "@opentelemetry/*". `@sentry/node` v9 eagerly
+      // imports many OpenTelemetry packages at module load time, and pnpm only
+      // links direct deps into a workspace package's node_modules — so any
+      // transitive OTel package would fail with ERR_MODULE_NOT_FOUND at runtime.
+      // OTel packages are pure JS (no native bindings) so esbuild bundles them
+      // safely. `@sentry/profiling-node` is the only Sentry-adjacent native dep
+      // and stays externalized further down.
       "@google-cloud/*",
       "@google/*",
       "googleapis",
