@@ -34,7 +34,13 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
   - **Account tab** (6th tab): profile info, subscription plan badge, AI usage bar, manage subscription, feedback form, sign out; tap the version number (bottom) 5× to reveal hidden Dev Tools panel
   - **Dev Tools panel** (Account tab, hidden): tier switcher (Free/Pro/Premium), direct paywall launcher — changes persist in DB via `/api/dev/tier`
   - AI usage limits: Free=5/day, Pro=unlimited, Premium=unlimited (enforced in `EventCard`)
-  - **PaywallSheet**: full-screen paywall modal with Pro/Premium plan cards, monthly/yearly toggle, SAVE 20% badge
+  - **PaywallSheet**: full-screen paywall modal with Pro/Premium plan cards, monthly/yearly toggle (web only), SAVE 20% badge, Restore Purchases button. On native: yearly toggle hidden (monthly-only IAP at launch), prices use store-localized `pkg.product.priceString` from RevenueCat.
+- **RevenueCat IAP** (`services/PurchasesService.ts`, wired in `SubscriptionContext.tsx`): native subscription billing for iOS+Android (Apple/Google policy mandates IAP for digital goods).
+  - `findPackageForTier(packages, tier, period)` — period-safe lookup. FIRST filters by RC `PACKAGE_TYPE.MONTHLY`/`ANNUAL` so a yearly product can never be picked when card says "/mo". Then: `EXPO_PUBLIC_IAP_PRODUCT_TIER_MAP` env override (fails closed if configured-but-unmatched), then exact `<tier>_<period>` convention, then guarded substring (avoids `pro` ⊂ `premium` collision).
+  - `SubscriptionContext.startCheckout(priceId)` accepts both Stripe price ids (web) and synthetic `iap:<tier>` tokens (native). On native it skips the Stripe flow entirely, looks up the RC package, and calls `purchasePackage()`. RC offerings are pre-fetched into `nativePackages` after `initPurchases` so PaywallSheet renders prices instantly; `nativePackagesLoading` exposes the cold-start state.
+  - **Manage Subscription** (account.tsx): on iOS deep-links `https://apps.apple.com/account/subscriptions`; on Android `https://play.google.com/store/account/subscriptions?package=com.stockclarify.app`; web stays on Stripe portal. Apple/Google require OS-level subscription management for store-managed subs.
+  - **Entitlement → tier mapping** (`entitlementsToTier`): RC entitlement IDs `pro` and `premium` map to internal tier strings; these IDs must be created in the RC dashboard.
+  - **Required env vars** (still TODO): `EXPO_PUBLIC_REVENUECAT_IOS_KEY`, `EXPO_PUBLIC_REVENUECAT_ANDROID_KEY` (mobile public keys); optional `EXPO_PUBLIC_IAP_PRODUCT_TIER_MAP` for non-conventional product ids.
 - **Contexts**:
   - `WatchlistContext`: watchlist state, alert counts, stock data
   - `SubscriptionContext`: tier (free/pro/premium), AI usage counters, checkout/portal helpers
@@ -82,6 +88,7 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - `POST /api/payment/portal` — create Stripe Customer Portal session
 - `GET /api/payment/subscription/:userId` — user subscription status
 - `POST /api/stripe/webhook` — Stripe webhook (registered BEFORE express.json())
+- `POST /api/webhooks/revenuecat` — RevenueCat IAP webhook. Constant-time check of the `Authorization` header against `REVENUECAT_WEBHOOK_AUTH_HEADER` (returns 503 fail-closed if secret unset). Event-id dedup via `users.iap_last_event_id`; out-of-order events rejected via `iap_last_event_at` timestamp. Updates the `iap_*` user columns then re-projects effective tier via `computeEffectiveTier`.
 - `POST /api/feedback` — submit user feedback
 - `GET /api/analytics/trending` — trending stocks (7-day)
 - `GET /api/analytics/summary` — public stats
@@ -95,7 +102,7 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - `PATCH /api/dev/tier` — self-service tier override for testing (dev/staging only; blocked in production)
 
 **Database Tables (public schema):**
-- `users` — clerk_user_id, email, tier (free/pro/premium), stripe IDs, AI quota
+- `users` — clerk_user_id, email, tier (free/pro/premium), stripe IDs, AI quota, plus IAP slot: `iap_tier`, `iap_product_id`, `iap_expires_at`, `iap_environment` (sandbox/production), `iap_last_event_id`, `iap_last_event_at`. `computeEffectiveTier` (in `lib/tierService.ts`) honors the IAP slot when `iap_expires_at > now()` with higher-tier-wins vs Stripe.
 - `user_events` — event tracking (stock views, AI usage, etc.)
 - `stock_views` — per-ticker view counts for trending
 - `error_logs` — server error logging
@@ -138,6 +145,7 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - Stripe credentials — managed by Stripe Replit integration
 - `SENDGRID_API_KEY` — required for transactional email (welcome / payment receipt / dunning / account deletion / price alerts). Without it, `sendEmail()` logs WARN and skips gracefully — the rest of the app stays functional.
 - `EMAIL_FROM_ADDRESS` (optional, default `alerts@stockclarify.app`) and `EMAIL_FROM_NAME` (optional, default `StockClarify`). The from-domain must be verified in SendGrid for delivery.
+- `REVENUECAT_WEBHOOK_AUTH_HEADER` — required for the RevenueCat webhook. The exact value (no `Bearer ` prefix) configured in the RevenueCat dashboard's "Authorization header value" field. Without it, the webhook returns 503 fail-closed (intentional — silently accepting unauthenticated events would let anyone grant themselves Premium).
 
 ## Reports feature
 

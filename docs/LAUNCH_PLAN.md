@@ -118,11 +118,23 @@ These can all happen in parallel with Phase 1 account setups.
   - Source-map upload (requires `SENTRY_AUTH_TOKEN` + EAS build hook on mobile, esbuild plugin on server). Not a launch blocker; stack traces work without source maps but show minified names.
   - Performance tracing on the server (see above).
 
-### 2F — RevenueCat IAP integration 🤝 *(biggest single item)*
+### 2F — RevenueCat IAP integration 🤝 *(biggest single item)* ✅ CODE DONE *(2026-05-02)*
 - This is the BIG one. Apple/Google take 15–30% on in-app subscriptions and reject apps that bypass their billing for digital goods.
-- I'll: install `react-native-purchases`, set up entitlement keys, build a unified paywall that uses RevenueCat on native + Stripe on web, and wire RevenueCat webhooks to update `computeEffectiveTier` on the backend.
-- You'll: create the products in App Store Connect + Google Play Console, mirror them in RevenueCat, paste the SDK keys.
-- Estimate: 4–6 days of focused work, plus tester accounts on both stores for verification.
+- ✅ **Server**: `POST /api/webhooks/revenuecat` with constant-time auth-header check, event-id dedup, out-of-order rejection. Six new `users` columns (`iap_tier`, `iap_product_id`, `iap_expires_at`, `iap_environment`, `iap_last_event_id`, `iap_last_event_at`) added via `adminSchema.ts` ALTER TABLE. `computeEffectiveTier` now honors IAP slot when `iap_expires_at > now()`, with higher-tier-wins vs Stripe. Webhook returns 503 fail-closed when `REVENUECAT_WEBHOOK_AUTH_HEADER` secret is unset.
+- ✅ **Mobile**:
+  - `PurchasesService.findPackageForTier(packages, tier, period)` — period-safe lookup via RC `PACKAGE_TYPE` filter (so a yearly product can never be picked when card says "/mo"). Strategies: `EXPO_PUBLIC_IAP_PRODUCT_TIER_MAP` env override (fails closed if configured-but-unmatched), then exact `<tier>_<period>` convention, then guarded substring (pro vs premium collision).
+  - `SubscriptionContext` pre-fetches RC offerings into `nativePackages` after `initPurchases`, exposes `nativePackagesLoading` for cold-start UX, and routes `iap:<tier>` synthetic priceIds straight to RevenueCat without walking Stripe plans.
+  - `PaywallSheet` on native: hides yearly toggle (we ship monthly-only IAP at launch), shows store-localized `pkg.product.priceString` (`$9.99`, `9,99 €`, `£7.99`) instead of formatting Stripe `unit_amount`, and uses `nativePackagesLoading` to avoid dead "Pricing unavailable" cards during cold start.
+  - `account.tsx` "Manage Subscription" deep-links to `https://apps.apple.com/account/subscriptions` on iOS and `https://play.google.com/store/account/subscriptions?package=com.stockclarify.app` on Android (Apple/Google policy requires OS-level subscription management for store-managed subs). Web stays on Stripe portal.
+  - Restore Purchases button on PaywallSheet wired through `restorePurchases()` + `refresh()`.
+- 👤 **Still required before launch (depends on store accounts, can't be coded around):**
+  1. Apple Developer enrollment ($99/yr) + App Store Connect product creation: `pro_monthly` ($9.99) + `premium_monthly` ($19.99) auto-renewing subscriptions.
+  2. Google Play Console enrollment ($25 one-time) + same two product IDs as Play subscriptions.
+  3. RevenueCat dashboard: import the products from each store, create entitlements with IDs `pro` and `premium` (must match `entitlementsToTier` in `PurchasesService.ts`), attach products to entitlements, create offering named `default`.
+  4. Set RevenueCat webhook URL → `https://<replit-domain>/api/webhooks/revenuecat`, copy the auth header value into `REVENUECAT_WEBHOOK_AUTH_HEADER` server secret.
+  5. Set `EXPO_PUBLIC_REVENUECAT_IOS_KEY` + `EXPO_PUBLIC_REVENUECAT_ANDROID_KEY` (mobile public keys from RevenueCat → API keys).
+  6. (Optional) Set `EXPO_PUBLIC_IAP_PRODUCT_TIER_MAP` JSON only if final product ids don't follow the `<tier>_monthly` convention.
+- 🧪 **Verification flow** (after store products live + webhook secret set): App Store sandbox tester or Play closed-testing track → buy in PaywallSheet → confirm webhook arrives at server (logs show `revenuecat.webhook` event-id), users.iap_tier updates, app `tier` reflects within ~5s via `refresh()`.
 
 ### 2G — Push notifications 🤝
 - Code: Expo Push Notifications wiring + `notification_tokens` table + alert delivery worker. 🤖

@@ -247,6 +247,47 @@ export default function AccountScreen() {
       setShowPaywall(true);
       return;
     }
+
+    // Native: deep-link straight to the OS-level subscription manager.
+    // Apple and Google both REQUIRE the app to send users there to
+    // change/cancel store-managed subscriptions; trying to handle it
+    // in-app violates store policy. We don't read the user's iap_source
+    // here — if they bought on the other platform, the store will show
+    // an empty list and they can switch devices.
+    if (Platform.OS === "ios") {
+      setPortalLoading(true);
+      try {
+        await Linking.openURL("https://apps.apple.com/account/subscriptions");
+      } catch {
+        Alert.alert(
+          "Couldn't open Subscriptions",
+          "Open the App Store app, tap your profile, then tap Subscriptions.",
+        );
+      } finally {
+        setPortalLoading(false);
+      }
+      return;
+    }
+    if (Platform.OS === "android") {
+      setPortalLoading(true);
+      try {
+        // Without ?package=... Play opens the global subs list. With it
+        // Play filters to this app's subs, which is what we want.
+        await Linking.openURL(
+          "https://play.google.com/store/account/subscriptions?package=com.stockclarify.app",
+        );
+      } catch {
+        Alert.alert(
+          "Couldn't open Subscriptions",
+          "Open the Play Store app, tap your profile, then tap Payments & subscriptions → Subscriptions.",
+        );
+      } finally {
+        setPortalLoading(false);
+      }
+      return;
+    }
+
+    // Web: Stripe billing portal.
     setPortalLoading(true);
     try {
       const { url, error } = await openPortal();

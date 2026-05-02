@@ -5,12 +5,14 @@ import { useAuth } from "@clerk/expo";
 import { useUser } from "@clerk/expo";
 import { applyEventExpansion } from "@/utils/aiQuota";
 import { getApiBase } from "../lib/apiBase";
+import type { PurchasesPackage } from "react-native-purchases";
 import {
   initPurchases,
   getOfferings,
   purchasePackage,
   entitlementsToTier,
   syncTierToBackend,
+  findPackageForTier,
 } from "@/services/PurchasesService";
 
 const API_BASE =
@@ -92,6 +94,20 @@ interface SubscriptionState {
   plansLoading: boolean;
   checkoutUrl: string | null;
   subscriptionStatus: "active" | "trialing" | null;
+  /**
+   * RevenueCat packages for the current offering, populated on native
+   * after `initPurchases` succeeds. Empty on web. PaywallSheet reads
+   * `pkg.product.priceString` from these for store-localized display
+   * (e.g. "$9.99", "9,99 €", "£7.99") instead of formatting our own
+   * Stripe `unit_amount`.
+   */
+  nativePackages: PurchasesPackage[];
+  /**
+   * True while the initial RC offerings fetch is in flight on native.
+   * Lets PaywallSheet show a spinner instead of empty/"Pricing
+   * unavailable" cards during cold-start races.
+   */
+  nativePackagesLoading: boolean;
   refresh: () => void;
   fetchPlans: () => void;
   startCheckout: (priceId: string) => Promise<string | null>;
@@ -123,6 +139,8 @@ const SubscriptionContext = createContext<SubscriptionState>({
   plansLoading: false,
   checkoutUrl: null,
   subscriptionStatus: null,
+  nativePackages: [],
+  nativePackagesLoading: false,
   refresh: () => {},
   fetchPlans: () => {},
   startCheckout: async () => null,
@@ -154,18 +172,37 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const [plans, setPlans] = useState<Plan[]>([]);
   const [plansLoading, setPlansLoading] = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<"active" | "trialing" | null>(null);
+  const [nativePackages, setNativePackages] = useState<PurchasesPackage[]>([]);
+  const [nativePackagesLoading, setNativePackagesLoading] = useState<boolean>(
+    Platform.OS !== "web",
+  );
   const lastResetDate = useRef<string>("");
 
   const email = user?.primaryEmailAddress?.emailAddress;
 
   // Initialise RevenueCat once we have a userId. No-op on web. The
   // PurchasesService warns and skips if API keys aren't set, so this is
-  // safe to run unconditionally.
+  // safe to run unconditionally. On success we also pre-fetch the
+  // current offering so PaywallSheet can render store-localized prices
+  // immediately when it opens.
   useEffect(() => {
     if (Platform.OS === "web" || !userId) return;
-    initPurchases(userId).catch((err) => {
-      console.error("Failed to init RevenueCat:", err);
-    });
+    let cancelled = false;
+    setNativePackagesLoading(true);
+    (async () => {
+      try {
+        await initPurchases(userId);
+        const pkgs = await getOfferings();
+        if (!cancelled) setNativePackages(pkgs);
+      } catch (err) {
+        console.error("Failed to init RevenueCat:", err);
+      } finally {
+        if (!cancelled) setNativePackagesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [userId]);
 
   const tierLimits = TIER_LIMITS[tier];
@@ -335,16 +372,25 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     if (Platform.OS !== "web") {
       if (!userId) return null;
 
-      // Map the Stripe priceId back to a tier via the loaded plans, then
-      // look up the matching RevenueCat package by product identifier.
-      const plan = plans.find((p) => p.prices.some((pr) => pr.id === priceId));
-      const planTier = plan?.metadata?.tier;
+      // Map the priceId (which is either a Stripe price id on web or a
+      // synthetic `iap:<tier>` token on native — see PaywallSheet) back
+      // to a tier. Tolerate both shapes so PaywallSheet doesn't have to
+      // branch on platform when constructing the call.
+      let planTier: Tier | undefined;
+      if (priceId.startsWith("iap:")) {
+        const t = priceId.slice("iap:".length);
+        if (t === "pro" || t === "premium") planTier = t;
+      } else {
+        const plan = plans.find((p) => p.prices.some((pr) => pr.id === priceId));
+        planTier = plan?.metadata?.tier;
+      }
       if (!planTier || planTier === "free") return null;
 
-      const packages = await getOfferings();
-      const target = packages.find((p) =>
-        p.product.identifier.toLowerCase().includes(planTier),
-      );
+      // Use the cached offerings if we have them, otherwise re-fetch.
+      // The cached path matters because getOfferings() on a freshly
+      // configured Purchases SDK can take 2–3s on cold app start.
+      const packages = nativePackages.length > 0 ? nativePackages : await getOfferings();
+      const target = findPackageForTier(packages, planTier);
       if (!target) {
         console.error("No IAP package found for tier:", planTier);
         return null;
@@ -375,7 +421,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       }
     } catch {}
     return null;
-  }, [userId, email, plans]);
+  }, [userId, email, plans, nativePackages]);
 
   const openPortal = useCallback(async (): Promise<{ url: string | null; error?: string }> => {
     try {
@@ -488,6 +534,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         plansLoading,
         checkoutUrl: null,
         subscriptionStatus,
+        nativePackages,
+        nativePackagesLoading,
         refresh: fetchSubscription,
         fetchPlans,
         startCheckout,

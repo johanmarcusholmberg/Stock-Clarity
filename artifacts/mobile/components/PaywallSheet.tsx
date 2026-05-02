@@ -17,7 +17,9 @@ import { useAuth } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription, Plan } from "@/context/SubscriptionContext";
 import { trackPremiumEvent } from "@/lib/premiumTelemetry";
-import { restorePurchases } from "@/services/PurchasesService";
+import { restorePurchases, findPackageForTier } from "@/services/PurchasesService";
+
+const IS_NATIVE = Platform.OS !== "web";
 
 interface Props {
   visible: boolean;
@@ -59,7 +61,23 @@ const PLAN_FEATURES: Record<string, PlanFeature[]> = {
 export function PaywallSheet({ visible, onClose, triggerReason = "general", currentTier = "free" }: Props) {
   const colors = useColors();
   const { userId } = useAuth();
-  const { plans, plansLoading, fetchPlans, startCheckout, refresh } = useSubscription();
+  const {
+    plans,
+    plansLoading,
+    fetchPlans,
+    startCheckout,
+    refresh,
+    nativePackages,
+    nativePackagesLoading,
+  } = useSubscription();
+  // On native, both Stripe plans (for tier metadata + names + features)
+  // AND RevenueCat offerings need to be loaded before we can render
+  // accurate cards. Treat either fetch in flight as "loading" so the
+  // user sees a spinner instead of a half-rendered paywall.
+  const showLoading = plansLoading || (IS_NATIVE && nativePackagesLoading);
+  // Yearly billing is web-only at launch — we ship monthly-only IAP
+  // products in the App Store / Play Store. The toggle is hidden below
+  // on native so users don't see a broken "Yearly" tab.
   const [selectedInterval, setSelectedInterval] = useState<"month" | "year">("month");
   const [loadingPriceId, setLoadingPriceId] = useState<string | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
@@ -116,21 +134,45 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general", curr
   });
 
   const handleSubscribe = async (plan: Plan) => {
-    const price = plan.prices?.find((p) => p.interval === selectedInterval);
-    if (!price) return;
+    const tier = plan.metadata?.tier;
+
+    // Native: bypass the Stripe price-id flow entirely. We pass a
+    // synthetic `iap:<tier>` token so SubscriptionContext can route
+    // straight to RevenueCat without a roundtrip through `plans`.
+    // Web: use the Stripe price id matching the selected interval.
+    let checkoutId: string | null = null;
+    if (IS_NATIVE) {
+      if (tier !== "pro" && tier !== "premium") return;
+      checkoutId = `iap:${tier}`;
+    } else {
+      const price = plan.prices?.find((p) => p.interval === selectedInterval);
+      if (!price) return;
+      checkoutId = price.id;
+    }
+
     trackPremiumEvent("premium_paywall_plan_selected", userId, {
-      priceId: price.id,
-      interval: price.interval,
-      tier: plan.metadata?.tier,
+      priceId: checkoutId,
+      interval: IS_NATIVE ? "month" : selectedInterval,
+      tier,
     });
-    setLoadingPriceId(price.id);
+    setLoadingPriceId(checkoutId);
     try {
-      const url = await startCheckout(price.id);
-      if (url) {
+      const url = await startCheckout(checkoutId);
+      // On native, startCheckout returns null because the StoreKit /
+      // Play Billing sheet is presented natively — there's no URL to
+      // open. PaywallSheet should observe the tier change via context
+      // and dismiss itself.
+      if (IS_NATIVE) {
         trackPremiumEvent("premium_paywall_checkout_started", userId, {
-          priceId: price.id,
-          interval: price.interval,
-          tier: plan.metadata?.tier,
+          priceId: checkoutId,
+          interval: "month",
+          tier,
+        });
+      } else if (url) {
+        trackPremiumEvent("premium_paywall_checkout_started", userId, {
+          priceId: checkoutId,
+          interval: selectedInterval,
+          tier,
         });
         await Linking.openURL(url);
       } else {
@@ -142,6 +184,31 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general", curr
   };
 
   const formatPrice = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+
+  // For each plan, return the price string and per-period suffix the
+  // user should see on the card. On web, that's the Stripe price for
+  // the currently-selected interval ("$9.99/mo"). On native, that's
+  // the store-localized price string from RevenueCat ("$9.99/mo",
+  // "9,99 €/mo", "£7.99/mo") — Apple and Google return the right
+  // currency + format for the user's store country, so we must NOT
+  // re-format it ourselves.
+  const resolvePriceDisplay = (
+    plan: Plan,
+  ): { label: string; suffix: string; ctaPrice: string } | null => {
+    if (IS_NATIVE) {
+      const tier = plan.metadata?.tier;
+      if (tier !== "pro" && tier !== "premium") return null;
+      const pkg = findPackageForTier(nativePackages, tier);
+      if (!pkg) return null;
+      const priceString = pkg.product.priceString ?? "";
+      return { label: priceString, suffix: "/mo", ctaPrice: `${priceString}/mo` };
+    }
+    const price = plan.prices?.find((p) => p.interval === selectedInterval);
+    if (!price) return null;
+    const formatted = formatPrice(price.unit_amount);
+    const suffix = `/${price.interval === "year" ? "yr" : "mo"}`;
+    return { label: formatted, suffix, ctaPrice: `${formatted}${suffix}` };
+  };
 
   const s = StyleSheet.create({
     overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.75)", justifyContent: "flex-end" },
@@ -217,21 +284,24 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general", curr
             <Text style={s.subtitle}>{reasonText[triggerReason]}</Text>
           </View>
 
-          {/* Billing toggle */}
-          <View style={s.toggle}>
-            <TouchableOpacity style={[s.toggleBtn, selectedInterval === "month" && s.toggleActive]} onPress={() => setSelectedInterval("month")}>
-              <Text style={[s.toggleText, selectedInterval === "month" && s.toggleTextActive]}>Monthly</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[s.toggleBtn, selectedInterval === "year" && s.toggleActive]} onPress={() => setSelectedInterval("year")}>
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <Text style={[s.toggleText, selectedInterval === "year" && s.toggleTextActive]}>Yearly</Text>
-                <View style={s.saveBadge}><Text style={s.saveBadgeText}>SAVE 20%</Text></View>
-              </View>
-            </TouchableOpacity>
-          </View>
+          {/* Billing toggle — web only. Native ships monthly-only IAP at launch. */}
+          {!IS_NATIVE && (
+            <View style={s.toggle}>
+              <TouchableOpacity style={[s.toggleBtn, selectedInterval === "month" && s.toggleActive]} onPress={() => setSelectedInterval("month")}>
+                <Text style={[s.toggleText, selectedInterval === "month" && s.toggleTextActive]}>Monthly</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[s.toggleBtn, selectedInterval === "year" && s.toggleActive]} onPress={() => setSelectedInterval("year")}>
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <Text style={[s.toggleText, selectedInterval === "year" && s.toggleTextActive]}>Yearly</Text>
+                  <View style={s.saveBadge}><Text style={s.saveBadgeText}>SAVE 20%</Text></View>
+                </View>
+              </TouchableOpacity>
+            </View>
+          )}
+          {IS_NATIVE && <View style={{ height: 8 }} />}
 
           <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: Dimensions.get("window").height * 0.56 }}>
-            {plansLoading ? (
+            {showLoading ? (
               <ActivityIndicator color={colors.primary} style={{ padding: 32 }} />
             ) : visiblePlans.length === 0 ? (
               <Text style={[s.footerText, { padding: 24 }]}>Plans unavailable. Please try again later.</Text>
@@ -242,9 +312,21 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general", curr
                   const isPro = tierKey === "pro";
                   const isPremium = tierKey === "premium";
                   const isHighlight = currentTier === "pro" ? isPremium : isPro;
-                  const price = plan.prices?.find((p) => p.interval === selectedInterval);
                   const features = PLAN_FEATURES[tierKey] ?? [];
-                  const isLoading = price ? loadingPriceId === price.id : false;
+                  const display = resolvePriceDisplay(plan);
+                  // Loading id is the synthetic `iap:<tier>` on native or
+                  // the Stripe price id on web — same shape as what we
+                  // pass to startCheckout in handleSubscribe.
+                  const expectedLoadingId = IS_NATIVE
+                    ? `iap:${tierKey}`
+                    : plan.prices?.find((p) => p.interval === selectedInterval)?.id;
+                  const isLoading = expectedLoadingId
+                    ? loadingPriceId === expectedLoadingId
+                    : false;
+                  const yearlyPrice =
+                    !IS_NATIVE && selectedInterval === "year"
+                      ? plan.prices?.find((p) => p.interval === "year")
+                      : null;
 
                   return (
                     <View key={plan.id} style={[s.planCard, isHighlight && s.planCardHighlight]}>
@@ -257,22 +339,22 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general", curr
                           </View>
                         )}
                         <Text style={s.planName}>{plan.name}</Text>
-                        {price ? (
+                        {display ? (
                           <View style={s.priceRow}>
-                            <Text style={s.planPrice}>{formatPrice(price.unit_amount)}</Text>
-                            <Text style={s.planInterval}>/{price.interval === "year" ? "yr" : "mo"}</Text>
-                            {price.interval === "year" && (
+                            <Text style={s.planPrice}>{display.label}</Text>
+                            <Text style={s.planInterval}>{display.suffix}</Text>
+                            {yearlyPrice && (
                               <Text style={s.originalPrice}>
-                                ${((price.unit_amount / 100 / 12) / 0.8 * 12).toFixed(0)}/yr
+                                ${((yearlyPrice.unit_amount / 100 / 12) / 0.8 * 12).toFixed(0)}/yr
                               </Text>
                             )}
                           </View>
                         ) : (
                           <Text style={s.planDesc}>Pricing unavailable</Text>
                         )}
-                        {price?.interval === "year" && (
+                        {yearlyPrice && (
                           <Text style={{ color: colors.positive, fontSize: 12, fontFamily: "Inter_600SemiBold", marginTop: 2 }}>
-                            = {formatPrice(Math.round(price.unit_amount / 12))}/mo — save 20%
+                            = {formatPrice(Math.round(yearlyPrice.unit_amount / 12))}/mo — save 20%
                           </Text>
                         )}
                       </View>
@@ -292,7 +374,7 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general", curr
                         ))}
                       </View>
 
-                      {price && (
+                      {display && (
                         <TouchableOpacity
                           style={[s.subscribeBtn, !isHighlight && s.subscribeBtnSecondary]}
                           onPress={() => handleSubscribe(plan)}
@@ -302,7 +384,7 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general", curr
                             <ActivityIndicator color={isHighlight ? colors.primaryForeground : colors.foreground} />
                           ) : (
                             <Text style={[s.subscribeBtnText, !isHighlight && s.subscribeBtnTextSecondary]}>
-                              {currentTier === "pro" && isPremium ? "Upgrade to Premium" : `Get ${plan.name}`} · {formatPrice(price.unit_amount)}/{price.interval === "year" ? "yr" : "mo"}
+                              {currentTier === "pro" && isPremium ? "Upgrade to Premium" : `Get ${plan.name}`} · {display.ctaPrice}
                             </Text>
                           )}
                         </TouchableOpacity>
