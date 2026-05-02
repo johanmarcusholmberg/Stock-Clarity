@@ -146,6 +146,22 @@ function sampleIndices(indices: number[], maxCount: number): number[] {
   return [...new Set(result)];
 }
 
+// Pick `count` evenly-spaced indices from 0..n-1, always including both
+// endpoints. Used by the multi-month/multi-year ranges so labels are
+// distributed uniformly across the chart width regardless of how many
+// trading-days each calendar month contributed (Feb has fewer than Mar,
+// holidays shift the boundaries, etc — boundary-based picking made the
+// visual spacing feel uneven).
+function pickEvenIndices(n: number, count: number): number[] {
+  if (n <= 0 || count <= 0) return [];
+  if (n === 1 || count === 1) return [0];
+  if (n <= count) return Array.from({ length: n }, (_, i) => i);
+  const result: number[] = [];
+  const step = (n - 1) / (count - 1);
+  for (let k = 0; k < count; k++) result.push(Math.round(k * step));
+  return [...new Set(result)];
+}
+
 function computeXLabels(
   timestamps: number[],
   rangeKey: string,
@@ -206,22 +222,24 @@ function computeXLabels(
     });
   }
 
-  // ── 1M: one label per week (~every 5 trading days) ───────────────
-  // Don't push n-1 unconditionally — if the dataset's tail happens to land
-  // a couple of bars after the last weekly mark, the trailing label sits
-  // right on top of the previous one and looks like duplicated text.
+  // For 1M / YTD / 1Y / 3Y / 5Y we pick evenly-spaced INDICES across the
+  // full data range (always including both endpoints) and label each one
+  // with the appropriate date format. This guarantees uniform visual
+  // spacing — boundary-based picking (first-of-month, first-of-year, etc.)
+  // produced uneven gaps because trading-days per calendar period vary,
+  // and it also left a visible empty stretch from the chart's left edge
+  // to the first calendar boundary (e.g., "Jul" sitting at ~17% in 1Y).
+
+  // ── 1M: 6 evenly-spaced "Mon DD" labels ──────────────────────────
   if (rangeKey === "1mo") {
-    const indices: number[] = [];
-    for (let i = 0; i < n; i += 5) indices.push(i);
-    const last = indices[indices.length - 1] ?? -1;
-    if (n - 1 - last >= 3) indices.push(n - 1);
-    return sampleIndices(indices, 6).map((i) => ({ label: fmtDate(timestamps[i]), x: px(i) }));
+    return pickEvenIndices(n, 6).map((i) => ({ label: fmtDate(timestamps[i]), x: px(i) }));
   }
 
-  // ── YTD: one label per month ──────────────────────────────────────
-  // Pick the FIRST data point of each unique calendar month — no synthetic
-  // first-or-last entries, so there's no risk of two labels with the same
-  // text rendering on top of each other.
+  // ── YTD: one label per calendar month ────────────────────────────
+  // YTD is a special case: we WANT month-aligned labels here so they read
+  // as "Jan, Feb, Mar, Apr, May" rather than odd mid-month picks. Trading
+  // days per month don't vary enough over a few months for the spacing to
+  // feel uneven.
   if (rangeKey === "ytd") {
     const monthStarts: number[] = [];
     let lastMonth: number | null = null;
@@ -232,69 +250,37 @@ function computeXLabels(
     return sampleIndices(monthStarts, 8).map((i) => ({ label: fmtMonthShort(timestamps[i]), x: px(i) }));
   }
 
-  // ── 1Y: one label every other month, month name only ─────────────
-  // Year suffix is redundant on a 1-year window (month progression already
-  // implies the year; "Dec → Jan" makes the boundary obvious). Dropping it
-  // also keeps every label to ~3 chars so they fit cleanly in 52-px cells.
-  // Slice to the latest 6 buckets so the most recent 12 months are always
-  // labeled even when monthStarts overshoots due to range padding.
+  // ── 1Y: 6 evenly-spaced labels, anchored at both endpoints ───────
+  // Picking 6 evenly-spaced indices across all 12 months guarantees the
+  // first label sits at the chart's left edge (no more "Jul" floating at
+  // 17% with empty space to its left). When the range's start and end
+  // months collide (e.g., May 25 → May 26), switch to "Mon YY" format on
+  // every label so the user can distinguish "May 25" from "May 26".
   if (rangeKey === "1y") {
-    const monthStarts: number[] = [];
-    let lastMonth: number | null = null;
-    for (let i = 0; i < n; i++) {
-      const mo = new Date(timestamps[i]).getMonth();
-      if (mo !== lastMonth) { monthStarts.push(i); lastMonth = mo; }
-    }
-    const everyOther = monthStarts.filter((_, i) => i % 2 === 0);
-    return everyOther.slice(-6).map((i) => ({ label: fmtMonthShort(timestamps[i]), x: px(i) }));
+    const indices = pickEvenIndices(n, 6);
+    const monthsOnly = indices.map((i) => fmtMonthShort(timestamps[i]));
+    const boundaryCollision =
+      indices.length > 1 && monthsOnly[0] === monthsOnly[monthsOnly.length - 1];
+    return indices.map((i) => ({
+      label: boundaryCollision ? fmtMonthYear(timestamps[i]) : fmtMonthShort(timestamps[i]),
+      x: px(i),
+    }));
   }
 
-  // ── 3Y: one label per (year × half-year) bucket ──────────────────
-  // Bucketing by H1/H2 of each year produces ~6 evenly-spaced labels
-  // regardless of how many monthly points the upstream returned. No
-  // trailing push so we never get the "Apr 24, Apr 24" double-label seen
-  // in the old `i += 6 + push n-1` algorithm.
+  // ── 3Y: 6 evenly-spaced "Mon YY" labels ──────────────────────────
   if (rangeKey === "3y") {
-    const seen = new Set<string>();
-    const indices: number[] = [];
-    for (let i = 0; i < n; i++) {
-      const d = new Date(timestamps[i]);
-      const half = d.getMonth() < 6 ? "H1" : "H2";
-      const key = `${d.getFullYear()}-${half}`;
-      if (!seen.has(key)) { seen.add(key); indices.push(i); }
-    }
-    // Keep the most recent 6 buckets — drops a leading partial bucket
-    // before it can crowd the next "Jan/Jul" label of the following year.
-    return indices.slice(-6).map((i) => ({ label: fmtMonthYear(timestamps[i]), x: px(i) }));
+    return pickEvenIndices(n, 6).map((i) => ({ label: fmtMonthYear(timestamps[i]), x: px(i) }));
   }
 
-  // ── 5Y: one label per unique calendar year ───────────────────────
-  // Emit a label at the FIRST data point of each year and stop there —
-  // the previous algorithm's unconditional `push n-1` produced a second
-  // "2026" label right next to the real Jan-2026 boundary, which rendered
-  // as the visible "20262026" overlap on the right edge.
-  // If the data starts late in a calendar year (Q4), drop that leading
-  // year — otherwise its label crowds the next "Jan" label only ~3 months
-  // later (the same kind of overlap we just removed at the trailing edge).
+  // ── 5Y: 6 evenly-spaced year labels ──────────────────────────────
+  // Even-spaced indices across 5 years almost always land on 6 distinct
+  // calendar years (one per year). Filter consecutive duplicate-text
+  // labels just in case (e.g., if Yahoo returns slightly less than 5 full
+  // years of data and two adjacent picks fall in the same year).
   if (rangeKey === "5y") {
-    const yearStartIndices: number[] = [];
-    let lastYear: number | null = null;
-    for (let i = 0; i < n; i++) {
-      const yr = new Date(timestamps[i]).getFullYear();
-      if (yr !== lastYear) { yearStartIndices.push(i); lastYear = yr; }
-    }
-    // Only drop the leading partial-Q4 year if there are still plenty of
-    // year labels left (>= 4 keeps a minimum of 3 labels after the shift).
-    // For unusually short 5Y payloads (e.g., a recently-listed stock) we'd
-    // rather show the slightly-crowded leading year than leave the chart
-    // with only one or two year markers.
-    if (
-      yearStartIndices.length >= 4 &&
-      new Date(timestamps[yearStartIndices[0]]).getMonth() >= 9
-    ) {
-      yearStartIndices.shift();
-    }
-    return yearStartIndices.map((i) => ({ label: fmtYear(timestamps[i]), x: px(i) }));
+    const indices = pickEvenIndices(n, 6);
+    const labels = indices.map((i) => ({ label: fmtYear(timestamps[i]), x: px(i) }));
+    return labels.filter((l, k) => k === 0 || l.label !== labels[k - 1].label);
   }
 
   // ── Fallback: 5 evenly-spaced ─────────────────────────────────────
