@@ -1,9 +1,21 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useState } from "react";
 
-const ONBOARDING_KEY = "@stockclarify_onboarding_completed_v1";
+// Exported so tests can assert the on-disk contract without duplicating the
+// string. If this key ever changes we want every existing user to re-see the
+// walkthrough — bump the version suffix (e.g. _v2) rather than mutating in
+// place.
+export const ONBOARDING_KEY = "@stockclarify_onboarding_completed_v1";
 
-type Status = "loading" | "needed" | "completed";
+export type Status = "loading" | "needed" | "completed";
+
+// Pure function so the AsyncStorage hydration logic is unit-testable without
+// React or the native module. The persisted value is intentionally narrow:
+// the literal string "1" means completed; anything else (including null or a
+// stale legacy value) means the user still needs the walkthrough.
+export function parseStoredValue(raw: string | null): "needed" | "completed" {
+  return raw === "1" ? "completed" : "needed";
+}
 
 let cached: boolean | null = null;
 const listeners = new Set<(s: Status) => void>();
@@ -43,7 +55,7 @@ export function useOnboarding(): Status {
     if (cached === null) {
       AsyncStorage.getItem(ONBOARDING_KEY)
         .then((val) => {
-          cached = val === "1";
+          cached = parseStoredValue(val) === "completed";
           if (alive) setStatus(cached ? "completed" : "needed");
         })
         .catch(() => {
