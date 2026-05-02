@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { dedupByEmbedding, isEmbeddingDedupEnabled } from "../lib/newsEmbedding";
 import { YF1, YF2, yfFetch, fetchGoogleNewsRSS, fetchYahooNews, type NewsItem } from "../lib/newsSources";
 import { readCachedNews, upsertNewsItem, type CachedNewsRow, type NewsSource } from "../lib/newsCache";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -88,7 +89,8 @@ async function fetchQuoteViaChart(symbol: string): Promise<any | null> {
     setInCache(cacheKey, quote, 5 * 60 * 1000);
     return quote;
   } catch (err: any) {
-    console.error(`[fetchQuote] ${symbol}:`, err.message);
+    // No `req` here (called from cache warmers too). Use the singleton logger.
+    logger.warn({ symbol, err: err?.message }, "fetchQuote failed");
     return null;
   }
 }
@@ -192,7 +194,7 @@ router.get("/chart/:symbol", async (req, res) => {
     setInCache(cacheKey, response, ttl);
     res.json(response);
   } catch (err: any) {
-    console.error("[chart]", err.message);
+    req.log.error({ err: err?.message }, "chart endpoint failed");
     res.status(500).json({ timestamps: [], prices: [], meta: {} });
   }
 });
@@ -239,7 +241,7 @@ router.get("/events/:symbol", async (req, res) => {
     } catch (err: any) {
       // DB-less deployments or schema load failures fall through to the
       // cold-cache path below. We don't fail the request on a cache miss.
-      console.warn("[events] news_cache read failed:", err?.message);
+      req.log.warn({ err: err?.message, symbol: symbolUpper }, "news_cache read failed");
     }
 
     if (cachedRows.length > 0) {
@@ -418,7 +420,7 @@ If fewer than 2 headlines are genuinely relevant to ${symbol}, return an empty a
     setInCache(cacheKey, events, ttl);
     res.json({ events });
   } catch (err: any) {
-    console.error("[events]", err.message);
+    req.log.error({ err: err?.message }, "events endpoint failed");
     res.status(500).json({ events: [], error: "Failed to get events" });
   }
 });
@@ -457,7 +459,9 @@ async function safeUpsert(symbol: string, item: NewsItem, source: NewsSource): P
   try {
     await upsertNewsItem(symbol, item, source);
   } catch (err: any) {
-    console.warn("[events] news_cache upsert failed:", err?.message);
+    // Helper called from the events route's fire-and-forget upsert path.
+    // No `req` is in scope here, so use the singleton logger.
+    logger.warn({ err: err?.message, symbol, source }, "news_cache upsert failed");
   }
 }
 

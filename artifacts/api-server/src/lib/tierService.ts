@@ -284,6 +284,6 @@ export async function writeAdminAudit(entry: AuditEntry): Promise<void> {
       ],
     );
   } catch (err: any) {
-    console.warn("[admin_audit] insert failed:", err?.message);
+    logger.warn({ err: err?.message }, "admin_audit insert failed");
   }
 }

@@ -1,4 +1,5 @@
 import { execute } from "../db";
+import { logger } from "./logger";
 
 // Phase 3.4 PR 3 — upcoming dividend events keyed by ticker. Populated by
 // dividendWorker daily from Yahoo quoteSummary?modules=calendarEvents. One
@@ -26,5 +27,5 @@ export const dividendSchemaReady: Promise<void> = (async () => {
       ON dividend_events (ticker, ex_date DESC)
   `);
 })().catch((err) => {
-  console.error("[dividendSchema] Failed to initialise tables:", err?.message);
+  logger.error({ err: err?.message }, "dividendSchema failed to initialise tables");
 });

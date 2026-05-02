@@ -19,7 +19,11 @@
       "buildNumber": "1",
       "usesAppleSignIn": true,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "StockClarify uses the camera only if you choose to attach a photo to feedback.",
+        "NSPhotoLibraryUsageDescription": "StockClarify accesses your photo library only if you choose to attach a photo to feedback.",
+        "NSPhotoLibraryAddUsageDescription": "StockClarify saves shareable insight cards to your photo library when you tap Save Image.",
+        "NSLocationWhenInUseUsageDescription": "StockClarify uses your approximate location only to show market hours and trading sessions relevant to your region."
       }
     },
     "android": {

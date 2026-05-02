@@ -1,4 +1,5 @@
 import { execute } from "../db";
+import { logger } from "./logger";
 
 // Ensures the admin-subscription tables exist. Same "CREATE TABLE IF NOT
 // EXISTS on module load" pattern as alertsSchema.ts and newsSchema.ts.
@@ -124,5 +125,5 @@ export const adminSchemaReady: Promise<void> = (async () => {
        ON admin_rate_limit_hits (admin_email, created_at DESC)`,
   );
 })().catch((err) => {
-  console.error("[adminSchema] Failed to initialise tables:", err?.message);
+  logger.error({ err: err?.message }, "adminSchema failed to initialise tables");
 });

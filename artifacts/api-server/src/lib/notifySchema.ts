@@ -1,5 +1,6 @@
 import { execute } from "../db";
 import { alertsSchemaReady } from "./alertsSchema";
+import { logger } from "./logger";
 
 // Ensures the news/earnings notification tables exist. Same "CREATE TABLE IF
 // NOT EXISTS on module load" pattern as alertsSchema.ts and newsSchema.ts.
@@ -106,5 +107,5 @@ export const notifySchemaReady: Promise<void> = (async () => {
     ADD COLUMN IF NOT EXISTS timezone TEXT
   `);
 })().catch((err) => {
-  console.error("[notifySchema] Failed to initialise tables:", err?.message);
+  logger.error({ err: err?.message }, "notifySchema failed to initialise tables");
 });

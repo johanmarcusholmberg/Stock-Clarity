@@ -1,4 +1,5 @@
 import { execute } from "../db";
+import { logger } from "./logger";
 
 // Ensures the news pre-load tables exist. Follows the same "CREATE TABLE IF
 // NOT EXISTS on module load" pattern as alertsSchema.ts.
@@ -57,5 +58,5 @@ export const newsSchemaReady: Promise<void> = (async () => {
     )
   `);
 })().catch((err) => {
-  console.error("[newsSchema] Failed to initialise tables:", err?.message);
+  logger.error({ err: err?.message }, "newsSchema failed to initialise tables");
 });

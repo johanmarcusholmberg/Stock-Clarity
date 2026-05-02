@@ -1,4 +1,5 @@
 import { execute } from "../db";
+import { logger } from "./logger";
 
 // Ensures the alerts-related tables exist. Follows the same "CREATE TABLE IF NOT
 // EXISTS on module load" pattern used elsewhere in the codebase (see auth.ts).
@@ -57,5 +58,5 @@ export const alertsSchemaReady: Promise<void> = (async () => {
     )
   `);
 })().catch((err) => {
-  console.error("[alertsSchema] Failed to initialise tables:", err?.message);
+  logger.error({ err: err?.message }, "alertsSchema failed to initialise tables");
 });

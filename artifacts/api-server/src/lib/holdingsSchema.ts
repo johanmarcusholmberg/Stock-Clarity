@@ -1,4 +1,5 @@
 import { execute } from "../db";
+import { logger } from "./logger";
 
 // Phase 3.4 PR 2 — holdings tracker schema. Same "CREATE TABLE IF NOT EXISTS
 // on module load" pattern as notifySchema.ts and alertsSchema.ts.
@@ -65,5 +66,5 @@ export const holdingsSchemaReady: Promise<void> = (async () => {
       ON portfolio_snapshots (user_id, date DESC)
   `);
 })().catch((err) => {
-  console.error("[holdingsSchema] Failed to initialise tables:", err?.message);
+  logger.error({ err: err?.message }, "holdingsSchema failed to initialise tables");
 });

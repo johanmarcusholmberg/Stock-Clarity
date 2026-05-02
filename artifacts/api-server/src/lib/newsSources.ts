@@ -5,6 +5,8 @@
 // Yahoo auth (crumb + cookie) is module-level state — a single shared auth
 // session is reused across call sites in the same process.
 
+import { logger } from "./logger";
+
 export const BASE_HEADERS: Record<string, string> = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -46,10 +48,10 @@ export async function refreshYFAuth(): Promise<boolean> {
 
     yfCrumb = crumb.trim();
     yfAuthExpires = Date.now() + 60 * 60 * 1000;
-    console.log("[yfAuth] Got crumb:", yfCrumb.slice(0, 8) + "...");
+    logger.debug({ crumbPrefix: yfCrumb.slice(0, 8) }, "yfAuth got crumb");
     return true;
   } catch (err: any) {
-    console.error("[yfAuth] Failed:", err.message);
+    logger.warn({ err: err?.message }, "yfAuth failed");
     return false;
   }
 }
@@ -76,7 +78,7 @@ export async function yfFetch(url: string, timeoutMs = 12000): Promise<any> {
   const res = await fetch(fullUrl, { headers, signal: AbortSignal.timeout(timeoutMs) });
 
   if (res.status === 429) {
-    console.error("[yfFetch] 429 rate limited:", url.split("?")[0]);
+    logger.warn({ url: url.split("?")[0] }, "yfFetch 429 rate limited");
     yfCrumb = null;
     yfCookie = null;
     await new Promise((r) => setTimeout(r, 4000));
@@ -146,7 +148,7 @@ export async function fetchGoogleNewsRSS(query: string): Promise<NewsItem[]> {
     }
     return items;
   } catch (err: any) {
-    console.error("[GoogleNewsRSS]", err.message);
+    logger.warn({ err: err?.message }, "GoogleNewsRSS fetch failed");
     return [];
   }
 }

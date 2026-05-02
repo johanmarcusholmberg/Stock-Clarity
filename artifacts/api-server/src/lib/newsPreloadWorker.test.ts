@@ -48,10 +48,32 @@ test("yahoo items with news.google.com URL fall back to publisher+title", () => 
   assert.equal(a, b);
 });
 
-test("different stories produce different hashes", () => {
-  const a = urlHash(item({ title: "Earnings beat" }), "yahoo");
-  const b = urlHash(item({ title: "Lawsuit filed" }), "yahoo");
+test("different stories (distinct URLs) produce different hashes", () => {
+  // Yahoo dedup intentionally hashes by host+path *only*. Two articles at the
+  // same URL with different titles are treated as the same story (e.g. the
+  // publisher edited the headline) — that's the desired behaviour. The
+  // realistic "different stories" case is two distinct URLs.
+  const a = urlHash(
+    item({
+      title: "Earnings beat",
+      url: "https://www.reuters.com/tech/nvidia-earnings-2025-08-20",
+    }),
+    "yahoo",
+  );
+  const b = urlHash(
+    item({
+      title: "Lawsuit filed",
+      url: "https://www.reuters.com/legal/nvidia-lawsuit-2025-08-21",
+    }),
+    "yahoo",
+  );
   assert.notEqual(a, b);
+});
+
+test("same URL with different titles still dedup (intentional — publisher edited headline)", () => {
+  const a = urlHash(item({ title: "Earnings beat" }), "yahoo");
+  const b = urlHash(item({ title: "Earnings beat — updated" }), "yahoo");
+  assert.equal(a, b);
 });
 
 test("malformed URL falls back to publisher+title without throwing", () => {
