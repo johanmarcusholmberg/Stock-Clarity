@@ -129,7 +129,10 @@ function Calendar({
           return (
             <div
               data-slot="calendar"
-              ref={rootRef}
+              // Cast: react-day-picker carries its own copy of @types/react
+              // whose Ref<HTMLDivElement> is structurally identical but
+              // nominally different from our resolved copy. Safe to cast.
+              ref={rootRef as React.Ref<HTMLDivElement>}
               className={cn(className)}
               {...props}
             />
