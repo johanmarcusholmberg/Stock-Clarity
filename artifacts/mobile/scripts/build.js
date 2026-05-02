@@ -132,10 +132,23 @@ async function startMetro(expoPublicDomain, expoPublicReplId) {
 
   console.log("Starting Metro...");
   console.log(`Setting EXPO_PUBLIC_DOMAIN=${expoPublicDomain}`);
+  // Bake the API base URL into the production bundle so services don't fall
+  // back to the localhost default when running outside the dev environment.
+  const expoPublicApiUrl =
+    process.env.EXPO_PUBLIC_API_URL || `https://${expoPublicDomain}/api`;
+  console.log(`Setting EXPO_PUBLIC_API_URL=${expoPublicApiUrl}`);
+  // Forward Clerk's publishable key (set as CLERK_PUBLISHABLE_KEY in the
+  // environment) so the production bundle can boot Clerk auth.
+  const clerkPublishableKey =
+    process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ||
+    process.env.CLERK_PUBLISHABLE_KEY ||
+    "";
   const env = {
     ...process.env,
     EXPO_PUBLIC_DOMAIN: expoPublicDomain,
     EXPO_PUBLIC_REPL_ID: expoPublicReplId,
+    EXPO_PUBLIC_API_URL: expoPublicApiUrl,
+    EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: clerkPublishableKey,
   };
 
   if (expoPublicReplId) {

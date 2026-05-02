@@ -5,9 +5,18 @@ import { readCachedNews, upsertNewsItem, type CachedNewsRow, type NewsSource } f
 
 const router = Router();
 
+// Prefer the Replit AI Integrations proxy (auto-provisioned, billed via
+// Replit) and fall back to a user-supplied OPENAI_API_KEY when the proxy
+// env vars aren't set. This way the AI event-summary endpoint works out of
+// the box on Replit without needing the user to manage a key themselves.
+const openaiBaseUrl =
+  process.env.AI_INTEGRATIONS_OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL;
+const openaiApiKey =
+  process.env.AI_INTEGRATIONS_OPENAI_API_KEY ?? process.env.OPENAI_API_KEY ?? "";
+
 const openai = new OpenAI({
-  ...(process.env.OPENAI_BASE_URL && { baseURL: process.env.OPENAI_BASE_URL }),
-  apiKey: process.env.OPENAI_API_KEY ?? "",
+  ...(openaiBaseUrl && { baseURL: openaiBaseUrl }),
+  apiKey: openaiApiKey,
 });
 
 // ─── Cache ────────────────────────────────────────────────────────────────────

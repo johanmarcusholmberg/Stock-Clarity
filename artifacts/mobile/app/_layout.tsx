@@ -26,6 +26,7 @@ import { NotifyProvider } from "@/context/NotifyContext";
 import { HoldingsProvider } from "@/context/HoldingsContext";
 import { DigestProvider } from "@/context/DigestContext";
 import { ThemeProvider } from "@/context/ThemeContext";
+import { BenchmarkProvider } from "@/context/BenchmarkContext";
 import { FirstTimeNameModal } from "@/components/FirstTimeNameModal";
 
 SplashScreen.preventAutoHideAsync();
@@ -119,11 +120,13 @@ export default function RootLayout() {
                       <NotifyProvider>
                         <HoldingsProvider>
                           <DigestProvider>
-                            <GestureHandlerRootView>
-                              <KeyboardProvider>
-                                <RootLayoutNav />
-                              </KeyboardProvider>
-                            </GestureHandlerRootView>
+                            <BenchmarkProvider>
+                              <GestureHandlerRootView>
+                                <KeyboardProvider>
+                                  <RootLayoutNav />
+                                </KeyboardProvider>
+                              </GestureHandlerRootView>
+                            </BenchmarkProvider>
                           </DigestProvider>
                         </HoldingsProvider>
                       </NotifyProvider>

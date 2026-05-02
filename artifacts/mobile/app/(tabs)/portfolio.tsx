@@ -33,6 +33,7 @@ import {
 } from "@/services/holdingsApi";
 import { PremiumGate } from "@/components/PremiumGate";
 import { computeExposure } from "@/lib/geoMath";
+import { confirmAsync } from "@/utils/confirm";
 
 type Colors = ReturnType<typeof useColors>;
 
@@ -195,22 +196,15 @@ export default function PortfolioScreen() {
   }, [refresh, loadQuotes, loadDividends, loadPnl]);
 
   const handleDelete = useCallback(
-    (h: Holding) => {
-      Alert.alert(
+    async (h: Holding) => {
+      const ok = await confirmAsync(
         `Delete ${h.ticker}?`,
         "This removes the holding and all of its lots. This cannot be undone.",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Delete",
-            style: "destructive",
-            onPress: async () => {
-              const res = await remove(h.id);
-              if (res !== true) Alert.alert("Could not delete", res.error);
-            },
-          },
-        ],
+        { confirmText: "Delete", destructive: true },
       );
+      if (!ok) return;
+      const res = await remove(h.id);
+      if (res !== true) Alert.alert("Could not delete", res.error);
     },
     [remove],
   );
@@ -255,16 +249,14 @@ export default function PortfolioScreen() {
               opacity: atFreeCap ? 0.6 : 1,
             },
           ]}
-          onPress={() => {
+          onPress={async () => {
             if (atFreeCap) {
-              Alert.alert(
+              const ok = await confirmAsync(
                 "Free plan limit reached",
                 `You can track up to ${FREE_HOLDINGS_LIMIT} holdings on the Free plan. Upgrade to Pro for unlimited holdings.`,
-                [
-                  { text: "Maybe later", style: "cancel" },
-                  { text: "Upgrade", onPress: () => router.push("/(tabs)/account") },
-                ],
+                { confirmText: "Upgrade", cancelText: "Maybe later" },
               );
+              if (ok) router.push("/(tabs)/account");
               return;
             }
             setAddOpen(true);

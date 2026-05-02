@@ -20,9 +20,11 @@ import { useMiniCharts } from "@/hooks/useMiniCharts";
 import { useBenchmarkSeries, inferBenchmark, benchmarkLabel, type Benchmark } from "@/hooks/useBenchmarkSeries";
 import { useWatchlist, Stock } from "@/context/WatchlistContext";
 import { useSubscription } from "@/context/SubscriptionContext";
+import { useBenchmark } from "@/context/BenchmarkContext";
 import { PremiumGate, isFeatureLocked } from "@/components/PremiumGate";
 import { PaywallSheet } from "@/components/PaywallSheet";
 import { PortfolioPicker } from "@/components/PortfolioPicker";
+import { MarketPickerSheet } from "@/components/MarketPickerSheet";
 import { TabHintPopup } from "@/components/TabHintPopup";
 import { trackPremiumEvent } from "@/lib/premiumTelemetry";
 import {
@@ -166,6 +168,8 @@ export default function InsightsScreen() {
   const { showPercent, toggle: toggleShowPercent } = useDisplayMode();
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [period, setPeriod] = useState<PerfPeriod>("today");
+  const [marketPickerVisible, setMarketPickerVisible] = useState(false);
+  const { selection: benchmarkSelection, resolve: resolveBenchmark } = useBenchmark();
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 + 84 : insets.bottom + 84;
@@ -224,7 +228,14 @@ export default function InsightsScreen() {
   // prices and back-applied. This is a deliberate simplification for v1;
   // see premium-gating.md for the rationale.
   const currencies = watchedStocks.map((s) => s.currency);
-  const benchmark: Benchmark = useMemo(() => inferBenchmark(currencies), [currencies.join(",")]);
+  const autoBenchmark: Benchmark = useMemo(
+    () => inferBenchmark(currencies),
+    [currencies.join(",")],
+  );
+  const benchmark: Benchmark = useMemo(
+    () => resolveBenchmark(autoBenchmark),
+    [resolveBenchmark, autoBenchmark],
+  );
   const benchmarkQuery = useBenchmarkSeries(benchmark);
   const benchmarkPrices = benchmarkQuery.data?.prices ?? [];
 
@@ -307,7 +318,7 @@ export default function InsightsScreen() {
         <Text style={{ color: colors.foreground, fontSize: 28, fontFamily: "Inter_700Bold", letterSpacing: -0.5, marginBottom: 6 }}>
           Insights
         </Text>
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 20, gap: 12 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12, gap: 12 }}>
           <View style={{ flex: 1, minWidth: 0 }}>
             <PortfolioPicker />
           </View>
@@ -324,6 +335,32 @@ export default function InsightsScreen() {
             <Text style={[s.changeToggleText, { color: !showPercent ? colors.primary : colors.mutedForeground }]}>$</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Market / benchmark selector — controls the index used by Risk
+            Metrics ("Beta vs ...") and Benchmark Comparison sections. */}
+        <TouchableOpacity
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setMarketPickerVisible(true);
+          }}
+          activeOpacity={0.7}
+          accessibilityLabel="Change benchmark market"
+          style={[
+            s.marketPill,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <Feather name="bar-chart-2" size={14} color={colors.primary} />
+          <Text style={[s.marketPillLabel, { color: colors.mutedForeground }]}>
+            Compared to
+          </Text>
+          <Text style={[s.marketPillValue, { color: colors.foreground }]} numberOfLines={1}>
+            {benchmarkLabel(benchmark)}
+            {benchmarkSelection === "auto" ? " · Auto" : ""}
+          </Text>
+          <Feather name="chevron-down" size={16} color={colors.mutedForeground} />
+        </TouchableOpacity>
+        <View style={{ height: 12 }} />
 
         {/* ── Today's Snapshot (Free — always visible) ────────────────────── */}
         <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -632,6 +669,11 @@ export default function InsightsScreen() {
       </ScrollView>
 
       <PaywallSheet visible={paywallVisible} onClose={() => setPaywallVisible(false)} triggerReason="general" currentTier={tier} />
+      <MarketPickerSheet
+        visible={marketPickerVisible}
+        onClose={() => setMarketPickerVisible(false)}
+        autoFallback={autoBenchmark}
+      />
       <TabHintPopup
         tabKey="insights"
         hint="Insights shows portfolio-level analytics. Pro unlocks performance, sector and 52-week data; Premium adds risk metrics, benchmark comparison, and export."
@@ -741,6 +783,22 @@ const s = StyleSheet.create({
   changeToggle: { flexDirection: "row", alignItems: "center", borderRadius: 8, borderWidth: 1, overflow: "hidden", alignSelf: "flex-start" },
   changeToggleText: { fontSize: 12, fontFamily: "Inter_700Bold", paddingHorizontal: 10, paddingVertical: 6 },
   changeToggleDivider: { width: 1, height: "100%" },
+  marketPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  marketPillLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  marketPillValue: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: "Inter_700Bold",
+    textAlign: "right",
+  },
   snapshotCard: {
     flex: 1,
     paddingVertical: 14,

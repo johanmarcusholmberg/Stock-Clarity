@@ -23,6 +23,7 @@ import { Feather } from "@expo/vector-icons";
 import { useAuth, useUser } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 import { useTheme } from "@/context/ThemeContext";
+import { confirmAsync } from "@/utils/confirm";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { useWatchlist } from "@/context/WatchlistContext";
 import { useNotify } from "@/context/NotifyContext";
@@ -141,6 +142,7 @@ export default function AccountScreen() {
         "@stockclarify_digest_daily_date",
         "@stockclarify_digest_weekly_date",
         "@stockclarify_show_percent",
+        "@stockclarify_benchmark_v1",
       ]);
     } catch {}
     // Terminate the Clerk session
@@ -151,20 +153,13 @@ export default function AccountScreen() {
     router.replace("/(auth)/sign-in");
   };
 
-  const handleSignOut = () => {
-    // React Native's Alert.alert with multiple buttons does not render on web.
-    // Use the browser's native confirm() on web, and Alert.alert on native.
-    if (Platform.OS === "web") {
-      const ok = typeof window !== "undefined"
-        ? window.confirm("Are you sure you want to sign out?")
-        : true;
-      if (ok) void performSignOut();
-      return;
-    }
-    Alert.alert("Sign out", "Are you sure you want to sign out?", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Sign out", style: "destructive", onPress: performSignOut },
-    ]);
+  const handleSignOut = async () => {
+    const ok = await confirmAsync(
+      "Sign out",
+      "Are you sure you want to sign out?",
+      { confirmText: "Sign out", destructive: true },
+    );
+    if (ok) await performSignOut();
   };
 
   const handleManageSubscription = async () => {
@@ -178,14 +173,12 @@ export default function AccountScreen() {
       if (url) {
         await Linking.openURL(url);
       } else if (error === "No subscription found") {
-        Alert.alert(
+        const ok = await confirmAsync(
           "No billing account",
           "There's no Stripe billing account linked to your profile. This can happen if your plan was activated manually. To manage billing, please subscribe through the app.",
-          [
-            { text: "Cancel", style: "cancel" },
-            { text: "View Plans", onPress: () => setShowPaywall(true) },
-          ]
+          { confirmText: "View Plans" },
         );
+        if (ok) setShowPaywall(true);
       } else {
         Alert.alert("Unavailable", "Could not open the subscription portal. Please try again later.");
       }

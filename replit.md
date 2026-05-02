@@ -38,6 +38,9 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - **Contexts**:
   - `WatchlistContext`: watchlist state, alert counts, stock data
   - `SubscriptionContext`: tier (free/pro/premium), AI usage counters, checkout/portal helpers
+  - `BenchmarkContext` (`@stockclarify_benchmark_v1`): user-selected market index for Insights ("auto" + 12 indices: SPX/NDX/DJI/RUT/OMXS30/STOXX/FTSE/DAX/CAC/N225/HSI/TSX); hydration is guarded by a `userTouched` ref so a late AsyncStorage read never overwrites a user's in-session choice; cleared on sign-out
+- **Insights tab market selector**: pill below the portfolio picker reads "Compared to: <label> · Auto" and opens `MarketPickerSheet` (bottom-sheet modal). Drives both the "Beta vs ..." Risk Metrics row and the Benchmark Comparison section.
+- **Cross-platform confirm helper** (`utils/confirm.ts`): `confirmAsync(title, msg, {confirmText, cancelText, destructive})` returns `Promise<boolean>`. Uses `window.confirm()` on web (multi-button `Alert.alert` silently no-ops on react-native-web). Used by `account.tsx` (sign-out, "no billing account" → View Plans) and `portfolio.tsx` (delete holding, free-plan-limit upgrade prompt).
 - **Global Stock Universe** (11 exchanges): NASDAQ/NYSE, LSE, XETRA, TSE, HKEX, TSX, ASX, SIX, Euronext, NSE
 
 ### API Server (`artifacts/api-server`)
@@ -92,10 +95,12 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - `src/webhookHandlers.ts` — Stripe webhook processing
 
 **AI Summaries:**
-- Model: `gpt-5-mini` via Replit AI proxy
+- Model: `gpt-4o-mini` via Replit AI Integrations proxy (`AI_INTEGRATIONS_OPENAI_BASE_URL` + `AI_INTEGRATIONS_OPENAI_API_KEY`); falls back to `OPENAI_BASE_URL`/`OPENAI_API_KEY` if proxy env not set
 - Prompt: stock-specific (includes ticker + company name in user message)
 - Format: WHAT / WHY / UNUSUAL sections parsed from plain-text response
 - Cache: 15 minutes per ticker
+
+**Production build env** (`scripts/build.js`): bakes `EXPO_PUBLIC_API_URL=https://${expoPublicDomain}/api` and `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` into the Metro bundle so the deployed app doesn't fall back to localhost defaults.
 
 **Environment Variables Required:**
 - `DATABASE_URL` — PostgreSQL connection string
