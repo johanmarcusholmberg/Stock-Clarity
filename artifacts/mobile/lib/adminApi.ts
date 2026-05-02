@@ -1,3 +1,4 @@
+import { getApiBase } from "./apiBase";
 // Typed fetch wrappers for the Phase 3.2 admin-subscription endpoints.
 //
 // Every call returns a discriminated Result<T> so dialogs can surface Stripe
@@ -6,8 +7,7 @@
 // preferring body when present (see resolveAdminEmail in routes/admin.ts).
 
 const API_BASE =
-  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
-  "http://localhost:8080/api";
+  getApiBase();
 
 export type SubscriptionSource = "stripe" | "apple_iap" | "google_play" | "manual" | "none";
 export type GrantStatus = "active" | "revoked" | "expired";

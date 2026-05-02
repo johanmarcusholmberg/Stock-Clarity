@@ -17,9 +17,8 @@ import { useAuth, useUser } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription, Tier } from "@/context/SubscriptionContext";
 
-const API_BASE =
-  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
-  "http://localhost:8080/api";
+import { getApiBase } from "../../../lib/apiBase";
+const API_BASE = getApiBase();
 
 const ADMIN_URL: string | null = (() => {
   const apiUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "");

@@ -79,7 +79,8 @@ router.get("/check", async (req, res) => {
       adminEmails: admin ? getAdminEmails() : [],
       subscriptionTools,
     });
-  } catch {
+  } catch (err) {
+    req.log.error({ err }, "admin/check failed; defaulting to non-admin");
     res.json({ isAdmin: false });
   }
 });
@@ -358,7 +359,9 @@ button{width:100%;padding:12px;border-radius:8px;border:none;background:#14b8a6;
       }
       arr[idx] = parseInt(row.c ?? "0");
     }
-  } catch {}
+  } catch (err) {
+    req.log.warn({ err }, "admin dashboard: conversion sparkline aggregation failed");
+  }
 
   const style = `<style>
     *{margin:0;padding:0;box-sizing:border-box}

@@ -5,12 +5,12 @@ import { useUser } from "@clerk/expo";
 import { getQuotes } from "@/services/stockApi";
 import { isMarketOpen } from "@/utils/marketHours";
 
+import { getApiBase } from "../lib/apiBase";
 // Re-export StockEvent so components can import it from here
 export type { StockEvent } from "@/services/stockApi";
 
 const API_BASE =
-  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
-  "http://localhost:8080/api";
+  getApiBase();
 
 export interface Stock {
   ticker: string;

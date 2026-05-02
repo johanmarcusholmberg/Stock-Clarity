@@ -18,9 +18,7 @@
       "bundleIdentifier": "com.stockclarify.app",
       "buildNumber": "1",
       "infoPlist": {
-        "NSCameraUsageDescription": "StockClarify does not use the camera.",
-        "NSPhotoLibraryUsageDescription": "StockClarify does not access your photos.",
-        "NSUserTrackingUsageDescription": "We do not track you across apps."
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {

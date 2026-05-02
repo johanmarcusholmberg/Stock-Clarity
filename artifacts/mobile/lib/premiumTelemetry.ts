@@ -1,10 +1,10 @@
+import { getApiBase } from "./apiBase";
 // Thin helper for telemetry events around the premium paywall / gating.
 // All writes are best-effort and non-blocking — the /api/analytics/track
 // endpoint already swallows errors on the server side.
 
 const API_BASE =
-  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
-  "http://localhost:8080/api";
+  getApiBase();
 
 export type PremiumFeature =
   // Pro-required (Phase 1)

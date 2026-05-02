@@ -28,6 +28,7 @@ import { MarketPickerSheet } from "@/components/MarketPickerSheet";
 import { ExportSheet, type ExportFormat } from "@/components/ExportSheet";
 import { TabHintPopup } from "@/components/TabHintPopup";
 import { trackPremiumEvent } from "@/lib/premiumTelemetry";
+import { getApiBase } from "../../lib/apiBase";
 import {
   alpha,
   beta,
@@ -43,9 +44,7 @@ import {
 type FeatherIconName = React.ComponentProps<typeof Feather>["name"];
 type PerfPeriod = "today" | "1w" | "1m";
 
-const API_BASE =
-  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
-  "http://localhost:8080/api";
+const API_BASE = getApiBase();
 
 // ─── Dummy preview values ─────────────────────────────────────────────────────
 // Hardcoded placeholder numbers shown to non-premium users in the Risk Metrics

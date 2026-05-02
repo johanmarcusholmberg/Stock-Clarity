@@ -1,11 +1,11 @@
+import { getApiBase } from "../lib/apiBase";
 // Client for the /api/notify endpoints. Types mirror the server row shape —
 // snake_case in the payload, snake_case preserved on the client to keep
 // the mapping trivial (these come straight out of pg). The one camelCase
 // alias we keep is at the consumer layer in NotifyContext.
 
 const API_BASE =
-  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
-  "http://localhost:8080/api";
+  getApiBase();
 
 export type NotifyKind = "news" | "earnings";
 export type NotifyStatus = "active" | "muted";

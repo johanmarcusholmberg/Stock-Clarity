@@ -5,12 +5,12 @@ import Purchases, {
 } from "react-native-purchases";
 import { Platform } from "react-native";
 
+import { getApiBase } from "../lib/apiBase";
 const RC_API_KEY_IOS = process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY ?? "";
 const RC_API_KEY_ANDROID = process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY ?? "";
 
 const API_BASE =
-  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
-  "http://localhost:8080/api";
+  getApiBase();
 
 export async function initPurchases(userId?: string): Promise<void> {
   if (Platform.OS === "web") return;

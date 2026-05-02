@@ -52,21 +52,36 @@ These can all happen in parallel with Phase 1 account setups.
 - Cache aggressively (we're already serverside) to stay under rate limits.
 - Update integration tests.
 
-### 2B — Account deletion in-app 🤖 *(Apple requirement since 2022)*
-- New "Delete my account" screen under Account tab.
-- Backend endpoint: cancels Stripe sub, revokes admin grants, deletes watchlist data, deletes Clerk user, audit-logs the deletion.
-- Confirmation flow with re-authentication.
+### 2B — Account deletion in-app 🤖 ✅ DONE
+- ✅ Two-step confirmation flow + Danger Zone in Account tab. Platform-aware copy that tells iOS/Android users to cancel their App Store / Play Store subs first (server can't cancel IAP).
+- ✅ `DELETE /api/account` route: cancels Stripe sub, fail-closed wipe of all 14 user-linked DB tables (lots, holdings, alert_events, alerts, push tokens, notify_subscriptions, notification_events, admin_grants, user_events, stock_views, portfolio_snapshots, password_history, feedback, users), then deletes Clerk user. Aborts BEFORE Clerk delete if any DB delete fails, so users can safely retry.
+- ✅ Auth via Clerk Bearer token; user can only delete their own account.
+- ✅ Documented retention list (audit log 24mo, payment records 7yr, security logs 90d) in Privacy Policy.
 
 ### 2C — Apple Sign In 🤖 *(Apple requires it if any social login is offered)*
 - Wire `expo-apple-authentication` through Clerk's Apple OAuth provider.
 - Add the button on sign-in/sign-up screens with required visual prominence.
 
-### 2D — Production polish 🤖
-- Hide Dev Tools panel when `EXPO_PUBLIC_ENV !== "development"`.
-- Fix the two pre-existing TS errors (`alerts.tsx` route literal, `PurchasesService.ts` missing module — will be resolved by 2F anyway).
-- Add a global error boundary that shows a friendly message + reports to Sentry.
-- Tighten offline + network-error handling — reviewers test airplane mode.
-- Add a Disclosures / About screen ("Not investment advice", data sources, privacy/ToS links, version, support email).
+### 2D — Production polish 🤖 ✅ DONE
+- ✅ Dev Tools panel: server `/api/dev/*` already gated by `ENABLE_DEV_TOOLS && NODE_ENV !== "production"`; no UI panel exists.
+- ✅ Fixed pre-existing TS errors (`alerts.tsx` route literal; `PurchasesService.ts` was a missing pnpm install).
+- ✅ Global ErrorBoundary with Sentry-ready `onError` hook (in `_layout.tsx`).
+- ✅ About & Legal section in Account tab: Privacy + Terms + Support email + Version + plain-language disclaimer.
+- ✅ **Server hardening (added 2026-05-02):**
+  - `helmet` security headers (HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy).
+  - CORS locked to allow-list (REPLIT_DOMAINS + `*.replit.dev/.app` + `ALLOWED_ORIGINS` env). Unknown origins get a clean 403, not a 500.
+  - `express-rate-limit` layered: 300/min baseline on `/api`, 30/min on AI/news endpoints (`/api/stocks`, `/api/news`), 20/min on write/auth endpoints (`/api/feedback`, `/api/account`, `/api/auth`). `trust proxy` enabled so limits are per-client, not per-proxy.
+  - `console.log` in `webhookHandlers.ts` replaced with structured `pino` log.
+  - Two silently-swallowed `catch {}` blocks in `admin.ts` now log the error.
+- ✅ **Mobile API URL hardening (added 2026-05-02):**
+  - All 14 mobile files that previously fell back to `http://localhost:8080/api` now route through a single `getApiBase()` helper that throws loudly if `EXPO_PUBLIC_API_URL` is missing — no more silent failures on real devices.
+- ✅ **app.json cleanup for App Store (added 2026-05-02):**
+  - Removed misleading "we don't use the camera/photos" purpose strings (Apple rejects these). They'll only be added back if a real dependency needs them, with a real purpose string.
+  - Removed `NSUserTrackingUsageDescription` since we don't use App Tracking Transparency.
+  - Added `ITSAppUsesNonExemptEncryption: false` to skip the export-compliance prompt at every TestFlight build.
+
+**Still TODO in this phase:**
+- Tighten offline + network-error handling — reviewers test airplane mode (can ship with current state, but worth a polish pass).
 
 ### 2E — Sentry crash + error reporting 🤝
 - Code wiring 🤖. DSN secret 👤.
@@ -85,9 +100,11 @@ These can all happen in parallel with Phase 1 account setups.
 - Code: send via SendGrid/Postmark/Resend with templated alerts + transactional emails (welcome, payment receipts, account deletion confirmation). 🤖
 - Credentials: API key + verified sender domain. 👤
 
-### 2I — Privacy Policy + Terms of Service 🤝
-- I draft both in plain English, hosted at `/privacy` and `/terms` on our backend. 🤖
-- A lawyer should review before launch — especially the financial-app disclaimers. 👤
+### 2I — Privacy Policy + Terms of Service 🤝 ✅ DRAFTED (lawyer review still required)
+- ✅ Privacy Policy at `/legal/privacy`: 10+ sections including data retention/deletion specifics, GDPR lawful bases, retention timelines for retained records, all third-party processors named (Stripe, OpenAI, Apple, Google, RevenueCat, Clerk, Replit).
+- ✅ Terms of Service at `/legal/terms`: 15 sections including prominent "not a financial advisor" disclaimer, IAP/Stripe billing terms, limitation of liability appropriate for a finance app.
+- ✅ artifact.toml routes `/legal` to API server (not Expo).
+- 👤 **Still required:** lawyer review before submission — especially the financial-app disclaimers and data-controller identity details.
 
 ### 2J — Production deployment 🤖
 - Use Replit Deployments for the API server. Set production secrets. Verify webhooks land (Stripe + Clerk + RevenueCat).

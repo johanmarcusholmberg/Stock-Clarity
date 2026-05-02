@@ -1,9 +1,9 @@
+import { getApiBase } from "../lib/apiBase";
 // Client for the /api/holdings endpoints. Mirrors notifyApi.ts:
 // snake_case stays on the wire; rows come straight out of pg.
 
 const API_BASE =
-  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
-  "http://localhost:8080/api";
+  getApiBase();
 
 export interface Lot {
   id: string;

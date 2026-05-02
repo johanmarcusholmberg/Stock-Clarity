@@ -1,8 +1,14 @@
 import type Stripe from "stripe";
+import type { Logger } from "pino";
 import { getUncachableStripeClient } from "./stripeClient";
+import { logger as defaultLogger } from "./lib/logger";
 
 export class WebhookHandlers {
-  static async processWebhook(payload: Buffer, signature: string): Promise<void> {
+  static async processWebhook(
+    payload: Buffer,
+    signature: string,
+    log: Logger = defaultLogger,
+  ): Promise<void> {
     if (!Buffer.isBuffer(payload)) {
       throw new Error(
         "STRIPE WEBHOOK ERROR: Payload must be a Buffer. " +
@@ -27,9 +33,6 @@ export class WebhookHandlers {
     // The server's existing storage/sync layer (`storage.ts`) is the source
     // of truth for users + subscriptions, so emit a structured log here and
     // let domain-specific handlers be added as they're implemented.
-    // eslint-disable-next-line no-console
-    console.log(
-      JSON.stringify({ msg: "stripe.webhook.received", id: event.id, type: event.type }),
-    );
+    log.info({ stripeEventId: event.id, stripeEventType: event.type }, "stripe.webhook.received");
   }
 }

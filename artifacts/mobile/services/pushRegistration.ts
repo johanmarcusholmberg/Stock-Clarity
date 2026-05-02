@@ -3,9 +3,9 @@ import Constants from "expo-constants";
 import { Platform } from "react-native";
 import { registerPushToken } from "./alertsApi";
 
+import { getApiBase } from "../lib/apiBase";
 const API_BASE =
-  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
-  "http://localhost:8080/api";
+  getApiBase();
 
 function getProjectId(): string | undefined {
   return (

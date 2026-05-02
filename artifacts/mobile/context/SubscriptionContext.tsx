@@ -4,6 +4,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@clerk/expo";
 import { useUser } from "@clerk/expo";
 import { applyEventExpansion } from "@/utils/aiQuota";
+import { getApiBase } from "../lib/apiBase";
 import {
   initPurchases,
   getOfferings,
@@ -13,8 +14,7 @@ import {
 } from "@/services/PurchasesService";
 
 const API_BASE =
-  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
-  "http://localhost:8080/api";
+  getApiBase();
 
 export type Tier = "free" | "pro" | "premium";
 

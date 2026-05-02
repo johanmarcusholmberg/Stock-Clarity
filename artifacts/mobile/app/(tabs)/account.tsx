@@ -29,6 +29,7 @@ import { useWatchlist } from "@/context/WatchlistContext";
 import { useNotify } from "@/context/NotifyContext";
 import { PaywallSheet } from "@/components/PaywallSheet";
 import { TabHintPopup } from "@/components/TabHintPopup";
+import { getApiBase } from "../../lib/apiBase";
 import {
   loadNotificationPrefs,
   saveNotificationPrefs,
@@ -44,9 +45,7 @@ import {
   type AlertType,
 } from "@/services/NotificationService";
 
-const API_BASE =
-  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
-  "http://localhost:8080/api";
+const API_BASE = getApiBase();
 
 type FeedbackCategory = "general" | "bug" | "feature" | "billing";
 type FeatherIconName = React.ComponentProps<typeof Feather>["name"];

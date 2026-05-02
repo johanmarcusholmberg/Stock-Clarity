@@ -15,9 +15,8 @@ import { useAuth } from "@clerk/expo";
 import { useUser } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 
-const API_BASE =
-  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
-  "http://localhost:8080/api";
+import { getApiBase } from "../lib/apiBase";
+const API_BASE = getApiBase();
 
 interface Props {
   onComplete: (name: string) => void;
