@@ -1,9 +1,9 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import helmet from "helmet";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import pinoHttp from "pino-http";
-import { clerkMiddleware } from "@clerk/express";
+import { clerkMiddleware, getAuth } from "@clerk/express";
 import router from "./routes";
 import adminRouter from "./routes/admin";
 import legalRouter from "./routes/legal";
@@ -166,11 +166,43 @@ const writeLimiter = rateLimit({
   standardHeaders: "draft-7",
   legacyHeaders: false,
 });
+// Prefer the verified Clerk userId for the rate-limit bucket key, falling
+// back to a properly-normalized IP for anonymous callers. Without this,
+// users sharing a carrier-NAT IP all share one budget, and a single noisy
+// device burns the limit for every other user behind the same IP.
+//
+// Use only on endpoints that REQUIRE a Clerk session (so the userId path
+// is the common case). Don't use on /api/auth/* — pre-login traffic must
+// stay IP-keyed so brute-force attempts can't escape the limit by simply
+// rotating bogus userIds.
+function userIdOrIpKey(req: express.Request): string {
+  try {
+    const uid = getAuth(req)?.userId;
+    if (uid) return `u:${uid}`;
+  } catch {
+    // clerkMiddleware hasn't decorated this request yet — fall through.
+  }
+  // ipKeyGenerator handles IPv6 subnet normalization correctly. Don't
+  // pass req.ip raw or express-rate-limit emits ERR_ERL_KEY_GEN_IPV6.
+  return `ip:${ipKeyGenerator(req.ip ?? "")}`;
+}
+
 // AI-summary endpoints are by far our most expensive per-request cost
 // (LLM tokens). Cap aggressively; legit users only call these on demand.
+// Keyed by userId so one user behind a shared carrier IP can't deny
+// service to another user on the same IP.
 const aiLimiter = rateLimit({
   windowMs: 60_000,
   limit: 10,
+  keyGenerator: userIdOrIpKey,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+});
+// Signed-URL minting limiter — also userId-keyed for the same reason.
+const exportSignLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 20,
+  keyGenerator: userIdOrIpKey,
   standardHeaders: "draft-7",
   legacyHeaders: false,
 });
@@ -192,7 +224,7 @@ app.use("/api/news", expensiveLimiter);
 // LLM-cost endpoints — tightest of all.
 app.use("/api/reports", aiLimiter);
 // Signed-URL minting: don't let anyone burn through HMAC ops.
-app.use("/api/export/sign", writeLimiter);
+app.use("/api/export/sign", exportSignLimiter);
 // Subscription / billing surface — writes only, GETs (subscription state
 // reads) stay on baseline.
 app.use("/api/payment", writeLimiterPostOnly);
