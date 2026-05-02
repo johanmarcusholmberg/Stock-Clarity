@@ -29,6 +29,8 @@ import { useWatchlist } from "@/context/WatchlistContext";
 import { useNotify } from "@/context/NotifyContext";
 import { PaywallSheet } from "@/components/PaywallSheet";
 import { TabHintPopup } from "@/components/TabHintPopup";
+import { useToast } from "@/components/Toast";
+import { useOnline } from "@/lib/network";
 import { getApiBase } from "../../lib/apiBase";
 import {
   loadNotificationPrefs,
@@ -67,6 +69,8 @@ export default function AccountScreen() {
   } = useSubscription();
   const { stocks } = useWatchlist();
   const notify = useNotify();
+  const appToast = useToast();
+  const online = useOnline();
   const [showPaywall, setShowPaywall] = useState(false);
   const [feedbackCategory, setFeedbackCategory] = useState<FeedbackCategory>("general");
   const [feedbackMessage, setFeedbackMessage] = useState("");
@@ -287,10 +291,15 @@ export default function AccountScreen() {
         setFeedbackCategory("general");
         showToast();
       } else {
-        Alert.alert("Error", "Failed to submit feedback. Please try again.");
+        appToast.show("Couldn't send feedback — please try again", { variant: "error" });
       }
     } catch {
-      Alert.alert("Error", "Network error. Please check your connection.");
+      appToast.show(
+        online
+          ? "Couldn't send feedback — please try again"
+          : "You're offline — feedback wasn't sent",
+        { variant: "error" },
+      );
     } finally {
       setFeedbackLoading(false);
     }

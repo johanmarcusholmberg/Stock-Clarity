@@ -58,6 +58,7 @@
   },
   "dependencies": {
     "@clerk/expo": "^3.1.9",
+    "@react-native-community/netinfo": "11.4.1",
     "@types/lodash.debounce": "^4.0.9",
     "expo-apple-authentication": "~8.0.8",
     "expo-auth-session": "~7.0.10",

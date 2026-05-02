@@ -70,7 +70,7 @@ interface WatchlistContextType {
   /** Write a fresh quote back to the shared store so all views stay in sync. */
   updateStockQuote: (ticker: string, quote: Partial<Stock>) => void;
   digest: DigestEntry[];
-  refreshQuotes: () => Promise<void>;
+  refreshQuotes: () => Promise<boolean>;
   folders: WatchlistFolder[];
   activeFolderId: string;
   setActiveFolderId: (id: string) => void;
@@ -298,11 +298,14 @@ export function WatchlistProvider({
   // IMPORTANT: The backend quote endpoint returns 1D change (via a 2-day chart).
   // Watchlist cards intentionally display this 1D change/percent alongside the
   // 1Y mini-chart — these are independent data sources by design.
-  const refreshQuotes = useCallback(async () => {
-    if (!allTickers.length) return;
+  // Returns true on a successful fetch (even if zero quotes came back),
+  // false on network/parse failure. Callers (pull-to-refresh) use this to
+  // surface a toast instead of silently swallowing the error.
+  const refreshQuotes = useCallback(async (): Promise<boolean> => {
+    if (!allTickers.length) return true;
     try {
       const quotes = await getQuotes(allTickers);
-      if (!quotes.length) return;
+      if (!quotes.length) return true;
       setStockData((prev) => {
         const next = { ...prev };
         for (const q of quotes) {
@@ -330,7 +333,10 @@ export function WatchlistProvider({
         AsyncStorage.setItem(STOCKS_KEY, JSON.stringify(next));
         return next;
       });
-    } catch {}
+      return true;
+    } catch {
+      return false;
+    }
   }, [allTickers.join(",")]);
 
   // ── Single-ticker quote update ─────────────────────────────────

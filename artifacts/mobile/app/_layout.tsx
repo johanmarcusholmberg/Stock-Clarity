@@ -19,6 +19,9 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { OfflineBanner } from "@/components/OfflineBanner";
+import { ToastProvider } from "@/components/Toast";
+import { initNetwork } from "@/lib/network";
 import { WatchlistProvider, useWatchlist } from "@/context/WatchlistContext";
 import { SubscriptionProvider, useSubscription } from "@/context/SubscriptionContext";
 import { AlertsProvider } from "@/context/AlertsContext";
@@ -31,7 +34,37 @@ import { FirstTimeNameModal } from "@/components/FirstTimeNameModal";
 
 SplashScreen.preventAutoHideAsync();
 
-const queryClient = new QueryClient();
+// Wire NetInfo -> React Query's onlineManager + AppState -> focusManager.
+// Done at module scope so it's set up exactly once, before any provider mounts.
+initNetwork();
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Show cached data while a fresh fetch runs in the background.
+      // Watchlist quotes, charts, news — all benefit from no spinner flicker.
+      staleTime: 60_000,
+      gcTime: 30 * 60_000,
+      // `offlineFirst` lets cached data render even when the network is down,
+      // and queues fetches to fire when connectivity returns.
+      networkMode: "offlineFirst",
+      refetchOnReconnect: true,
+      refetchOnWindowFocus: true,
+      // Retry transient errors but bail fast on 4xx — those won't fix
+      // themselves and burning 3 attempts just delays the error UI.
+      retry: (failureCount, error) => {
+        const status = (error as { status?: number } | null)?.status;
+        if (typeof status === "number" && status >= 400 && status < 500) return false;
+        return failureCount < 2;
+      },
+      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
+    },
+    mutations: {
+      networkMode: "offlineFirst",
+      retry: false,
+    },
+  },
+});
 
 const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!;
 const proxyUrl = process.env.EXPO_PUBLIC_CLERK_PROXY_URL || undefined;
@@ -122,25 +155,28 @@ export default function RootLayout() {
               }}
             >
               <QueryClientProvider client={queryClient}>
-                <SubscriptionProvider>
-                  <WatchlistProviderWithTier>
-                    <AlertsProvider>
-                      <NotifyProvider>
-                        <HoldingsProvider>
-                          <DigestProvider>
-                            <BenchmarkProvider>
-                              <GestureHandlerRootView>
-                                <KeyboardProvider>
-                                  <RootLayoutNav />
-                                </KeyboardProvider>
-                              </GestureHandlerRootView>
-                            </BenchmarkProvider>
-                          </DigestProvider>
-                        </HoldingsProvider>
-                      </NotifyProvider>
-                    </AlertsProvider>
-                  </WatchlistProviderWithTier>
-                </SubscriptionProvider>
+                <ToastProvider>
+                  <SubscriptionProvider>
+                    <WatchlistProviderWithTier>
+                      <AlertsProvider>
+                        <NotifyProvider>
+                          <HoldingsProvider>
+                            <DigestProvider>
+                              <BenchmarkProvider>
+                                <GestureHandlerRootView>
+                                  <KeyboardProvider>
+                                    <RootLayoutNav />
+                                    <OfflineBanner />
+                                  </KeyboardProvider>
+                                </GestureHandlerRootView>
+                              </BenchmarkProvider>
+                            </DigestProvider>
+                          </HoldingsProvider>
+                        </NotifyProvider>
+                      </AlertsProvider>
+                    </WatchlistProviderWithTier>
+                  </SubscriptionProvider>
+                </ToastProvider>
               </QueryClientProvider>
             </ErrorBoundary>
           </SafeAreaProvider>

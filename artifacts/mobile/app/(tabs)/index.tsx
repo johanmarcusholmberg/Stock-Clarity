@@ -24,6 +24,8 @@ import { useMiniCharts } from "@/hooks/useMiniCharts";
 import { useWatchlist, Stock } from "@/context/WatchlistContext";
 import { useAlerts } from "@/context/AlertsContext";
 import StockCard from "@/components/StockCard";
+import { useToast } from "@/components/Toast";
+import { useOnline } from "@/lib/network";
 
 import { FolderAddSheet } from "@/components/FolderAddSheet";
 import { TabHintPopup } from "@/components/TabHintPopup";
@@ -144,6 +146,8 @@ export default function WatchlistScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useUser();
   const queryClient = useQueryClient();
+  const toast = useToast();
+  const online = useOnline();
   const {
     watchlist,
     stocks,
@@ -259,13 +263,23 @@ export default function WatchlistScreen() {
 
   const handlePullRefresh = useCallback(async () => {
     setPullRefreshing(true);
+    if (!online) {
+      toast.show("You're offline — connect to refresh", { variant: "warning" });
+      setPullRefreshing(false);
+      return;
+    }
     try {
       // Invalidate all chart queries so mini-chart sparklines refresh too
       queryClient.invalidateQueries({ queryKey: ["chart"] });
-      await refreshQuotes();
-    } catch {}
+      const ok = await refreshQuotes();
+      if (!ok) {
+        toast.show("Couldn't refresh — try again in a moment", { variant: "error" });
+      }
+    } catch {
+      toast.show("Couldn't refresh — try again in a moment", { variant: "error" });
+    }
     setPullRefreshing(false);
-  }, [refreshQuotes, queryClient]);
+  }, [refreshQuotes, queryClient, online, toast]);
 
   const handleDeleteFolder = useCallback(() => {
     if (!activeFolder || isDefaultFolder) return;
