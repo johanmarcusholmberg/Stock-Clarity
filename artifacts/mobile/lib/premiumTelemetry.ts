@@ -1,4 +1,5 @@
 import { getApiBase } from "./apiBase";
+import { authedFetch } from "./authedFetch";
 // Thin helper for telemetry events around the premium paywall / gating.
 // All writes are best-effort and non-blocking — the /api/analytics/track
 // endpoint already swallows errors on the server side.
@@ -46,7 +47,9 @@ export function trackPremiumEvent(
   payload: Record<string, unknown>,
 ): void {
   // Fire-and-forget — no await so callers don't have to think about async.
-  fetch(`${API_BASE}/analytics/track`, {
+  // authedFetch attaches the Clerk Bearer token when a session exists; the
+  // server's requireSelfIfPresent allows null userId for anonymous tracking.
+  authedFetch(`${API_BASE}/analytics/track`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ userId: userId ?? null, eventType, payload }),

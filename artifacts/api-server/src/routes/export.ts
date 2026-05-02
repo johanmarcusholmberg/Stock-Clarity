@@ -1,9 +1,46 @@
-import { Router } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
 import ExcelJS from "exceljs";
 import { queryOne } from "../db";
 import { computeEffectiveTier } from "../lib/tierService";
+import { requireSelf } from "../middlewares/requireSelf";
+import {
+  signExportRequest,
+  verifyExportSignature,
+  type SignedExportParams,
+} from "../lib/exportSign";
 
 const router = Router();
+
+// Gate the public download endpoints on a valid HMAC signature. The mobile
+// client first hits POST /sign (Bearer-authenticated, requireSelf) to obtain
+// the signature, then opens the resulting URL with Linking.openURL so the OS
+// browser can save/open the file. See lib/exportSign.ts for the rationale.
+function requireSignedExport(format: SignedExportParams["format"]) {
+  return function gate(req: Request, res: Response, next: NextFunction): void {
+    const userId = typeof req.query.userId === "string" ? req.query.userId : "";
+    const folderId =
+      typeof req.query.folderId === "string" ? req.query.folderId : undefined;
+    const delimiter =
+      typeof req.query.delimiter === "string" ? req.query.delimiter : undefined;
+    const sig = typeof req.query.sig === "string" ? req.query.sig : "";
+    const exp = Number(req.query.exp);
+
+    if (!userId) {
+      res.status(400).json({ error: "Missing userId" });
+      return;
+    }
+    const result = verifyExportSignature(
+      { userId, format, folderId, delimiter },
+      Number.isFinite(exp) ? exp : 0,
+      sig,
+    );
+    if (!result.ok) {
+      res.status(401).json({ error: `signature_${result.reason ?? "invalid"}` });
+      return;
+    }
+    next();
+  };
+}
 
 // Tier gate — Export is a Premium feature. We verify server-side so a
 // determined user who discovers the URL still can't bypass the paywall.
@@ -160,7 +197,36 @@ function csvCell(v: unknown, delim: string): string {
   return s;
 }
 
-router.get("/portfolio.csv", async (req, res) => {
+// POST /export/sign — issue a short-lived signed URL for a specific export
+// shape. requireSelf binds the requested userId to the caller's Clerk
+// session so a signed-in user can never obtain a signature for someone
+// else's data.
+router.post("/sign", requireSelf, (req, res) => {
+  const body = req.body ?? {};
+  const userId = typeof body.userId === "string" ? body.userId : "";
+  const format = body.format as SignedExportParams["format"] | undefined;
+  const folderId = typeof body.folderId === "string" ? body.folderId : undefined;
+  const delimiter = typeof body.delimiter === "string" ? body.delimiter : undefined;
+
+  if (!userId || !format) {
+    return void res.status(400).json({ error: "userId and format required" });
+  }
+  if (
+    format !== "portfolio.csv" &&
+    format !== "portfolio.xlsx" &&
+    format !== "portfolio.html"
+  ) {
+    return void res.status(400).json({ error: "invalid format" });
+  }
+
+  const { sig, exp } = signExportRequest({ userId, format, folderId, delimiter });
+  const qs = new URLSearchParams({ userId, exp: String(exp), sig });
+  if (folderId) qs.set("folderId", folderId);
+  if (delimiter) qs.set("delimiter", delimiter);
+  res.json({ url: `/api/export/${format}?${qs.toString()}`, exp });
+});
+
+router.get("/portfolio.csv", requireSignedExport("portfolio.csv"), async (req, res) => {
   const userId = typeof req.query.userId === "string" ? req.query.userId : "";
   const folderId = typeof req.query.folderId === "string" ? req.query.folderId : undefined;
   if (!(await requirePremium(userId))) {
@@ -234,7 +300,7 @@ router.get("/portfolio.csv", async (req, res) => {
 // they ask to "export to Excel" — the CSV path is for power users and locale-
 // specific Excel setups.
 
-router.get("/portfolio.xlsx", async (req, res) => {
+router.get("/portfolio.xlsx", requireSignedExport("portfolio.xlsx"), async (req, res) => {
   const userId = typeof req.query.userId === "string" ? req.query.userId : "";
   const folderId = typeof req.query.folderId === "string" ? req.query.folderId : undefined;
   if (!(await requirePremium(userId))) {
@@ -371,7 +437,7 @@ function escapeHtml(s: string): string {
   );
 }
 
-router.get("/portfolio.html", async (req, res) => {
+router.get("/portfolio.html", requireSignedExport("portfolio.html"), async (req, res) => {
   const userId = typeof req.query.userId === "string" ? req.query.userId : "";
   const folderId = typeof req.query.folderId === "string" ? req.query.folderId : undefined;
   if (!(await requirePremium(userId))) {

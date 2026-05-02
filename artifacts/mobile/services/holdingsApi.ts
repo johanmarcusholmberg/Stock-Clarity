@@ -1,4 +1,5 @@
 import { getApiBase } from "../lib/apiBase";
+import { authedFetch } from "../lib/authedFetch";
 // Client for the /api/holdings endpoints. Mirrors notifyApi.ts:
 // snake_case stays on the wire; rows come straight out of pg.
 
@@ -55,7 +56,7 @@ export type ApiError = { error: string; limit?: number };
 
 export async function getHoldingsStatus(): Promise<HoldingsStatusResponse> {
   try {
-    const res = await fetch(`${API_BASE}/holdings/status`);
+    const res = await authedFetch(`${API_BASE}/holdings/status`);
     if (!res.ok) return { enabled: false };
     return (await res.json()) as HoldingsStatusResponse;
   } catch {
@@ -65,7 +66,7 @@ export async function getHoldingsStatus(): Promise<HoldingsStatusResponse> {
 
 export async function listHoldings(userId: string): Promise<HoldingsListResponse> {
   try {
-    const res = await fetch(`${API_BASE}/holdings/${encodeURIComponent(userId)}`);
+    const res = await authedFetch(`${API_BASE}/holdings/${encodeURIComponent(userId)}`);
     if (!res.ok) return { holdings: [] };
     return (await res.json()) as HoldingsListResponse;
   } catch {
@@ -90,7 +91,7 @@ export async function addHolding(
   userId: string,
   input: AddHoldingInput,
 ): Promise<AddHoldingResponse | ApiError> {
-  const res = await fetch(`${API_BASE}/holdings/${encodeURIComponent(userId)}`, {
+  const res = await authedFetch(`${API_BASE}/holdings/${encodeURIComponent(userId)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
@@ -114,7 +115,7 @@ export async function addLot(
   holdingId: string,
   input: AddLotInput,
 ): Promise<{ lot: Lot } | ApiError> {
-  const res = await fetch(
+  const res = await authedFetch(
     `${API_BASE}/holdings/${encodeURIComponent(userId)}/${encodeURIComponent(holdingId)}/lots`,
     {
       method: "POST",
@@ -131,7 +132,7 @@ export async function deleteHolding(
   userId: string,
   holdingId: string,
 ): Promise<{ ok: true } | ApiError> {
-  const res = await fetch(
+  const res = await authedFetch(
     `${API_BASE}/holdings/${encodeURIComponent(userId)}/${encodeURIComponent(holdingId)}`,
     { method: "DELETE" },
   );
@@ -145,7 +146,7 @@ export async function deleteLot(
   holdingId: string,
   lotId: string,
 ): Promise<{ ok: true } | ApiError> {
-  const res = await fetch(
+  const res = await authedFetch(
     `${API_BASE}/holdings/${encodeURIComponent(userId)}/${encodeURIComponent(holdingId)}/lots/${encodeURIComponent(lotId)}`,
     { method: "DELETE" },
   );
@@ -156,7 +157,7 @@ export async function deleteLot(
 
 export async function getDividends(userId: string): Promise<DividendsResponse> {
   try {
-    const res = await fetch(
+    const res = await authedFetch(
       `${API_BASE}/holdings/${encodeURIComponent(userId)}/dividends`,
     );
     if (!res.ok) return { dividends: [] };
@@ -184,7 +185,7 @@ export interface PnlResponse {
 
 export async function getPnl(userId: string): Promise<PnlResponse | null> {
   try {
-    const res = await fetch(`${API_BASE}/holdings/${encodeURIComponent(userId)}/pnl`);
+    const res = await authedFetch(`${API_BASE}/holdings/${encodeURIComponent(userId)}/pnl`);
     if (!res.ok) return null;
     return (await res.json()) as PnlResponse;
   } catch {

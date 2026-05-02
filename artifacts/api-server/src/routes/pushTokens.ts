@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { execute } from "../db";
 import { alertsSchemaReady } from "../lib/alertsSchema";
+import { requireSelf } from "../middlewares/requireSelf";
 
 const router = Router();
 
@@ -11,7 +12,7 @@ router.use(async (_req, _res, next) => {
 
 // Register (or touch) a device's Expo push token against a user.
 // Called from the mobile client on sign-in + app launch.
-router.post("/", async (req, res) => {
+router.post("/", requireSelf, async (req, res) => {
   const { token, userId, platform, timezone } = req.body ?? {};
   if (typeof token !== "string" || !token.startsWith("ExponentPushToken[")) {
     return void res.status(400).json({ error: "invalid Expo push token" });

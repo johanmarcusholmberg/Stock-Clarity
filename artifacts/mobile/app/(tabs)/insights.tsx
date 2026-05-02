@@ -372,34 +372,61 @@ export default function InsightsScreen() {
     // Map our UI-level format choice to a server URL. The xlsx and pdf paths
     // each have their own endpoint; the three CSV variants share the
     // /portfolio.csv endpoint and only differ by ?delimiter.
-    const params = new URLSearchParams({
-      userId,
-      folderId: activeFolderId,
-    });
     let endpoint: "portfolio.xlsx" | "portfolio.csv" | "portfolio.html";
+    let delimiter: string | undefined;
     switch (format) {
       case "xlsx":
         endpoint = "portfolio.xlsx";
         break;
       case "csv-comma":
         endpoint = "portfolio.csv";
-        params.set("delimiter", "comma");
+        delimiter = "comma";
         break;
       case "csv-semicolon":
         endpoint = "portfolio.csv";
-        params.set("delimiter", "semicolon");
+        delimiter = "semicolon";
         break;
       case "csv-tab":
         endpoint = "portfolio.csv";
-        params.set("delimiter", "tab");
+        delimiter = "tab";
         break;
       case "pdf":
       default:
         endpoint = "portfolio.html";
         break;
     }
-    const url = `${API_BASE}/export/${endpoint}?${params.toString()}`;
-    await Linking.openURL(url);
+    // The export download endpoints can't accept a Bearer header (they're
+    // opened by the OS browser via Linking.openURL), so we ask the server
+    // for a short-lived HMAC-signed URL first. The /sign endpoint is itself
+    // gated by requireSelf, so the userId here is bound to the caller's
+    // Clerk session — closing the IDOR that existed when the export URL
+    // accepted a raw ?userId= without auth.
+    try {
+      const res = await authedFetch(`${API_BASE}/export/sign`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          format: endpoint,
+          folderId: activeFolderId,
+          delimiter,
+        }),
+      });
+      if (!res.ok) {
+        console.warn("[export] /sign failed", res.status);
+        return;
+      }
+      const data = (await res.json()) as { url?: string };
+      if (!data.url) return;
+      // The /sign endpoint returns a path under /api/export/...; resolve it
+      // against API_BASE (which already includes /api).
+      const absoluteUrl = data.url.startsWith("http")
+        ? data.url
+        : `${API_BASE.replace(/\/api$/, "")}${data.url}`;
+      await Linking.openURL(absoluteUrl);
+    } catch (err) {
+      console.warn("[export] sign+open failed", err);
+    }
   };
 
   // ─── Main screen ───────────────────────────────────────────────────────────

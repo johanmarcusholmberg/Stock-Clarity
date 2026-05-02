@@ -16,6 +16,7 @@ import {
 import { computeEffectiveTier } from "../lib/tierService";
 import { execute, query, queryOne } from "../db";
 import { reportsSchemaReady } from "../lib/reportsSchema";
+import { requireSelf, requireSelfIfPresent } from "../middlewares/requireSelf";
 
 const router = Router();
 
@@ -24,16 +25,13 @@ router.use(async (_req, _res, next) => {
   next();
 });
 
-// NOTE on auth: this route trusts `userId` from the path/query, matching the
-// pattern used by every other userId-bearing endpoint in this server (alerts,
-// notify, watchlist, holdings, etc). The mobile client does not currently
-// send Clerk session tokens on data fetches; introducing token verification
-// here only would break the feature without improving the overall posture.
-// Hardening should be done as a cross-cutting pass that adds Clerk tokens to
-// the mobile fetch layer and `requireSelf`-style checks across all routes.
+// Cross-cutting Clerk auth via requireSelf{,IfPresent} — see
+// middlewares/requireSelf.ts. The summary path is anonymous-friendly when no
+// userId is supplied (cached responses only); when userId IS supplied we
+// require it to match the Clerk session, blocking IDOR.
 
 // ── Filings list / text / summary ────────────────────────────────────────────
-router.get("/", async (req, res) => {
+router.get("/", requireSelfIfPresent, async (req, res) => {
   const ticker = (req.query.ticker as string) ?? "";
   const action = (req.query.action as string) ?? "filings";
 
@@ -143,7 +141,7 @@ router.get("/", async (req, res) => {
 });
 
 // ── Report subscriptions (notify on new 10-K / 10-Q) ────────────────────────
-router.get("/subscriptions/:userId", async (req, res) => {
+router.get("/subscriptions/:userId", requireSelf, async (req, res) => {
   const { userId } = req.params;
   if (!userId) return void res.status(400).json({ error: "Missing userId" });
   try {
@@ -164,7 +162,7 @@ router.get("/subscriptions/:userId", async (req, res) => {
   }
 });
 
-router.get("/subscriptions/:userId/:symbol", async (req, res) => {
+router.get("/subscriptions/:userId/:symbol", requireSelf, async (req, res) => {
   const { userId, symbol } = req.params;
   if (!userId || !symbol) return void res.status(400).json({ error: "Missing params" });
   try {
@@ -179,7 +177,7 @@ router.get("/subscriptions/:userId/:symbol", async (req, res) => {
   }
 });
 
-router.post("/subscriptions/:userId", async (req, res) => {
+router.post("/subscriptions/:userId", requireSelf, async (req, res) => {
   const { userId } = req.params;
   if (!userId) return void res.status(400).json({ error: "Missing userId" });
   const body = req.body ?? {};
@@ -211,7 +209,7 @@ router.post("/subscriptions/:userId", async (req, res) => {
   }
 });
 
-router.delete("/subscriptions/:userId/:symbol", async (req, res) => {
+router.delete("/subscriptions/:userId/:symbol", requireSelf, async (req, res) => {
   const { userId, symbol } = req.params;
   if (!userId || !symbol) return void res.status(400).json({ error: "Missing params" });
   try {

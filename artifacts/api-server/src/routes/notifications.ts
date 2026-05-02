@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { execute } from "../db";
 import { alertsSchemaReady } from "../lib/alertsSchema";
+import { requireSelf } from "../middlewares/requireSelf";
 
 const router = Router();
 
@@ -14,7 +15,7 @@ router.use(async (_req, _res, next) => {
 // Store-build push registration endpoint. Writes to the same expo_push_tokens
 // table used by /api/push-tokens; the column names (`last_seen`, `timezone`)
 // match the existing schema in lib/alertsSchema.ts and lib/notifySchema.ts.
-router.post("/register", async (req, res) => {
+router.post("/register", requireSelf, async (req, res) => {
   const { userId, token, platform } = req.body as {
     userId: string;
     token: string;

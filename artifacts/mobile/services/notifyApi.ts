@@ -1,4 +1,5 @@
 import { getApiBase } from "../lib/apiBase";
+import { authedFetch } from "../lib/authedFetch";
 // Client for the /api/notify endpoints. Types mirror the server row shape —
 // snake_case in the payload, snake_case preserved on the client to keep
 // the mapping trivial (these come straight out of pg). The one camelCase
@@ -70,7 +71,7 @@ export async function getNotifyStatus(
 ): Promise<NotifyStatusResponse> {
   try {
     const qs = userId ? `?userId=${encodeURIComponent(userId)}` : "";
-    const res = await fetch(`${API_BASE}/notify/status${qs}`);
+    const res = await authedFetch(`${API_BASE}/notify/status${qs}`);
     if (!res.ok) return { enabled: false };
     return (await res.json()) as NotifyStatusResponse;
   } catch {
@@ -83,7 +84,7 @@ export async function listSubscriptions(
   userId: string,
 ): Promise<NotifySubscriptionsResponse> {
   try {
-    const res = await fetch(
+    const res = await authedFetch(
       `${API_BASE}/notify/subscriptions/${encodeURIComponent(userId)}`,
     );
     if (!res.ok) return { subscriptions: [], defaults: { news: null, earnings: null } };
@@ -107,7 +108,7 @@ export async function upsertSubscription(
   userId: string,
   input: UpsertSubscriptionInput,
 ): Promise<NotifySubscription | { error: string }> {
-  const res = await fetch(
+  const res = await authedFetch(
     `${API_BASE}/notify/subscriptions/${encodeURIComponent(userId)}`,
     {
       method: "POST",
@@ -132,7 +133,7 @@ export async function patchSubscription(
   subId: string,
   patch: PatchSubscriptionInput,
 ): Promise<NotifySubscription | { error: string }> {
-  const res = await fetch(
+  const res = await authedFetch(
     `${API_BASE}/notify/subscriptions/${encodeURIComponent(userId)}/${encodeURIComponent(subId)}`,
     {
       method: "PATCH",
@@ -155,7 +156,7 @@ export async function listNotifyEvents(
     const params = new URLSearchParams();
     params.set("limit", String(limit));
     if (before) params.set("before", before);
-    const res = await fetch(
+    const res = await authedFetch(
       `${API_BASE}/notify/events/${encodeURIComponent(userId)}?${params.toString()}`,
     );
     if (!res.ok) return { events: [], nextBefore: null };

@@ -6,6 +6,7 @@ import { getQuotes } from "@/services/stockApi";
 import { anyMarketOpenWithBuffer, isMarketOpenWithBuffer } from "@/utils/marketHours";
 
 import { getApiBase } from "../lib/apiBase";
+import { authedFetch } from "../lib/authedFetch";
 // Re-export StockEvent so components can import it from here
 export type { StockEvent } from "@/services/stockApi";
 
@@ -203,7 +204,7 @@ export function WatchlistProvider({
     if (!userId || !isSignedIn) return;
     if (syncDebounceRef.current) clearTimeout(syncDebounceRef.current);
     syncDebounceRef.current = setTimeout(() => {
-      fetch(`${API_BASE}/watchlist/${userId}`, {
+      authedFetch(`${API_BASE}/watchlist/${userId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ folders: flds }),
@@ -232,7 +233,7 @@ export function WatchlistProvider({
       // Try loading folders from backend first
       let backendFolders: WatchlistFolder[] | null = null;
       try {
-        const res = await fetch(`${API_BASE}/watchlist/${userId}`);
+        const res = await authedFetch(`${API_BASE}/watchlist/${userId}`);
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data.folders) && data.folders.length > 0) {
@@ -286,7 +287,7 @@ export function WatchlistProvider({
     setDisplayNameState(name);
     AsyncStorage.setItem(DISPLAY_NAME_KEY, name);
     if (userId && isSignedIn) {
-      fetch(`${API_BASE}/watchlist/${userId}/name`, {
+      authedFetch(`${API_BASE}/watchlist/${userId}/name`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ displayName: name }),

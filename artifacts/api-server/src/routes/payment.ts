@@ -3,6 +3,7 @@ import { getUncachableStripeClient, getStripePublishableKey } from "../stripeCli
 import { storage } from "../storage";
 import { logger } from "../lib/logger";
 import { computeEffectiveTier } from "../lib/tierService";
+import { requireSelf } from "../middlewares/requireSelf";
 
 const router = Router();
 
@@ -116,7 +117,7 @@ router.get("/config", async (_req, res) => {
 });
 
 // Create Stripe Checkout session
-router.post("/checkout", async (req, res) => {
+router.post("/checkout", requireSelf, async (req, res) => {
   const { priceId, userId, email } = req.body;
   if (!priceId) return void res.status(400).json({ error: "priceId required" });
 
@@ -162,7 +163,7 @@ router.post("/checkout", async (req, res) => {
 });
 
 // Customer portal (manage subscription)
-router.post("/portal", async (req, res) => {
+router.post("/portal", requireSelf, async (req, res) => {
   const { userId } = req.body;
   if (!userId) return void res.status(400).json({ error: "userId required" });
 
@@ -189,7 +190,7 @@ router.post("/portal", async (req, res) => {
 // that layers active admin_grants over the Stripe subscription. users.tier
 // is kept in sync as a cached projection so columns-direct readers (ai
 // quota, export gates) don't lag behind this endpoint.
-router.get("/subscription/:userId", async (req, res) => {
+router.get("/subscription/:userId", requireSelf, async (req, res) => {
   const { userId } = req.params;
   try {
     const user = await storage.getUserByClerkId(userId);
@@ -224,7 +225,7 @@ router.get("/subscription/:userId", async (req, res) => {
 // POST /api/payment/sync-tier — called by mobile after successful IAP. The
 // RevenueCat webhook is authoritative for tier changes; this endpoint is a
 // best-effort optimistic sync to avoid a UI lag if the webhook is delayed.
-router.post("/sync-tier", async (req, res) => {
+router.post("/sync-tier", requireSelf, async (req, res) => {
   const { userId, tier } = req.body ?? {};
   if (typeof userId !== "string" || !userId) {
     return void res.status(400).json({ error: "userId required" });

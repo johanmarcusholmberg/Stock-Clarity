@@ -2,6 +2,7 @@ import { Router } from "express";
 import { execute, query, queryOne } from "../db";
 import { notifySchemaReady } from "../lib/notifySchema";
 import { notifyEnabledFor } from "../lib/featureFlags";
+import { requireSelf, requireSelfIfPresent } from "../middlewares/requireSelf";
 
 const router = Router();
 
@@ -22,7 +23,7 @@ router.use(async (_req, _res, next) => {
 // NOTIFY_ROLLOUT_PCT bucket. The mobile client passes ?userId so the UI hides
 // for users outside the rollout window — defence-in-depth alongside the
 // evaluator's own rollout check (notifyEvaluator.ts fan-out).
-router.get("/status", (req, res) => {
+router.get("/status", requireSelfIfPresent, (req, res) => {
   const enabledServer = (process.env.NOTIFY_ENABLED ?? "").toLowerCase() === "true";
   const userId = typeof req.query.userId === "string" ? req.query.userId : null;
   const enabled = enabledServer && notifyEnabledFor(userId);
@@ -60,7 +61,7 @@ function parseIntOrNull(
 }
 
 // ── List subscriptions + user-default fallback per kind ─────────────────────
-router.get("/subscriptions/:userId", async (req, res) => {
+router.get("/subscriptions/:userId", requireSelf, async (req, res) => {
   const { userId } = req.params;
   if (!userId) return void res.status(400).json({ error: "Missing userId" });
   try {
@@ -90,7 +91,7 @@ router.get("/subscriptions/:userId", async (req, res) => {
 });
 
 // ── Create or update a subscription (upsert on user_id, symbol, kind) ──────
-router.post("/subscriptions/:userId", async (req, res) => {
+router.post("/subscriptions/:userId", requireSelf, async (req, res) => {
   const { userId } = req.params;
   if (!userId) return void res.status(400).json({ error: "Missing userId" });
 
@@ -184,7 +185,7 @@ router.post("/subscriptions/:userId", async (req, res) => {
 });
 
 // ── Patch a single subscription (mute, channel, threshold, quiet hours) ────
-router.patch("/subscriptions/:userId/:subId", async (req, res) => {
+router.patch("/subscriptions/:userId/:subId", requireSelf, async (req, res) => {
   const { userId, subId } = req.params;
   if (!userId || !subId) return void res.status(400).json({ error: "Missing userId or subId" });
 
@@ -246,7 +247,7 @@ router.patch("/subscriptions/:userId/:subId", async (req, res) => {
 });
 
 // ── Delete a per-symbol override (user-default row protected) ──────────────
-router.delete("/subscriptions/:userId/:subId", async (req, res) => {
+router.delete("/subscriptions/:userId/:subId", requireSelf, async (req, res) => {
   const { userId, subId } = req.params;
   if (!userId || !subId) return void res.status(400).json({ error: "Missing userId or subId" });
   try {
@@ -271,7 +272,7 @@ router.delete("/subscriptions/:userId/:subId", async (req, res) => {
 });
 
 // ── Inbox: paginated notification_events read ──────────────────────────────
-router.get("/events/:userId", async (req, res) => {
+router.get("/events/:userId", requireSelf, async (req, res) => {
   const { userId } = req.params;
   if (!userId) return void res.status(400).json({ error: "Missing userId" });
 

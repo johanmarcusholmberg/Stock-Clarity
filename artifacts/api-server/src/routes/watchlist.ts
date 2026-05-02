@@ -1,10 +1,11 @@
 import { Router } from "express";
 import { execute, query, queryOne } from "../db";
+import { requireSelf } from "../middlewares/requireSelf";
 
 const router = Router();
 
 // GET /watchlist/:userId — fetch saved folders
-router.get("/:userId", async (req, res) => {
+router.get("/:userId", requireSelf, async (req, res) => {
   const { userId } = req.params;
   if (!userId) return res.status(400).json({ error: "Missing userId" });
   try {
@@ -23,7 +24,7 @@ router.get("/:userId", async (req, res) => {
 });
 
 // POST /watchlist/:userId — save folders
-router.post("/:userId", async (req, res) => {
+router.post("/:userId", requireSelf, async (req, res) => {
   const { userId } = req.params;
   const { folders } = req.body;
   if (!userId) return res.status(400).json({ error: "Missing userId" });
@@ -43,7 +44,7 @@ router.post("/:userId", async (req, res) => {
 });
 
 // PATCH /watchlist/:userId/name — save display name
-router.patch("/:userId/name", async (req, res) => {
+router.patch("/:userId/name", requireSelf, async (req, res) => {
   const { userId } = req.params;
   const { displayName } = req.body;
   if (!userId) return res.status(400).json({ error: "Missing userId" });

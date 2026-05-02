@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { getApiBase } from "../lib/apiBase";
+import { authedFetch } from "../lib/authedFetch";
 const API_BASE =
   getApiBase();
 
@@ -92,7 +93,7 @@ export const EVENT_PERIODS: { key: EventPeriod; label: string }[] = [
 
 export async function searchStocks(query: string): Promise<SearchResult[]> {
   if (!query.trim()) return [];
-  const res = await fetch(`${API_BASE}/stocks/search?q=${encodeURIComponent(query)}`);
+  const res = await authedFetch(`${API_BASE}/stocks/search?q=${encodeURIComponent(query)}`);
   const data = await res.json();
   return data.quotes ?? [];
 }
@@ -101,7 +102,7 @@ export async function searchStocks(query: string): Promise<SearchResult[]> {
 // callers (WatchlistContext, stock detail) control when to call this.
 export async function getQuotes(symbols: string[]): Promise<QuoteResult[]> {
   if (!symbols.length) return [];
-  const res = await fetch(`${API_BASE}/stocks/quote?symbols=${encodeURIComponent(symbols.join(","))}`);
+  const res = await authedFetch(`${API_BASE}/stocks/quote?symbols=${encodeURIComponent(symbols.join(","))}`);
   const data = await res.json();
   return data.result ?? [];
 }
@@ -119,7 +120,7 @@ export async function getChart(
   opts?: { fresh?: boolean },
 ): Promise<ChartData> {
   const freshParam = opts?.fresh ? `&fresh=1&_t=${Date.now()}` : "";
-  const res = await fetch(
+  const res = await authedFetch(
     `${API_BASE}/stocks/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}${freshParam}`,
     opts?.fresh ? { cache: "no-store" } : undefined,
   );
@@ -143,7 +144,7 @@ export async function getEvents(symbol: string, period: EventPeriod = "week"): P
     }
   } catch {}
 
-  const res = await fetch(`${API_BASE}/stocks/events/${encodeURIComponent(symbol)}?period=${period}`);
+  const res = await authedFetch(`${API_BASE}/stocks/events/${encodeURIComponent(symbol)}?period=${period}`);
   const json = await res.json();
   const events: StockEvent[] = json.events ?? [];
 
@@ -204,7 +205,7 @@ export interface FilingsResult {
 // Returns either filings or, for non-US tickers, an `unsupported` flag plus
 // a friendly message the UI can show in place of the list.
 export async function getReportFilingsResult(ticker: string): Promise<FilingsResult> {
-  const res = await fetch(
+  const res = await authedFetch(
     `${API_BASE}/reports?ticker=${encodeURIComponent(ticker)}&action=filings`,
   );
   if (!res.ok) {
@@ -224,7 +225,7 @@ export async function getReportFilingsResult(ticker: string): Promise<FilingsRes
 }
 
 export async function getReportFilings(ticker: string): Promise<Filing[]> {
-  const res = await fetch(
+  const res = await authedFetch(
     `${API_BASE}/reports?ticker=${encodeURIComponent(ticker)}&action=filings`,
   );
   if (!res.ok) {
@@ -267,7 +268,7 @@ export async function getReportSummary(
   });
   if (userId) qs.set("userId", userId);
 
-  const res = await fetch(`${API_BASE}/reports?${qs.toString()}`);
+  const res = await authedFetch(`${API_BASE}/reports?${qs.toString()}`);
   if (res.status === 402) {
     const errBody = await res.json().catch(() => ({ tier: "free" }));
     throw new PremiumRequiredError((errBody as any)?.tier ?? "free");
@@ -296,7 +297,7 @@ export async function getReportSubscription(
   userId: string,
   symbol: string,
 ): Promise<ReportSubscription | null> {
-  const res = await fetch(
+  const res = await authedFetch(
     `${API_BASE}/reports/subscriptions/${encodeURIComponent(userId)}/${encodeURIComponent(symbol)}`,
   );
   if (!res.ok) return null;
@@ -309,7 +310,7 @@ export async function setReportSubscription(
   symbol: string,
   channel: "push" | "email" | "both" = "push",
 ): Promise<void> {
-  const res = await fetch(
+  const res = await authedFetch(
     `${API_BASE}/reports/subscriptions/${encodeURIComponent(userId)}`,
     {
       method: "POST",
@@ -327,7 +328,7 @@ export async function deleteReportSubscription(
   userId: string,
   symbol: string,
 ): Promise<void> {
-  await fetch(
+  await authedFetch(
     `${API_BASE}/reports/subscriptions/${encodeURIComponent(userId)}/${encodeURIComponent(symbol)}`,
     { method: "DELETE" },
   );

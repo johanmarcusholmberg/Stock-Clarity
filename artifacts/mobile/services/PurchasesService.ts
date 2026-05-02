@@ -7,6 +7,7 @@ import Purchases, {
 import { Platform } from "react-native";
 
 import { getApiBase } from "../lib/apiBase";
+import { authedFetch } from "../lib/authedFetch";
 const RC_API_KEY_IOS = process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY ?? "";
 const RC_API_KEY_ANDROID = process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY ?? "";
 
@@ -182,7 +183,7 @@ export async function syncTierToBackend(
   tier: string,
 ): Promise<void> {
   try {
-    await fetch(`${API_BASE}/payment/sync-tier`, {
+    await authedFetch(`${API_BASE}/payment/sync-tier`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userId, tier }),

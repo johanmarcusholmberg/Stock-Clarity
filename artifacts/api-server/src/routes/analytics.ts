@@ -1,10 +1,13 @@
 import { Router } from "express";
 import { query } from "../db";
+import { requireSelfIfPresent } from "../middlewares/requireSelf";
 
 const router = Router();
 
-// Track a stock view (public - called from mobile)
-router.post("/track", async (req, res) => {
+// Track a stock view. Anonymous-friendly (userId may be null), but if a
+// userId IS supplied we require the Clerk session to match — otherwise any
+// signed-in user could spoof analytics events as another user.
+router.post("/track", requireSelfIfPresent, async (req, res) => {
   const { userId, ticker, stockName, eventType = "stock_view", payload = {} } = req.body;
   if (!ticker && eventType === "stock_view") {
     return void res.status(400).json({ error: "ticker required" });

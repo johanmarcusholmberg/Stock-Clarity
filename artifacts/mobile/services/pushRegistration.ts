@@ -4,6 +4,7 @@ import { Platform } from "react-native";
 import { registerPushToken } from "./alertsApi";
 
 import { getApiBase } from "../lib/apiBase";
+import { authedFetch } from "../lib/authedFetch";
 const API_BASE =
   getApiBase();
 
@@ -90,7 +91,7 @@ export async function registerForPushNotifications(
   ).data;
 
   try {
-    await fetch(`${API_BASE}/notifications/register`, {
+    await authedFetch(`${API_BASE}/notifications/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userId, token, platform: Platform.OS }),

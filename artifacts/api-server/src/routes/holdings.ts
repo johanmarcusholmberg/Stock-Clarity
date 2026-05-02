@@ -8,6 +8,7 @@ import { YF2, yfFetch } from "../lib/newsSources";
 import { fxToUsd, newFxCache } from "../lib/fxConvert";
 import { logger } from "../lib/logger";
 import { computeCostBasis, type LotInput, type SaleEvent } from "../lib/costBasis";
+import { requireSelf } from "../middlewares/requireSelf";
 
 const router = Router();
 
@@ -92,7 +93,7 @@ function isProOrBetter(userId: string): Promise<boolean> {
 }
 
 // ── List holdings + lots for a user ────────────────────────────────────────
-router.get("/:userId", async (req, res) => {
+router.get("/:userId", requireSelf, async (req, res) => {
   const { userId } = req.params;
   if (!userId) return void res.status(400).json({ error: "Missing userId" });
   try {
@@ -135,7 +136,7 @@ router.get("/:userId", async (req, res) => {
 // Returns rows from dividend_events filtered to ex_date >= today, ordered
 // soonest first. No tier gate at the API level — the data is per-user-owned
 // tickers; the mobile card is what wraps this in the Pro PremiumGate.
-router.get("/:userId/dividends", async (req, res) => {
+router.get("/:userId/dividends", requireSelf, async (req, res) => {
   const { userId } = req.params;
   if (!userId) return void res.status(400).json({ error: "Missing userId" });
   try {
@@ -166,7 +167,7 @@ router.get("/:userId/dividends", async (req, res) => {
 });
 
 // ── Add a holding + first lot (Free-tier capped at 5 holdings) ─────────────
-router.post("/:userId", async (req, res) => {
+router.post("/:userId", requireSelf, async (req, res) => {
   const { userId } = req.params;
   if (!userId) return void res.status(400).json({ error: "Missing userId" });
 
@@ -234,7 +235,7 @@ router.post("/:userId", async (req, res) => {
 });
 
 // ── Add a lot to an existing holding ──────────────────────────────────────
-router.post("/:userId/:holdingId/lots", async (req, res) => {
+router.post("/:userId/:holdingId/lots", requireSelf, async (req, res) => {
   const { userId, holdingId } = req.params;
   if (!userId || !holdingId) {
     return void res.status(400).json({ error: "Missing userId or holdingId" });
@@ -276,7 +277,7 @@ router.post("/:userId/:holdingId/lots", async (req, res) => {
 });
 
 // ── Delete holding (cascades lots) ────────────────────────────────────────
-router.delete("/:userId/:holdingId", async (req, res) => {
+router.delete("/:userId/:holdingId", requireSelf, async (req, res) => {
   const { userId, holdingId } = req.params;
   if (!userId || !holdingId) {
     return void res.status(400).json({ error: "Missing userId or holdingId" });
@@ -295,7 +296,7 @@ router.delete("/:userId/:holdingId", async (req, res) => {
 });
 
 // ── Delete a single lot ───────────────────────────────────────────────────
-router.delete("/:userId/:holdingId/lots/:lotId", async (req, res) => {
+router.delete("/:userId/:holdingId/lots/:lotId", requireSelf, async (req, res) => {
   const { userId, holdingId, lotId } = req.params;
   if (!userId || !holdingId || !lotId) {
     return void res.status(400).json({ error: "Missing userId, holdingId or lotId" });
@@ -349,7 +350,7 @@ async function fetchHoldingQuote(symbol: string): Promise<QuoteSnapshot> {
   }
 }
 
-router.get("/:userId/export/csv", async (req, res) => {
+router.get("/:userId/export/csv", requireSelf, async (req, res) => {
   const { userId } = req.params;
   if (!userId) return void res.status(400).json({ error: "Missing userId" });
 
@@ -455,7 +456,7 @@ router.get("/:userId/export/csv", async (req, res) => {
 // applied to both lot cost AND current price (assumes lot.currency matches
 // the quote currency, which is true when users enter lots in the stock's
 // native trading currency).
-router.get("/:userId/pnl", async (req, res) => {
+router.get("/:userId/pnl", requireSelf, async (req, res) => {
   const { userId } = req.params;
   if (!userId) return void res.status(400).json({ error: "Missing userId" });
 

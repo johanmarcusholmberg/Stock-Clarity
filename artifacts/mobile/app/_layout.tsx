@@ -14,6 +14,7 @@ import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useRef } from "react";
 
 import { registerForPushNotifications } from "@/services/pushRegistration";
+import { setAuthTokenGetter } from "@/lib/authedFetch";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -88,6 +89,20 @@ function RootLayoutNav() {
       <Stack.Screen name="stock/[ticker]" options={{ headerShown: false, presentation: "card" }} />
     </Stack>
   );
+}
+
+// Bridges Clerk's session into our `authedFetch` helper so every API call
+// from outside the React tree (services/*, contexts) automatically attaches
+// the Bearer token. Without this bridge the server's `requireSelf` checks
+// will respond 401 to every authenticated route. Registered exactly once
+// at app start; cleared on unmount so a hot-reload doesn't leak old getters.
+function ClerkAuthBridge() {
+  const { getToken } = useAuth();
+  useEffect(() => {
+    setAuthTokenGetter(getToken);
+    return () => setAuthTokenGetter(null);
+  }, [getToken]);
+  return null;
 }
 
 // Registers the device's Expo push token with the server once per session,
@@ -175,6 +190,7 @@ export default function RootLayout() {
     <ThemeProvider>
       <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache} proxyUrl={proxyUrl}>
         <ClerkLoaded>
+          <ClerkAuthBridge />
           <PushNotificationRegistrar />
           <SentryUserSync />
           <SafeAreaProvider>

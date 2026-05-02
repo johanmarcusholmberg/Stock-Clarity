@@ -5,6 +5,7 @@ import { useAuth } from "@clerk/expo";
 import { useUser } from "@clerk/expo";
 import { applyEventExpansion } from "@/utils/aiQuota";
 import { getApiBase } from "../lib/apiBase";
+import { authedFetch } from "../lib/authedFetch";
 import type { PurchasesPackage } from "react-native-purchases";
 import {
   initPurchases,
@@ -288,7 +289,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       setExpandedEventIds(next.expandedIds);
       persistExpanded(next.expandedIds);
       if (userId) {
-        fetch(`${API_BASE}/analytics/track`, {
+        authedFetch(`${API_BASE}/analytics/track`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ userId, eventType: "ai_summary_viewed", metadata: { eventId } }),
@@ -316,7 +317,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       return;
     }
     try {
-      const res = await fetch(`${API_BASE}/payment/subscription/${userId}`);
+      const res = await authedFetch(`${API_BASE}/payment/subscription/${userId}`);
       if (res.ok) {
         const data = await res.json();
         setTier(data.tier ?? "free");
@@ -332,7 +333,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const checkAdminStatus = useCallback(async () => {
     if (!userId || !email) return;
     try {
-      const res = await fetch(
+      const res = await authedFetch(
         `${API_BASE}/admin/check?userId=${encodeURIComponent(userId)}&email=${encodeURIComponent(email)}`
       );
       if (res.ok) {
@@ -410,7 +411,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
 
     try {
-      const res = await fetch(`${API_BASE}/payment/checkout`, {
+      const res = await authedFetch(`${API_BASE}/payment/checkout`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ priceId, userId, email }),
@@ -425,7 +426,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
   const openPortal = useCallback(async (): Promise<{ url: string | null; error?: string }> => {
     try {
-      const res = await fetch(`${API_BASE}/payment/portal`, {
+      const res = await authedFetch(`${API_BASE}/payment/portal`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId }),
@@ -441,7 +442,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const adminOverrideTier = useCallback(async (newTier: Tier, targetUserId?: string): Promise<boolean> => {
     if (!userId || !email) return false;
     try {
-      const res = await fetch(`${API_BASE}/admin/override-tier`, {
+      const res = await authedFetch(`${API_BASE}/admin/override-tier`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

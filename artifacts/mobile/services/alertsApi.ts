@@ -1,4 +1,5 @@
 import { getApiBase } from "../lib/apiBase";
+import { authedFetch } from "../lib/authedFetch";
 // Client for the /api/alerts endpoints. Types intentionally mirror the DB
 // shape — camelCased on the client, snake_cased in the payload.
 
@@ -68,7 +69,7 @@ function mapEvent(row: any): AlertEvent {
 export async function getAlertStatus(userId: string | null): Promise<AlertStatusResponse> {
   try {
     const u = userId ? `?userId=${encodeURIComponent(userId)}` : "";
-    const res = await fetch(`${API_BASE}/alerts/status${u}`);
+    const res = await authedFetch(`${API_BASE}/alerts/status${u}`);
     if (!res.ok) return { enabled: false, evaluatorHealthy: false, lastBeat: null };
     return (await res.json()) as AlertStatusResponse;
   } catch {
@@ -78,7 +79,7 @@ export async function getAlertStatus(userId: string | null): Promise<AlertStatus
 
 export async function listAlerts(userId: string): Promise<UserAlert[]> {
   try {
-    const res = await fetch(`${API_BASE}/alerts/${encodeURIComponent(userId)}`);
+    const res = await authedFetch(`${API_BASE}/alerts/${encodeURIComponent(userId)}`);
     if (!res.ok) return [];
     const data = await res.json();
     return Array.isArray(data?.alerts) ? data.alerts.map(mapAlert) : [];
@@ -89,7 +90,7 @@ export async function listAlerts(userId: string): Promise<UserAlert[]> {
 
 export async function listAlertEvents(userId: string, limit = 50): Promise<AlertEvent[]> {
   try {
-    const res = await fetch(`${API_BASE}/alerts/${encodeURIComponent(userId)}/events?limit=${limit}`);
+    const res = await authedFetch(`${API_BASE}/alerts/${encodeURIComponent(userId)}/events?limit=${limit}`);
     if (!res.ok) return [];
     const data = await res.json();
     return Array.isArray(data?.events) ? data.events.map(mapEvent) : [];
@@ -103,7 +104,7 @@ export async function createAlert(
   input: { symbol: string; type: AlertType; threshold: number; deliveryChannel?: AlertDeliveryChannel },
 ): Promise<UserAlert | { error: string }> {
   try {
-    const res = await fetch(`${API_BASE}/alerts/${encodeURIComponent(userId)}`, {
+    const res = await authedFetch(`${API_BASE}/alerts/${encodeURIComponent(userId)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
@@ -127,7 +128,7 @@ export async function updateAlert(
   if (patch.deliveryChannel !== undefined) body.deliveryChannel = patch.deliveryChannel;
 
   try {
-    const res = await fetch(
+    const res = await authedFetch(
       `${API_BASE}/alerts/${encodeURIComponent(userId)}/${encodeURIComponent(alertId)}`,
       {
         method: "PATCH",
@@ -145,7 +146,7 @@ export async function updateAlert(
 
 export async function deleteAlert(userId: string, alertId: string): Promise<boolean> {
   try {
-    const res = await fetch(
+    const res = await authedFetch(
       `${API_BASE}/alerts/${encodeURIComponent(userId)}/${encodeURIComponent(alertId)}`,
       { method: "DELETE" },
     );
@@ -164,7 +165,7 @@ export async function registerPushToken(
   try {
     const body: Record<string, unknown> = { userId, token, platform };
     if (typeof timezone === "string" && timezone.length > 0) body.timezone = timezone;
-    const res = await fetch(`${API_BASE}/push-tokens`, {
+    const res = await authedFetch(`${API_BASE}/push-tokens`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

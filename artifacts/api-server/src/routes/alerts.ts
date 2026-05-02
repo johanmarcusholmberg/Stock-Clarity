@@ -2,6 +2,7 @@ import { Router } from "express";
 import { execute, query, queryOne } from "../db";
 import { alertsSchemaReady } from "../lib/alertsSchema";
 import { alertsEnabledFor } from "../lib/featureFlags";
+import { requireSelf, requireSelfIfPresent } from "../middlewares/requireSelf";
 
 const router = Router();
 
@@ -16,7 +17,7 @@ router.use(async (_req, _res, next) => {
 });
 
 // ── Feature availability + service health ────────────────────────────────────
-router.get("/status", async (req, res) => {
+router.get("/status", requireSelfIfPresent, async (req, res) => {
   const userId = typeof req.query.userId === "string" ? req.query.userId : null;
   const enabled = alertsEnabledFor(userId);
   const beat = await queryOne<{ last_beat: string }>(
@@ -28,7 +29,7 @@ router.get("/status", async (req, res) => {
 });
 
 // ── List alerts for a user ───────────────────────────────────────────────────
-router.get("/:userId", async (req, res) => {
+router.get("/:userId", requireSelf, async (req, res) => {
   const { userId } = req.params;
   if (!userId) return void res.status(400).json({ error: "Missing userId" });
   try {
@@ -48,7 +49,7 @@ router.get("/:userId", async (req, res) => {
 });
 
 // ── Create an alert ──────────────────────────────────────────────────────────
-router.post("/:userId", async (req, res) => {
+router.post("/:userId", requireSelf, async (req, res) => {
   const { userId } = req.params;
   if (!userId) return void res.status(400).json({ error: "Missing userId" });
   if (!alertsEnabledFor(userId)) {
@@ -84,7 +85,7 @@ router.post("/:userId", async (req, res) => {
 });
 
 // ── Update status / threshold / channel ──────────────────────────────────────
-router.patch("/:userId/:alertId", async (req, res) => {
+router.patch("/:userId/:alertId", requireSelf, async (req, res) => {
   const { userId, alertId } = req.params;
   const { status, threshold, deliveryChannel } = req.body ?? {};
 
@@ -138,7 +139,7 @@ router.patch("/:userId/:alertId", async (req, res) => {
 });
 
 // ── Delete an alert ──────────────────────────────────────────────────────────
-router.delete("/:userId/:alertId", async (req, res) => {
+router.delete("/:userId/:alertId", requireSelf, async (req, res) => {
   const { userId, alertId } = req.params;
   try {
     await execute("DELETE FROM alerts WHERE user_id = $1 AND id = $2", [userId, alertId]);
@@ -149,7 +150,7 @@ router.delete("/:userId/:alertId", async (req, res) => {
 });
 
 // ── Recent fires (for the global Alerts screen) ──────────────────────────────
-router.get("/:userId/events", async (req, res) => {
+router.get("/:userId/events", requireSelf, async (req, res) => {
   const { userId } = req.params;
   const limit = Math.min(Number(req.query.limit) || 50, 200);
   try {
