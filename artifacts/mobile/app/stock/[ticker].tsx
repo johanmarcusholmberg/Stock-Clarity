@@ -37,6 +37,7 @@ import { getQuotes, getEvents, CHART_RANGES, EVENT_PERIODS, formatPrice, formatM
 import { isMarketOpen } from "@/utils/marketHours";
 import { previousTradingDayLabel } from "@/utils/relativeTradingDay";
 import ExpandableEventCard from "@/components/ExpandableEventCard";
+import ReportSummary from "@/components/ReportSummary";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const CHART_HEIGHT = 185;
@@ -1235,6 +1236,9 @@ export default function StockDetailScreen() {
             ))
           )}
         </View>
+
+        {/* ── Reports (10-K / 10-Q) ── */}
+        {ticker ? <ReportSummary ticker={ticker} /> : null}
       </ScrollView>
 
       {/* ── Folder Picker Sheet ── */}
