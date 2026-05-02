@@ -15,6 +15,7 @@ import exportRouter from "./export";
 import notifyRouter from "./notify";
 import holdingsRouter from "./holdings";
 import reportsRouter from "./reports";
+import accountRouter from "./account";
 
 const router: IRouter = Router();
 
@@ -34,5 +35,6 @@ router.use("/export", exportRouter);
 router.use("/notify", notifyRouter);
 router.use("/holdings", holdingsRouter);
 router.use("/reports", reportsRouter);
+router.use("/account", accountRouter);
 
 export default router;

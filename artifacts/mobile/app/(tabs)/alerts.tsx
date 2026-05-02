@@ -155,7 +155,7 @@ export default function AlertsScreen() {
           <TouchableOpacity
             onPress={() => {
               Haptics.selectionAsync();
-              router.push("/(tabs)/index");
+              router.push("/(tabs)" as any);
             }}
             style={[styles.ctaBtn, { backgroundColor: colors.primary }]}
           >

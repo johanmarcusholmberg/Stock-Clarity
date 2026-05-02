@@ -55,7 +55,7 @@ export default function AccountScreen() {
   const colors = useColors();
   const { theme, setTheme } = useTheme();
   const insets = useSafeAreaInsets();
-  const { signOut, userId } = useAuth();
+  const { signOut, userId, getToken } = useAuth();
   const { user } = useUser();
   const {
     tier,
@@ -78,6 +78,13 @@ export default function AccountScreen() {
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const [nameSaving, setNameSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  // Privacy / Terms live on the API host but are NOT under /api — strip suffix.
+  const LEGAL_BASE = API_BASE.replace(/\/api$/, "") + "/legal";
+  const SUPPORT_EMAIL =
+    process.env.EXPO_PUBLIC_SUPPORT_EMAIL ?? "support@stockclarify.app";
+  const APP_VERSION = "1.0.1";
 
   const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs | null>(null);
   const [notifSaving, setNotifSaving] = useState(false);
@@ -160,6 +167,76 @@ export default function AccountScreen() {
       { confirmText: "Sign out", destructive: true },
     );
     if (ok) await performSignOut();
+  };
+
+  const handleDeleteAccount = async () => {
+    // Two-step confirmation. The second confirmation uses different,
+    // unmistakable wording so an accidental double-tap can't blow it through.
+    // The first step explicitly tells the user what will and won't be cancelled
+    // automatically — IAP subscriptions must be cancelled in the App Store /
+    // Play Store settings, since stores don't allow server-side cancellation.
+    const iapNotice =
+      Platform.OS === "ios"
+        ? "\n\nIf you subscribed through the App Store, cancel that subscription in Settings → Apple ID → Subscriptions before deleting — Apple does not let us cancel it for you."
+        : Platform.OS === "android"
+          ? "\n\nIf you subscribed through Google Play, cancel that subscription in Play Store → Subscriptions before deleting — Google does not let us cancel it for you."
+          : "";
+
+    const ok1 = await confirmAsync(
+      "Delete account?",
+      `This permanently removes your watchlist, holdings, alerts, and account profile. Any web (Stripe) subscription will be cancelled automatically.${iapNotice}\n\nYou won't be able to recover this data.`,
+      { confirmText: "Continue", destructive: true },
+    );
+    if (!ok1) return;
+
+    const ok2 = await confirmAsync(
+      "Are you absolutely sure?",
+      "This action cannot be undone. Your account will be deleted immediately.",
+      { confirmText: "Delete forever", destructive: true },
+    );
+    if (!ok2) return;
+
+    setDeleting(true);
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_BASE}/account`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        Alert.alert(
+          "Couldn't delete account",
+          body.error ??
+            "Something went wrong. Please try again or email support.",
+        );
+        return;
+      }
+      // performSignOut clears local cache, calls Clerk signOut (which is a no-op
+      // now since the user is gone server-side), and routes to /(auth)/sign-in.
+      await performSignOut();
+    } catch {
+      Alert.alert(
+        "Network error",
+        "Could not reach the server. Please check your connection and try again.",
+      );
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const openLegal = (page: "privacy" | "terms") => {
+    Linking.openURL(`${LEGAL_BASE}/${page}`).catch(() =>
+      Alert.alert("Couldn't open", "Please try again."),
+    );
+  };
+
+  const openSupport = () => {
+    Linking.openURL(
+      `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("StockClarify support")}`,
+    ).catch(() =>
+      Alert.alert("No email app", `Email us at ${SUPPORT_EMAIL}`),
+    );
   };
 
   const handleManageSubscription = async () => {
@@ -369,8 +446,56 @@ export default function AccountScreen() {
     },
     submitBtn: { backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center" },
     submitBtnText: { color: colors.primaryForeground, fontSize: 15, fontFamily: "Inter_700Bold" },
-    signOutBtn: { margin: 20, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderColor: colors.destructive, alignItems: "center" },
+    signOutBtn: { margin: 20, marginBottom: 8, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderColor: colors.destructive, alignItems: "center" },
     signOutText: { color: colors.destructive, fontSize: 15, fontFamily: "Inter_600SemiBold" },
+    disclaimer: {
+      color: colors.mutedForeground,
+      fontSize: 11,
+      fontFamily: "Inter_400Regular",
+      lineHeight: 16,
+      marginTop: 10,
+      paddingHorizontal: 4,
+    },
+    dangerZone: {
+      marginTop: 20,
+      marginHorizontal: 20,
+      paddingTop: 20,
+      paddingBottom: 8,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+    dangerTitle: {
+      color: colors.mutedForeground,
+      fontSize: 11,
+      fontFamily: "Inter_700Bold",
+      textTransform: "uppercase",
+      letterSpacing: 0.8,
+      marginBottom: 10,
+      textAlign: "center",
+    },
+    deleteBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      paddingVertical: 12,
+      borderRadius: 10,
+      backgroundColor: colors.destructive + "12",
+    },
+    deleteBtnText: {
+      color: colors.destructive,
+      fontSize: 14,
+      fontFamily: "Inter_600SemiBold",
+    },
+    deleteHint: {
+      color: colors.mutedForeground,
+      fontSize: 11,
+      fontFamily: "Inter_400Regular",
+      textAlign: "center",
+      marginTop: 8,
+      paddingHorizontal: 16,
+      lineHeight: 15,
+    },
     nameInput: {
       flex: 1,
       color: colors.foreground,
@@ -851,14 +976,82 @@ export default function AccountScreen() {
           </View>
         </View>
 
+        {/* About & Legal */}
+        <View style={s.section}>
+          <Text style={s.sectionTitle}>About & Legal</Text>
+          <View style={s.card}>
+            <TouchableOpacity
+              style={s.row}
+              onPress={() => openLegal("privacy")}
+              activeOpacity={0.7}
+              accessibilityRole="link"
+              accessibilityLabel="Open Privacy Policy"
+            >
+              <View style={s.rowIcon}><Feather name="shield" size={18} color={colors.primary} /></View>
+              <Text style={s.rowLabel}>Privacy Policy</Text>
+              <Feather name="external-link" size={14} color={colors.mutedForeground} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={s.row}
+              onPress={() => openLegal("terms")}
+              activeOpacity={0.7}
+              accessibilityRole="link"
+              accessibilityLabel="Open Terms of Service"
+            >
+              <View style={s.rowIcon}><Feather name="file-text" size={18} color={colors.primary} /></View>
+              <Text style={s.rowLabel}>Terms of Service</Text>
+              <Feather name="external-link" size={14} color={colors.mutedForeground} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={s.row}
+              onPress={openSupport}
+              activeOpacity={0.7}
+              accessibilityLabel="Email support"
+            >
+              <View style={s.rowIcon}><Feather name="life-buoy" size={18} color={colors.primary} /></View>
+              <Text style={s.rowLabel}>Contact Support</Text>
+              <Text style={s.rowValue} numberOfLines={1}>{SUPPORT_EMAIL}</Text>
+            </TouchableOpacity>
+            <View style={[s.row, s.rowLast]}>
+              <View style={s.rowIcon}><Feather name="info" size={18} color={colors.primary} /></View>
+              <Text style={s.rowLabel}>Version</Text>
+              <Text style={s.rowValue}>{APP_VERSION}</Text>
+            </View>
+          </View>
+          <Text style={s.disclaimer}>
+            Not investment advice. Market data and AI summaries are for informational
+            purposes only and may be delayed or inaccurate. Always do your own research
+            and consult a licensed financial advisor before making investment decisions.
+          </Text>
+        </View>
+
         {/* Sign out */}
         <TouchableOpacity style={s.signOutBtn} onPress={handleSignOut}>
           <Text style={s.signOutText}>Sign Out</Text>
         </TouchableOpacity>
 
-        <Text style={{ color: colors.border, fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "center", paddingVertical: 8 }}>
-          StockClarify v1.0.1
-        </Text>
+        {/* Danger zone — Delete account (Apple App Store requirement) */}
+        <View style={s.dangerZone}>
+          <Text style={s.dangerTitle}>Danger Zone</Text>
+          <TouchableOpacity
+            style={s.deleteBtn}
+            onPress={handleDeleteAccount}
+            disabled={deleting}
+            accessibilityLabel="Permanently delete account"
+          >
+            {deleting ? (
+              <ActivityIndicator color={colors.destructive} />
+            ) : (
+              <>
+                <Feather name="trash-2" size={16} color={colors.destructive} />
+                <Text style={s.deleteBtnText}>Delete account</Text>
+              </>
+            )}
+          </TouchableOpacity>
+          <Text style={s.deleteHint}>
+            Permanently removes your data. Web (Stripe) subscriptions are cancelled automatically; App Store and Play Store subscriptions must be cancelled in your store settings.
+          </Text>
+        </View>
 
         <View style={{ height: 40 }} />
       </ScrollView>

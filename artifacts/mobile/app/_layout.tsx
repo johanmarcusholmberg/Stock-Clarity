@@ -112,7 +112,15 @@ export default function RootLayout() {
         <ClerkLoaded>
           <PushNotificationRegistrar />
           <SafeAreaProvider>
-            <ErrorBoundary>
+            <ErrorBoundary
+              onError={(error, stackTrace) => {
+                // Sentry-ready hook. Once SENTRY_DSN is wired we'll forward
+                // here. For now, ensure crashes surface in logs instead of
+                // being silently swallowed by the boundary.
+                // eslint-disable-next-line no-console
+                console.error("[ErrorBoundary]", error, stackTrace);
+              }}
+            >
               <QueryClientProvider client={queryClient}>
                 <SubscriptionProvider>
                   <WatchlistProviderWithTier>
