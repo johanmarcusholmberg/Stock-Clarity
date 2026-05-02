@@ -130,9 +130,13 @@ export default function ReportSummary({ ticker }: Props) {
 
   const handleOpen = useCallback(() => {
     Haptics.selectionAsync();
+    if (!isPremium && !unsupported) {
+      setPaywallOpen(true);
+      return;
+    }
     setOpen(true);
     ensureLoaded();
-  }, [ensureLoaded]);
+  }, [ensureLoaded, isPremium, unsupported]);
 
   const toggleSubscription = useCallback(async () => {
     if (!userId || subscribing) return;
