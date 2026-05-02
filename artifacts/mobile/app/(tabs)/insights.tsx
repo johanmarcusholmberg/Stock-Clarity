@@ -29,6 +29,7 @@ import { ExportSheet, type ExportFormat } from "@/components/ExportSheet";
 import { TabHintPopup } from "@/components/TabHintPopup";
 import { trackPremiumEvent } from "@/lib/premiumTelemetry";
 import { getApiBase } from "../../lib/apiBase";
+import { authedFetch } from "../../lib/authedFetch";
 import {
   alpha,
   beta,
