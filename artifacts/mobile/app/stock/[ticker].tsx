@@ -180,27 +180,24 @@ function computeXLabels(
   const px = (idx: number) =>
     plotLeft + ((idx + indexOffset) / Math.max(total - 1, 1)) * plotWidth;
 
-  // ── 1D: adaptive interval — 30-min early in day, 1-hour once past midday ─
+  // ── 1D: evenly-spaced time labels across the trading session ─────
+  // Old algorithm built a list of hour-mark candidates and then sampled
+  // them, which produced alternating gap widths (e.g. for a 6.5h session
+  // with 8 hour candidates and 6 picks: positions 0/14/43/57/86/100% →
+  // gaps of 14/29/14/29/14%). The first two labels (e.g. "3:30pm" and
+  // "4pm") were only ~30min / 7.7% apart and the edge clamp collapsed
+  // both into the same 0-52px cell, fully overlapping each other.
+  //
+  // Picking evenly-spaced INDICES guarantees uniform visual spacing.
+  // Times won't always land on the hour (e.g. "5:05pm"), but accurate
+  // mid-session times are still readable and the spacing is what the
+  // user actually notices.
   if (rangeKey === "1d") {
-    const spanMs = timestamps[n - 1] - timestamps[0];
-    const spanHours = spanMs / 3_600_000;
-    // Use 30-min markers when < 3.5h of data has loaded (early session), else 1-hour
-    const useHalfHour = spanHours < 3.5;
-    const candidates: number[] = [0]; // always include market open
-    for (let i = 1; i < n; i++) {
-      const d = new Date(timestamps[i]);
-      const m = d.getMinutes();
-      if (useHalfHour) {
-        // 30-min marks: :00 and :30
-        if (m === 0 || m === 30) candidates.push(i);
-      } else {
-        // 1-hour marks: :00 only
-        if (m === 0) candidates.push(i);
-      }
-    }
-    const maxLabels = useHalfHour ? 7 : 6;
-    const picked = sampleIndices(candidates, maxLabels);
-    return picked.map((i) => ({ label: fmtTime(timestamps[i]), x: px(i) }));
+    const spanHours = (timestamps[n - 1] - timestamps[0]) / 3_600_000;
+    // Scale label count to session length so an early-morning chart with
+    // only 30 min of data doesn't get 5 labels crammed into a tiny range.
+    const labelCount = spanHours < 1 ? 3 : spanHours < 3 ? 4 : 5;
+    return pickEvenIndices(n, labelCount).map((i) => ({ label: fmtTime(timestamps[i]), x: px(i) }));
   }
 
   // ── 5D: one label per trading day with weekday + date ────────────
