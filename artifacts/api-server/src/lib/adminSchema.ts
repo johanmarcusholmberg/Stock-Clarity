@@ -65,14 +65,34 @@ export const adminSchemaReady: Promise<void> = (async () => {
        ON admin_audit (admin_email, created_at DESC)`,
   );
 
-  // Anticipates IAP. Nullable today — writes begin when an Apple/Google
-  // receipt webhook handler is introduced in a later phase. Adding the
-  // columns up front lets the grant+audit schema stabilise without a
-  // follow-up migration once IAP lands.
+  // IAP tracking columns. iap_source + iap_original_transaction_id pre-date
+  // the RevenueCat webhook (added speculatively in PR 5a); the rest were
+  // added when the RevenueCat webhook (`routes/revenuecat.ts`) shipped:
+  //
+  //   iap_tier             — what the user is entitled to right now
+  //                          ('pro' | 'premium'); NULL = no active IAP sub
+  //   iap_product_id       — store-side product id (e.g. `pro_monthly`)
+  //                          for audit/debug
+  //   iap_expires_at       — when the entitlement runs out. Used by
+  //                          computeEffectiveTier to auto-downgrade if
+  //                          a CANCELLATION/EXPIRATION webhook is delayed
+  //   iap_environment      — 'production' | 'sandbox' so we can filter
+  //                          sandbox events out of prod analytics
+  //   iap_last_event_id    — RevenueCat event id, for exact-match dedup
+  //                          on at-least-once webhook delivery
+  //   iap_last_event_at    — event_timestamp_ms of the last applied event
+  //                          so out-of-order deliveries don't overwrite
+  //                          newer state with older state
   await execute(`
     ALTER TABLE users
       ADD COLUMN IF NOT EXISTS iap_source TEXT,
-      ADD COLUMN IF NOT EXISTS iap_original_transaction_id TEXT
+      ADD COLUMN IF NOT EXISTS iap_original_transaction_id TEXT,
+      ADD COLUMN IF NOT EXISTS iap_tier TEXT,
+      ADD COLUMN IF NOT EXISTS iap_product_id TEXT,
+      ADD COLUMN IF NOT EXISTS iap_expires_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS iap_environment TEXT,
+      ADD COLUMN IF NOT EXISTS iap_last_event_id TEXT,
+      ADD COLUMN IF NOT EXISTS iap_last_event_at TIMESTAMPTZ
   `);
 
   // PR 5a: 3-day expiry warning worker flips this to NOW() after queuing a

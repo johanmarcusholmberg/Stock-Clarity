@@ -75,10 +75,34 @@ export async function computeEffectiveTier(userId: string): Promise<EffectiveTie
     }
   }
 
-  // Step 2 — IAP slot. Intentionally a no-op in PR 1; wired when IAP ingest
-  // lands. The column already exists (see adminSchema.ts) so there's a
-  // reserved place to check.
-  // if (user.iap_source && ...) { ... }
+  // Step 2 — IAP. Active when iap_tier is set AND iap_expires_at hasn't
+  // passed yet. RevenueCat sets iap_expires_at to a past timestamp on
+  // EXPIRATION events (so this check naturally drops the user back to
+  // baseTier without us needing to NULL the column). For CANCELLATION
+  // events RevenueCat keeps iap_expires_at in the future — Apple/Google
+  // policy is the user keeps access until period end.
+  //
+  // Both Stripe AND IAP active is rare but legitimate (e.g. user paid on
+  // web, then bought again on mobile). Higher tier wins; ties favour
+  // whichever one is already baseTier (Stripe — kept for ordering
+  // stability; the user is double-paying which they should resolve in
+  // the manage-subscription UI).
+  if (user.iap_tier && user.iap_expires_at) {
+    const exp = user.iap_expires_at instanceof Date
+      ? user.iap_expires_at
+      : new Date(user.iap_expires_at);
+    if (
+      exp.getTime() > Date.now() &&
+      (user.iap_tier === "pro" || user.iap_tier === "premium")
+    ) {
+      const iapTier = user.iap_tier as Tier;
+      if (TIER_RANK[iapTier] > TIER_RANK[baseTier]) {
+        baseTier = iapTier;
+        baseSource = user.iap_source === "google" ? "google_play" : "apple_iap";
+        baseExpiresAt = exp;
+      }
+    }
+  }
 
   // Step 3 — admin grants can override the base. We pick the highest-tier
   // active grant; ties broken by soonest expiry so a grant about to run

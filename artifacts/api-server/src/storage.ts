@@ -93,6 +93,51 @@ export const storage = {
     return execute("UPDATE users SET tier = $2, updated_at = NOW() WHERE clerk_user_id = $1", [clerkUserId, tier]);
   },
 
+  // Single-shot IAP state writer. Called by the RevenueCat webhook for
+  // every applicable event (initial purchase, renewal, cancellation,
+  // expiration, billing issue, product change). All fields overwrite —
+  // RevenueCat is the source of truth and each event carries the full
+  // current state, not a diff. Idempotency + ordering are enforced by
+  // the caller (`routes/revenuecat.ts`).
+  async updateUserIap(
+    clerkUserId: string,
+    fields: {
+      iapSource: "apple" | "google";
+      iapTier: "pro" | "premium" | null;
+      iapProductId: string | null;
+      iapExpiresAt: Date | null;
+      iapEnvironment: "production" | "sandbox";
+      iapOriginalTransactionId: string | null;
+      iapLastEventId: string;
+      iapLastEventAt: Date;
+    },
+  ) {
+    return execute(
+      `UPDATE users SET
+         iap_source                  = $2,
+         iap_tier                    = $3,
+         iap_product_id              = $4,
+         iap_expires_at              = $5,
+         iap_environment             = $6,
+         iap_original_transaction_id = $7,
+         iap_last_event_id           = $8,
+         iap_last_event_at           = $9,
+         updated_at                  = NOW()
+       WHERE clerk_user_id = $1`,
+      [
+        clerkUserId,
+        fields.iapSource,
+        fields.iapTier,
+        fields.iapProductId,
+        fields.iapExpiresAt,
+        fields.iapEnvironment,
+        fields.iapOriginalTransactionId,
+        fields.iapLastEventId,
+        fields.iapLastEventAt,
+      ],
+    );
+  },
+
   async checkAndResetAiQuota(clerkUserId: string) {
     const user = await queryOne<any>(`
       SELECT ai_summaries_today, ai_summaries_reset_date, tier FROM users WHERE clerk_user_id = $1

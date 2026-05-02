@@ -16,6 +16,7 @@ import notifyRouter from "./notify";
 import holdingsRouter from "./holdings";
 import reportsRouter from "./reports";
 import accountRouter from "./account";
+import revenuecatRouter from "./revenuecat";
 
 const router: IRouter = Router();
 
@@ -36,5 +37,6 @@ router.use("/notify", notifyRouter);
 router.use("/holdings", holdingsRouter);
 router.use("/reports", reportsRouter);
 router.use("/account", accountRouter);
+router.use("/webhooks/revenuecat", revenuecatRouter);
 
 export default router;
