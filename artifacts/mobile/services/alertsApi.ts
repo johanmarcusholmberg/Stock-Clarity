@@ -77,31 +77,43 @@ export async function getAlertStatus(userId: string | null): Promise<AlertStatus
 }
 
 export async function listAlerts(userId: string): Promise<UserAlert[]> {
-  const res = await fetch(`${API_BASE}/alerts/${encodeURIComponent(userId)}`);
-  if (!res.ok) return [];
-  const data = await res.json();
-  return Array.isArray(data?.alerts) ? data.alerts.map(mapAlert) : [];
+  try {
+    const res = await fetch(`${API_BASE}/alerts/${encodeURIComponent(userId)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data?.alerts) ? data.alerts.map(mapAlert) : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function listAlertEvents(userId: string, limit = 50): Promise<AlertEvent[]> {
-  const res = await fetch(`${API_BASE}/alerts/${encodeURIComponent(userId)}/events?limit=${limit}`);
-  if (!res.ok) return [];
-  const data = await res.json();
-  return Array.isArray(data?.events) ? data.events.map(mapEvent) : [];
+  try {
+    const res = await fetch(`${API_BASE}/alerts/${encodeURIComponent(userId)}/events?limit=${limit}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data?.events) ? data.events.map(mapEvent) : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function createAlert(
   userId: string,
   input: { symbol: string; type: AlertType; threshold: number; deliveryChannel?: AlertDeliveryChannel },
 ): Promise<UserAlert | { error: string }> {
-  const res = await fetch(`${API_BASE}/alerts/${encodeURIComponent(userId)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) return { error: data?.error ?? `HTTP ${res.status}` };
-  return mapAlert(data.alert);
+  try {
+    const res = await fetch(`${API_BASE}/alerts/${encodeURIComponent(userId)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: data?.error ?? `HTTP ${res.status}` };
+    return mapAlert(data.alert);
+  } catch {
+    return { error: "Network error — please try again" };
+  }
 }
 
 export async function updateAlert(
@@ -114,25 +126,33 @@ export async function updateAlert(
   if (patch.threshold !== undefined) body.threshold = patch.threshold;
   if (patch.deliveryChannel !== undefined) body.deliveryChannel = patch.deliveryChannel;
 
-  const res = await fetch(
-    `${API_BASE}/alerts/${encodeURIComponent(userId)}/${encodeURIComponent(alertId)}`,
-    {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    },
-  );
-  if (!res.ok) return null;
-  const data = await res.json().catch(() => null);
-  return data?.alert ? mapAlert(data.alert) : null;
+  try {
+    const res = await fetch(
+      `${API_BASE}/alerts/${encodeURIComponent(userId)}/${encodeURIComponent(alertId)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    return data?.alert ? mapAlert(data.alert) : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function deleteAlert(userId: string, alertId: string): Promise<boolean> {
-  const res = await fetch(
-    `${API_BASE}/alerts/${encodeURIComponent(userId)}/${encodeURIComponent(alertId)}`,
-    { method: "DELETE" },
-  );
-  return res.ok;
+  try {
+    const res = await fetch(
+      `${API_BASE}/alerts/${encodeURIComponent(userId)}/${encodeURIComponent(alertId)}`,
+      { method: "DELETE" },
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 export async function registerPushToken(
