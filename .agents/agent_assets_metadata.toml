@@ -1,8 +1,13 @@
 uploads = []
-outputs = []
 
 [[generated]]
 id = "o1IOgL1QecXxQzGa1Zmf1"
 uri = "file://artifacts/mobile/assets/images/icon.png"
 type = "image"
 title = "StockClarify app icon"
+
+[[outputs]]
+id = "SQU8BRTHyFP1KR8yeCPFV"
+uri = "file://docs/LAUNCH_PLAN.md"
+type = "text"
+title = "StockClarify — App Store + Google Play Launch Plan"
