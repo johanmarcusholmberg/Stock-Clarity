@@ -104,6 +104,20 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - `CLERK_*` — managed by Clerk Replit integration
 - Stripe credentials — managed by Stripe Replit integration
 
+## Reports feature
+
+The stock detail screen renders `<ReportSummary />`, which lists a ticker's
+recent SEC 10-K and 10-Q filings and produces an AI executive summary on
+demand. SEC EDGAR fetches and the Anthropic call both run server-side via
+`/api/reports?ticker=…&action=filings|text|summary` so the API key never
+ships in the mobile bundle and EDGAR's `User-Agent` contract is satisfied.
+
+**Environment variable:**
+- `ANTHROPIC_API_KEY` — required for `action=summary`. Without it, the
+  filings list still works but `Summarize` returns 503. The data layer
+  lives in `artifacts/api-server/src/lib/reports.ts`; the route in
+  `artifacts/api-server/src/routes/reports.ts`.
+
 ## Scripts (`scripts/`)
 - `pnpm --filter @workspace/scripts run seed-products` — create Stripe Pro/Premium plans
 

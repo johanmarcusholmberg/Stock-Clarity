@@ -156,6 +156,90 @@ export async function getEvents(symbol: string, period: EventPeriod = "week"): P
   return events;
 }
 
+// ── Reports (10-K / 10-Q SEC filings + AI summaries) ─────────────────
+//
+// SEC EDGAR is fetched server-side because the browser/mobile client cannot
+// satisfy EDGAR's User-Agent contract from cross-origin requests, and the
+// Anthropic API key must never reach the bundle. The /api/reports route in
+// the api-server owns both fetches.
+
+export type FilingType = "10-K" | "10-Q";
+
+export interface Filing {
+  type: FilingType;
+  filedAt: string;
+  reportDate: string;
+  accessionNumber: string;
+  edgarUrl: string;
+}
+
+export interface ReportSummary {
+  headline: string;
+  period: string;
+  highlights: string[];
+  sentiment: "positive" | "neutral" | "negative";
+  keyMetrics: {
+    revenue: string | null;
+    netIncome: string | null;
+    eps: string | null;
+    operatingCashFlow: string | null;
+  };
+  analystNote: string;
+}
+
+export interface SummaryResponse {
+  ticker: string;
+  accession: string;
+  type: FilingType;
+  filing: Filing;
+  summary: ReportSummary;
+}
+
+export async function getReportFilings(ticker: string): Promise<Filing[]> {
+  const res = await fetch(
+    `${API_BASE}/reports?ticker=${encodeURIComponent(ticker)}&action=filings`,
+  );
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+    throw new Error(errBody?.error ?? `HTTP ${res.status}`);
+  }
+  const data = (await res.json()) as { filings?: Filing[] };
+  return data.filings ?? [];
+}
+
+// AsyncStorage cache: avoid re-fetching the same accession's summary across
+// page opens. Per-accession key matches the spec
+// (`report_summary_{ticker}_{accessionNumber}`).
+export async function getReportSummary(
+  ticker: string,
+  accessionNumber: string,
+): Promise<SummaryResponse> {
+  const cacheKey = `report_summary_${ticker}_${accessionNumber}`;
+
+  try {
+    const raw = await AsyncStorage.getItem(cacheKey);
+    if (raw) {
+      const cached = JSON.parse(raw) as SummaryResponse;
+      if (cached?.summary?.headline) return cached;
+    }
+  } catch {}
+
+  const res = await fetch(
+    `${API_BASE}/reports?ticker=${encodeURIComponent(ticker)}&action=summary&accession=${encodeURIComponent(accessionNumber)}`,
+  );
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+    throw new Error(errBody?.error ?? `HTTP ${res.status}`);
+  }
+  const data = (await res.json()) as SummaryResponse;
+
+  try {
+    await AsyncStorage.setItem(cacheKey, JSON.stringify(data));
+  } catch {}
+
+  return data;
+}
+
 export function formatMarketCap(cap?: number): string {
   if (!cap) return "N/A";
   if (cap >= 1e12) return `$${(cap / 1e12).toFixed(2)}T`;
