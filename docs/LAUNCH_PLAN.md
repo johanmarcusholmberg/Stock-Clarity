@@ -58,9 +58,13 @@ These can all happen in parallel with Phase 1 account setups.
 - ✅ Auth via Clerk Bearer token; user can only delete their own account.
 - ✅ Documented retention list (audit log 24mo, payment records 7yr, security logs 90d) in Privacy Policy.
 
-### 2C — Apple Sign In 🤖 *(Apple requires it if any social login is offered)*
-- Wire `expo-apple-authentication` through Clerk's Apple OAuth provider.
-- Add the button on sign-in/sign-up screens with required visual prominence.
+### 2C — Apple Sign In 🤖 ✅ DONE *(Apple requires it if any social login is offered)*
+- ✅ Installed `expo-apple-authentication` and added `usesAppleSignIn: true` + the config plugin in `app.json` so the EAS build provisions the Sign in with Apple capability.
+- ✅ New `lib/appleAuth.ts` helper: availability check, `requestAppleCredential()` for the native iOS flow, and an `isUserCanceledAppleError()` helper so canceled prompts don't surface as errors.
+- ✅ Both sign-in and sign-up screens now use the **official `AppleAuthentication.AppleAuthenticationButton`** (App Store HIG-compliant — Apple rejects custom Apple buttons). The placeholder "smartphone" icon button is gone.
+- ✅ Native flow + Clerk token-exchange via `signIn.create({ strategy: "oauth_token_apple", token })` — no in-app browser hop. First-time Apple users get auto-transferred to `signUp.create({ transfer: true })` so they land in `(tabs)` without bouncing.
+- ✅ Button is hidden on Android/web automatically (the helper returns `false` for `Platform.OS !== "ios"` and on simulators where Apple auth isn't available).
+- 👤 **Still required before launch:** in the Clerk dashboard, configure the Apple OAuth provider with the bundle ID `com.stockclarify.app` and an Apple Services ID + key from Apple Developer. Without this, the token exchange will return an OAuth misconfiguration error. (This is a one-time dashboard setup, no code change.)
 
 ### 2D — Production polish 🤖 ✅ DONE
 - ✅ Dev Tools panel: server `/api/dev/*` already gated by `ENABLE_DEV_TOOLS && NODE_ENV !== "production"`; no UI panel exists.

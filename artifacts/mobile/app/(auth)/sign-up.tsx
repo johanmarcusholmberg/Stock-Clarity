@@ -1,9 +1,9 @@
 import { Feather } from "@expo/vector-icons";
-import { useSignUp } from "@clerk/expo/legacy";
+import { useSignIn, useSignUp } from "@clerk/expo/legacy";
 import { useOAuth } from "@clerk/expo";
 import { Link, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import React, { useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -17,6 +17,12 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
+import {
+  AppleAuthentication,
+  isAppleAuthAvailable,
+  isUserCanceledAppleError,
+  requestAppleCredential,
+} from "@/lib/appleAuth";
 
 interface PasswordRule {
   key: string;
@@ -64,8 +70,21 @@ export default function SignUpScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { isLoaded, signUp, setActive } = useSignUp();
+  const { signIn } = useSignIn();
   const { startOAuthFlow: startGoogleOAuth } = useOAuth({ strategy: "oauth_google" });
-  const { startOAuthFlow: startAppleOAuth } = useOAuth({ strategy: "oauth_apple" });
+  // Initialize to the iOS heuristic so the button doesn't pop in after first
+  // render. The async check below confirms / disables it on simulators.
+  const [appleAvailable, setAppleAvailable] = useState(Platform.OS === "ios");
+
+  useEffect(() => {
+    let cancelled = false;
+    isAppleAuthAvailable().then((available) => {
+      if (!cancelled) setAppleAvailable(available);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [email, setEmail] = useState("");
   const [oauthLoading, setOAuthLoading] = useState<"google" | "apple" | null>(null);
@@ -109,15 +128,52 @@ export default function SignUpScreen() {
   };
 
   const handleAppleSignUp = async () => {
+    if (!signUp || !signIn) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setOAuthLoading("apple");
+    setError(null);
     try {
-      const { createdSessionId, setActive: oauthSetActive } = await startAppleOAuth();
-      if (createdSessionId && oauthSetActive) {
-        await oauthSetActive({ session: createdSessionId });
+      const credential = await requestAppleCredential();
+
+      // Sign in first — Apple's identity token works for both new & returning
+      // users. If the account doesn't exist yet, Clerk hands us a transferable
+      // signal that we forward to signUp.create to mint the new account.
+      const signInAttempt = await signIn.create({
+        strategy: "oauth_token_apple",
+        token: credential.identityToken,
+      });
+
+      if (signInAttempt.status === "complete" && signInAttempt.createdSessionId) {
+        await setActive({ session: signInAttempt.createdSessionId });
         router.replace("/(tabs)");
+        return;
       }
-    } catch {
+
+      // Existing Apple user with MFA — punt them to the sign-in screen, where
+      // the full MFA flow lives, instead of duplicating it here.
+      if (signInAttempt.status === "needs_second_factor") {
+        setError("This Apple ID is already linked to an account. Please sign in instead.");
+        router.replace("/(auth)/sign-in");
+        return;
+      }
+
+      // First-time Apple users: forward fullName so the profile isn't empty.
+      // Apple only returns this on the very first authorization.
+      const signUpAttempt = await signUp.create({
+        transfer: true,
+        firstName: credential.fullName?.givenName ?? undefined,
+        lastName: credential.fullName?.familyName ?? undefined,
+      });
+      if (signUpAttempt.status === "complete" && signUpAttempt.createdSessionId) {
+        await setActive({ session: signUpAttempt.createdSessionId });
+        router.replace("/(tabs)");
+        return;
+      }
+
+      setError("Apple sign-up could not be completed. Please try again.");
+    } catch (err: unknown) {
+      if (isUserCanceledAppleError(err)) return;
+      setError(getClerkErrorMessage(err, "Apple sign-up failed. Please try again."));
     } finally {
       setOAuthLoading(null);
     }
@@ -439,19 +495,21 @@ export default function SignUpScreen() {
             )}
             <Text style={[styles.socialButtonText, { color: colors.foreground }]}>Continue with Google</Text>
           </TouchableOpacity>
-          {Platform.OS === "ios" && (
-            <TouchableOpacity
-              style={[styles.socialButton, { backgroundColor: colors.card, borderColor: colors.border, opacity: oauthLoading === "google" ? 0.5 : 1 }]}
-              onPress={handleAppleSignUp}
-              disabled={!!oauthLoading}
-            >
-              {oauthLoading === "apple" ? (
+          {appleAvailable && (
+            oauthLoading === "apple" ? (
+              <View style={[styles.socialButton, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <ActivityIndicator color={colors.foreground} size="small" />
-              ) : (
-                <Feather name="smartphone" size={16} color={colors.foreground} />
-              )}
-              <Text style={[styles.socialButtonText, { color: colors.foreground }]}>Continue with Apple</Text>
-            </TouchableOpacity>
+                <Text style={[styles.socialButtonText, { color: colors.foreground }]}>Signing up with Apple…</Text>
+              </View>
+            ) : (
+              <AppleAuthentication.AppleAuthenticationButton
+                buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_UP}
+                buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
+                cornerRadius={14}
+                style={styles.appleButton}
+                onPress={handleAppleSignUp}
+              />
+            )
           )}
         </View>
 
@@ -572,6 +630,10 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     borderRadius: 14,
     borderWidth: 1,
+  },
+  appleButton: {
+    width: "100%",
+    height: 48,
   },
   socialButtonText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   dividerRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 20 },

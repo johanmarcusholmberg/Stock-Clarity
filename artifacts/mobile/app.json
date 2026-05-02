@@ -17,6 +17,7 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.stockclarify.app",
       "buildNumber": "1",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -45,7 +46,8 @@
           "sounds": []
         }
       ],
-      "react-native-purchases"
+      "react-native-purchases",
+      "expo-apple-authentication"
     ],
     "experiments": {
       "typedRoutes": true,
