@@ -92,8 +92,23 @@ These can all happen in parallel with Phase 1 account setups.
   - Patched silent failures: `WatchlistContext.refreshQuotes` now returns `Promise<boolean>`; pull-to-refresh + feedback submit show toasts on offline/error (was silent). Destructive flows (delete folder/account) intentionally kept Alert.alert — confirmation modal is the right UX.
   - **Verified by e2e**: banner appears within ~2s of going offline, fully unmounts within ~2.5s of going online, multiple toggles pass.
 
-### 2E — Sentry crash + error reporting 🤝
-- Code wiring 🤖. DSN secret 👤.
+### 2E — Sentry crash + error reporting ✅ (code) / 👤 (DSN)
+
+- ✅ **Mobile (`@sentry/react-native@~7.2.0`, pinned to Expo SDK 54's recommended version):**
+  - `lib/sentry.ts` — `initSentry()` / `captureSentryException()` / `setSentryUser()` / `clearSentryUser()`. Best-effort: no-ops without `EXPO_PUBLIC_SENTRY_DSN`. Drops noise events (`Network request failed`, `Aborted`) in `beforeSend` so the Sentry feed stays signal-rich.
+  - `app/_layout.tsx`: `initSentry()` at module scope (live before first render); `<SentryUserSync />` reads Clerk `useAuth()` + `useUser()` and sets `{id, email}` on sign-in / clears on sign-out; `<ErrorBoundary onError>` now forwards to `captureSentryException` (was a TODO comment).
+- ✅ **API server (`@sentry/node@^9.50.0`):**
+  - `src/instrument.ts` — `Sentry.init()`, imported FIRST in `src/index.ts` (before any other import) so OTel hooks can wrap http/express. Best-effort: no-ops without `SENTRY_DSN`.
+  - `src/lib/sentry.ts` — `sentryRequestContext` middleware tags scope with `req_id` + Clerk `userId`; `sentryErrorHandler` captures and forwards; `setupExpressSentry()` adds Sentry's official Express handler as defense-in-depth. Drops 4xx-style noise in `beforeSend`.
+  - `app.ts`: `sentryRequestContext` mounted after `clerkMiddleware`; `sentryErrorHandler` + `setupExpressSentry` mounted after all routes, before `logError`.
+- ✅ **Metro fix (collateral):** Sentry's pnpm install left `_tmp_<pid>` extract dirs that crashed Metro's file watcher (`ENOENT`). Added a `metro.config.js` blockList for `node_modules/.pnpm/*_tmp_*` so future hot installs can't tear down the dev server.
+- 👤 **TODO (user):** Create Sentry projects (one for mobile, one for API), then provide:
+  - `EXPO_PUBLIC_SENTRY_DSN` — mobile DSN (DSNs are designed to be public; `EXPO_PUBLIC_` exposes it to the client bundle).
+  - `SENTRY_DSN` — API server DSN.
+  - Optional: `SENTRY_RELEASE` env var for git-sha-based release tagging on the server.
+- ⏭️ **Deferred:**
+  - Source-map upload (requires `SENTRY_AUTH_TOKEN` + EAS build hook on mobile, esbuild plugin on server). Not a launch blocker; stack traces work without source maps but show minified names.
+  - Performance tracing on the server is set to `tracesSampleRate: 0.05` in prod (`0.5` in dev). OTel auto-instrumentation may be limited because the server is bundled via esbuild (with `@opentelemetry/*` and `@sentry/profiling-node` already externalized in `build.mjs`). Manual capture works regardless.
 
 ### 2F — RevenueCat IAP integration 🤝 *(biggest single item)*
 - This is the BIG one. Apple/Google take 15–30% on in-app subscriptions and reject apps that bypass their billing for digital goods.

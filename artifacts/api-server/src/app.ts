@@ -11,11 +11,7 @@ import { logger } from "./lib/logger";
 import { CLERK_PROXY_PATH, clerkProxyMiddleware } from "./middlewares/clerkProxyMiddleware";
 import { WebhookHandlers } from "./webhookHandlers";
 import { logError } from "./middlewares/errorLogger";
-import {
-  sentryErrorHandler,
-  sentryRequestContext,
-  setupExpressSentry,
-} from "./lib/sentry";
+import { sentryRequestContext, setupExpressSentry } from "./lib/sentry";
 
 const app: Express = express();
 
@@ -186,12 +182,12 @@ app.use("/legal", legalRouter);
 // ── All other API routes ─────────────────────────────────────────────────────
 app.use("/api", router);
 
-// ── Sentry error capture (must come BEFORE any response-sending handler) ────
-// Sends the original error to Sentry, then forwards down the chain so
-// `logError` and Express's default handler still run.
-app.use(sentryErrorHandler);
-// Defense-in-depth: also wire Sentry's official Express handler if
-// available. No-op when SENTRY_DSN isn't set.
+// ── Sentry error capture (must come AFTER routes, BEFORE logError) ──────────
+// This is the SOLE Sentry error path on the server — Sentry's official
+// Express handler reads the active isolation scope (so the req_id +
+// userId set by `sentryRequestContext` stick to the captured event),
+// captures once, and forwards down the chain so `logError` still runs.
+// No-op when SENTRY_DSN isn't set.
 setupExpressSentry(app);
 
 // ── Error logging middleware ─────────────────────────────────────────────────

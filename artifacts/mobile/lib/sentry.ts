@@ -101,13 +101,18 @@ export function captureSentryException(
 /**
  * Identify the current user on the Sentry scope. Called from a Clerk-aware
  * effect in `_layout.tsx` so events grouped by user are filterable in the
- * Sentry dashboard. We deliberately send only the Clerk user id — no email
- * or name — to minimize PII.
+ * Sentry dashboard.
+ *
+ * PII policy: we send ONLY the Clerk user id. Email is intentionally
+ * dropped — the Clerk dashboard is the source of truth for {id -> email}
+ * lookups, so duplicating it into Sentry just bloats our PII surface
+ * without adding signal. Keep the parameter shape extensible for future
+ * non-PII context (e.g. tier).
  */
-export function setSentryUser(user: { id: string; email?: string | null }): void {
+export function setSentryUser(user: { id: string }): void {
   if (!initialized) return;
   try {
-    Sentry.setUser({ id: user.id, ...(user.email ? { email: user.email } : {}) });
+    Sentry.setUser({ id: user.id });
   } catch {
     // ignore
   }

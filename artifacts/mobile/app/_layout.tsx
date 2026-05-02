@@ -6,7 +6,7 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { Feather } from "@expo/vector-icons";
-import { ClerkProvider, ClerkLoaded, useAuth, useUser } from "@clerk/expo";
+import { ClerkProvider, ClerkLoaded, useAuth } from "@clerk/expo";
 import { tokenCache } from "@clerk/expo/token-cache";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
@@ -109,23 +109,23 @@ function PushNotificationRegistrar() {
   return null;
 }
 
-// Tag every Sentry event with the Clerk user id (and primary email) so
-// production crashes are filterable per-account. Cleared on sign-out so
-// later events aren't attributed to the previous account.
+// Tag every Sentry event with the Clerk user id so production crashes are
+// filterable per-account. Cleared on sign-out so later events aren't
+// attributed to the previous account.
+//
+// PII policy: id only, no email. The Clerk dashboard is the source of
+// truth for {id -> email} lookups; duplicating it into Sentry would bloat
+// our PII surface without adding signal.
 function SentryUserSync() {
   const { isSignedIn, userId } = useAuth();
-  const { user } = useUser();
 
   useEffect(() => {
     if (isSignedIn && userId) {
-      setSentryUser({
-        id: userId,
-        email: user?.primaryEmailAddress?.emailAddress ?? null,
-      });
+      setSentryUser({ id: userId });
     } else {
       clearSentryUser();
     }
-  }, [isSignedIn, userId, user?.primaryEmailAddress?.emailAddress]);
+  }, [isSignedIn, userId]);
 
   return null;
 }

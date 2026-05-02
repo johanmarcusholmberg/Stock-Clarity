@@ -1,7 +1,7 @@
 // Server-side Sentry helpers. Init lives in `src/instrument.ts` and runs
 // before this module is loaded.
 import * as Sentry from "@sentry/node";
-import type { ErrorRequestHandler, RequestHandler, Express } from "express";
+import type { RequestHandler, Express } from "express";
 
 const enabled = Boolean(process.env.SENTRY_DSN);
 
@@ -12,6 +12,9 @@ export function isSentryEnabled(): boolean {
 /**
  * Capture an arbitrary exception with optional context. Safe to call when
  * Sentry isn't configured — no-ops silently.
+ *
+ * Uses `withIsolationScope` (AsyncLocalStorage-backed) so the extras stay
+ * attached to the captured event even when the call site is async.
  */
 export function captureSentryException(
   err: unknown,
@@ -20,7 +23,7 @@ export function captureSentryException(
   if (!enabled) return;
   try {
     if (context && Object.keys(context).length > 0) {
-      Sentry.withScope((scope) => {
+      Sentry.withIsolationScope((scope) => {
         for (const [k, v] of Object.entries(context)) {
           scope.setExtra(k, v);
         }
@@ -35,17 +38,24 @@ export function captureSentryException(
 }
 
 /**
- * Express middleware that tags every request scope with the Clerk user id
- * (when present) and a request id, so errors captured later in the
- * lifecycle are filterable in the Sentry dashboard.
+ * Express middleware that tags every request's isolation scope with the
+ * Clerk user id (when present) and a request id, so errors captured later
+ * in the lifecycle are filterable in the Sentry dashboard.
+ *
+ * Critical detail: we use `Sentry.withIsolationScope(cb)` — NOT
+ * `withScope(cb)`. `withScope` is synchronously popped when `cb` returns,
+ * which happens before `next()`'s async continuations run, so any tags
+ * set there would be gone by the time a route handler throws. Isolation
+ * scope is backed by AsyncLocalStorage and propagates through the entire
+ * request's async tree.
  *
  * Mounted AFTER `clerkMiddleware()` so `req.auth()` is available, and
- * BEFORE the route handlers.
+ * BEFORE all route handlers.
  */
 export const sentryRequestContext: RequestHandler = (req, _res, next) => {
   if (!enabled) return next();
   try {
-    Sentry.withScope((scope) => {
+    Sentry.withIsolationScope((scope) => {
       // express-pino adds req.id; fall back to header-driven trace id.
       const reqId =
         (req as unknown as { id?: string | number }).id ??
@@ -70,26 +80,12 @@ export const sentryRequestContext: RequestHandler = (req, _res, next) => {
 };
 
 /**
- * Express error-logging middleware. Forwards the error to Sentry, then
- * passes it down the chain. Mounted AFTER all routes and BEFORE any
- * response-sending error handler so Sentry sees the original error
- * regardless of how the response is shaped.
- */
-export const sentryErrorHandler: ErrorRequestHandler = (err, _req, _res, next) => {
-  if (enabled) {
-    try {
-      Sentry.captureException(err);
-    } catch {
-      // ignore
-    }
-  }
-  next(err);
-};
-
-/**
- * Optional helper — wires Sentry's official Express handler in one place.
- * We install our own request-context middleware above for Clerk awareness
- * and call this as a defense-in-depth fallback.
+ * Wires Sentry's official Express error handler. This is the SOLE error
+ * capture path on the server — we deliberately don't install a custom
+ * error middleware on top, because Sentry's handler already (a) reads
+ * the active isolation scope (so our request tags stick), (b) captures
+ * once per error, and (c) forwards to the next handler so `logError`
+ * still runs.
  */
 export function setupExpressSentry(app: Express): void {
   if (!enabled) return;
