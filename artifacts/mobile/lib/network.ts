@@ -1,6 +1,6 @@
 import NetInfo, { NetInfoState } from "@react-native-community/netinfo";
 import { onlineManager, focusManager } from "@tanstack/react-query";
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { AppState, AppStateStatus, Platform } from "react-native";
 
 /**
@@ -142,13 +142,21 @@ export function isOnline(): boolean {
 
 /**
  * Convenience hook for screens that want a one-shot reaction to coming
- * back online (e.g. trigger a refetch). Calls `cb` whenever the network
- * transitions from offline -> online while the component is mounted.
+ * back online (e.g. trigger a refetch). Calls `cb` only on the
+ * `false -> true` transition — NOT on initial mount and NOT while we
+ * stay online.
  */
 export function useOnReconnect(cb: () => void): void {
   const online = useOnline();
+  const prevOnlineRef = useRef(online);
+  const cbRef = useRef(cb);
+  cbRef.current = cb;
+
   useEffect(() => {
-    if (online) cb();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const prev = prevOnlineRef.current;
+    prevOnlineRef.current = online;
+    if (!prev && online) {
+      cbRef.current();
+    }
   }, [online]);
 }

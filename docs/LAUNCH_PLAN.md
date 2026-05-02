@@ -84,8 +84,13 @@ These can all happen in parallel with Phase 1 account setups.
   - Removed `NSUserTrackingUsageDescription` since we don't use App Tracking Transparency.
   - Added `ITSAppUsesNonExemptEncryption: false` to skip the export-compliance prompt at every TestFlight build.
 
-**Still TODO in this phase:**
-- Tighten offline + network-error handling — reviewers test airplane mode (can ship with current state, but worth a polish pass).
+- ✅ **Offline + network-error polish (added 2026-05-02):**
+  - New `lib/network.ts` exports `useOnline()`, `isOnline()`, `useOnReconnect()`, `initNetwork()`. Web path listens directly to `window` `online`/`offline` + `navigator.onLine` (NetInfo's web build does a background fetch to `clients3.google.com/generate_204` that fails in sandboxed envs and pins `isInternetReachable: false`). Native path uses NetInfo + AppState→React Query focusManager bridging.
+  - New `components/Toast.tsx` (in-house ToastProvider+useToast, no third-party dep): single-slot, 4 variants (success/error/info/warning), auto-dismiss, conditionally rendered.
+  - New `components/OfflineBanner.tsx`: animated top banner ("You're offline — showing saved data"). Fully **unmounts** after slide-out so neither the banner nor its alert text is in the DOM/screen-reader tree when online.
+  - QueryClient defaults: `staleTime: 60_000`, `networkMode: "offlineFirst"`, `refetchOnReconnect: true`, retries skip 4xx (max 2). Mutations: `networkMode: "offlineFirst"`, no retry.
+  - Patched silent failures: `WatchlistContext.refreshQuotes` now returns `Promise<boolean>`; pull-to-refresh + feedback submit show toasts on offline/error (was silent). Destructive flows (delete folder/account) intentionally kept Alert.alert — confirmation modal is the right UX.
+  - **Verified by e2e**: banner appears within ~2s of going offline, fully unmounts within ~2.5s of going online, multiple toggles pass.
 
 ### 2E — Sentry crash + error reporting 🤝
 - Code wiring 🤖. DSN secret 👤.
