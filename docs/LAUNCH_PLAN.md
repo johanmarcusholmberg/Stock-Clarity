@@ -92,7 +92,7 @@ These can all happen in parallel with Phase 1 account setups.
   - Patched silent failures: `WatchlistContext.refreshQuotes` now returns `Promise<boolean>`; pull-to-refresh + feedback submit show toasts on offline/error (was silent). Destructive flows (delete folder/account) intentionally kept Alert.alert — confirmation modal is the right UX.
   - **Verified by e2e**: banner appears within ~2s of going offline, fully unmounts within ~2.5s of going online, multiple toggles pass.
 
-### 2E — Sentry crash + error reporting ✅ (code) / 👤 (DSN)
+### 2E — Error reporting (Sentry-protocol → Better Stack) ✅ DONE
 
 - ✅ **Mobile (`@sentry/react-native@~7.2.0`, pinned to Expo SDK 54's recommended version):**
   - `lib/sentry.ts` — `initSentry()` / `captureSentryException()` / `setSentryUser()` / `clearSentryUser()`. Best-effort: no-ops without `EXPO_PUBLIC_SENTRY_DSN`. Drops noise events (`Network request failed`, `Aborted`) in `beforeSend` so the Sentry feed stays signal-rich.
@@ -102,10 +102,12 @@ These can all happen in parallel with Phase 1 account setups.
   - `src/lib/sentry.ts` — `sentryRequestContext` middleware tags scope with `req_id` + Clerk `userId`; `sentryErrorHandler` captures and forwards; `setupExpressSentry()` adds Sentry's official Express handler as defense-in-depth. Drops 4xx-style noise in `beforeSend`.
   - `app.ts`: `sentryRequestContext` mounted after `clerkMiddleware`; `sentryErrorHandler` + `setupExpressSentry` mounted after all routes, before `logError`.
 - ✅ **Metro fix (collateral):** Sentry's pnpm install left `_tmp_<pid>` extract dirs that crashed Metro's file watcher (`ENOENT`). Added a `metro.config.js` blockList for `node_modules/.pnpm/*_tmp_*` so future hot installs can't tear down the dev server.
-- 👤 **TODO (user):** Create Sentry projects (one for mobile, one for API), then provide:
-  - `EXPO_PUBLIC_SENTRY_DSN` — mobile DSN (DSNs are designed to be public; `EXPO_PUBLIC_` exposes it to the client bundle).
-  - `SENTRY_DSN` — API server DSN.
-  - Optional: `SENTRY_RELEASE` env var for git-sha-based release tagging on the server.
+- ✅ **Vendor: Better Stack** (chosen over Sentry — Sentry-SDK-compatible drop-in at ~1/6th the cost, plus consolidates error tracking + uptime + status pages + logs in one tool). Two applications created in Better Stack's Error Tracking product, both in the Europe data region:
+  - `stockclarify-mobile` (platform: iOS — Better Stack has no React Native tile, but the DSN protocol is platform-agnostic; Android crashes still flow into the same project, tagged `os: android`).
+  - `stockclarify-api` (platform: Node.js).
+- ✅ **Secrets wired into Replit:** `EXPO_PUBLIC_SENTRY_DSN` (mobile, `EXPO_PUBLIC_` prefix exposes it to the client bundle — DSNs are public-by-design) and `SENTRY_DSN` (server). Env-var names keep the "SENTRY" prefix because that's the protocol name, not the vendor.
+- ✅ **End-to-end verified (2026-05-02):** fired one `captureMessage` + one `captureException` to each DSN via a one-shot `@sentry/node` script. Both flushed `true`; event IDs returned cleanly. Better Stack dashboard should now show 4 events (2 per project) tagged `environment: preflight-check` — safe to delete from the dashboard once you've eyeballed them.
+- ⏭️ **Optional later:** `SENTRY_RELEASE` env var for git-sha-based release tagging on the server (currently defaults to `stockclarify-api@1.0.0`).
 - ✅ **Architect-driven hardening pass:**
   - Server `sentryRequestContext` now uses `Sentry.withIsolationScope` (AsyncLocalStorage-backed) instead of `withScope` — `withScope` was popped synchronously when the callback returned, so request tags evaporated before downstream async errors fired. Now `req_id` + `userId` propagate through the entire request's async tree.
   - Removed our custom `sentryErrorHandler` middleware — `setupExpressSentry(app)` (Sentry's official Express handler) is the SOLE error-capture path. Reads the active isolation scope so request tags stick, captures once (no double events), forwards to `logError`.
