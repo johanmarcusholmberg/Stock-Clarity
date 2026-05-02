@@ -8,6 +8,10 @@ import {
 
 const router = Router();
 
+// Keyed by `${ticker}:${accession}` — prevents redundant EDGAR + Anthropic calls
+// for the same filing within a server session.
+const summaryResponseCache = new Map<string, object>();
+
 router.get("/", async (req, res) => {
   const ticker = (req.query.ticker as string) ?? "";
   const action = (req.query.action as string) ?? "filings";
@@ -43,6 +47,12 @@ router.get("/", async (req, res) => {
         res.status(400).json({ error: "Missing required query parameter: accession" });
         return;
       }
+      const cacheKey = `${ticker}:${accession}`;
+      const cached = summaryResponseCache.get(cacheKey);
+      if (cached) {
+        res.json(cached);
+        return;
+      }
       const cik = await getCIKFromTicker(ticker);
       const filings = await getFilings(cik);
       const filing = filings.find((f) => f.accessionNumber === accession);
@@ -52,7 +62,9 @@ router.get("/", async (req, res) => {
       }
       const rawText = await getFilingText(cik, accession);
       const summary = await summarizeReport(rawText, ticker, filing.type, accession);
-      res.json({ ticker, accession, type: filing.type, filing, summary });
+      const response = { ticker, accession, type: filing.type, filing, summary };
+      summaryResponseCache.set(cacheKey, response);
+      res.json(response);
       return;
     }
 
