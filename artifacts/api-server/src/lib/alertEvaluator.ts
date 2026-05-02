@@ -2,6 +2,7 @@ import { execute, query, queryOne } from "../db";
 import { alertsSchemaReady } from "./alertsSchema";
 import { alertsEnabledFor } from "./featureFlags";
 import { sendExpoPush } from "./pushDelivery";
+import { sendEmail, alertNotificationEmail } from "./email";
 import { logger } from "./logger";
 
 type AlertRow = {
@@ -193,10 +194,25 @@ async function deliver(alert: AlertRow, title: string, body: string): Promise<st
   }
 
   if (channels.has("email")) {
-    // Email delivery is wired at the transactional boundary we already use for
-    // Stripe. For MVP we log the intent — the email worker (to be added in
-    // Phase 2 follow-up) reads alert_events rows with delivered_via LIKE '%email:queued%'.
-    results.push("email:queued");
+    const userRow = await queryOne<{ email: string | null }>(
+      "SELECT email FROM users WHERE clerk_user_id = $1",
+      [alert.user_id],
+    );
+    const email = userRow?.email ?? null;
+    if (!email) {
+      results.push("email:no_address");
+    } else {
+      const sendResult = await sendEmail(
+        alertNotificationEmail({ to: email, title, body, symbol: alert.symbol }),
+      );
+      if (sendResult.ok) {
+        results.push("email");
+      } else if ("skipped" in sendResult && sendResult.skipped) {
+        results.push("email:not_configured");
+      } else {
+        results.push("email:failed");
+      }
+    }
   }
 
   return results.join(",") || "none";

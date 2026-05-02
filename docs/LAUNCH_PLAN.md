@@ -100,9 +100,19 @@ These can all happen in parallel with Phase 1 account setups.
 - Code: Expo Push Notifications wiring + `notification_tokens` table + alert delivery worker. 🤖
 - Credentials: APNs key from Apple Developer + FCM service account from Firebase. 👤
 
-### 2H — Email delivery 🤝
-- Code: send via SendGrid/Postmark/Resend with templated alerts + transactional emails (welcome, payment receipts, account deletion confirmation). 🤖
-- Credentials: API key + verified sender domain. 👤
+### 2H — Email delivery 🤝 ✅ DONE *(2026-05-02 — code only; secret + sender verification still required)*
+- ✅ Provider-agnostic email service at `src/lib/email/` so SendGrid can be swapped for Resend/Postmark/SES later by replacing one file (`sendgrid.ts`) — no call-site changes.
+- ✅ SendGrid implementation (`@sendgrid/mail`) installed. Sends via SendGrid's v3 API with category tags for analytics.
+- ✅ Five branded HTML+text templates matching app theme (dark navy `#0A1628`, accent green/red): **welcome**, **payment receipt**, **payment failed (dunning)**, **account deletion confirmation**, **alert notification**.
+- ✅ **Welcome email** wired into `storage.upsertUser` using the Postgres `xmax = 0` trick to detect first-time inserts only — no welcome on every login.
+- ✅ **Payment receipt + dunning** wired into `webhookHandlers.processWebhook`: handles `invoice.payment_succeeded` (receipt with hosted invoice URL) and `invoice.payment_failed` (dunning with payment-update CTA). Tier inferred from line description, falls back to amount threshold. Each handler is isolated in try/catch so one failure can't poison Stripe retries.
+- ✅ **Account deletion confirmation** wired into `DELETE /api/account` BEFORE the wipe (after deletion we lose the email address). Fire-and-forget — delivery failure must not block the deletion.
+- ✅ **Price alert emails** in `alertEvaluator.deliver()` — replaced the `email:queued` stub with real SendGrid send. Reports `email`, `email:no_address`, `email:not_configured`, or `email:failed` per attempt for observability.
+- ✅ Fully best-effort: if `SENDGRID_API_KEY` isn't set, `sendEmail()` logs at WARN and returns `{ skipped: true }` — never throws, so dev environments and unconfigured production stay functional.
+- 👤 **Still required before launch:**
+  - Provide `SENDGRID_API_KEY` secret (request will be sent).
+  - In SendGrid: verify the sender domain via DNS (CNAME records for SPF/DKIM) — without this, mail lands in spam.
+  - Optionally set `EMAIL_FROM_ADDRESS` (default `alerts@stockclarify.app`) and `EMAIL_FROM_NAME` (default `StockClarify`).
 
 ### 2I — Privacy Policy + Terms of Service 🤝 ✅ DRAFTED (lawyer review still required)
 - ✅ Privacy Policy at `/legal/privacy`: 10+ sections including data retention/deletion specifics, GDPR lawful bases, retention timelines for retained records, all third-party processors named (Stripe, OpenAI, Apple, Google, RevenueCat, Clerk, Replit).

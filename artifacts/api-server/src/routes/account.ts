@@ -3,6 +3,7 @@ import { getAuth, clerkClient } from "@clerk/express";
 import { storage } from "../storage";
 import { execute } from "../db";
 import { getUncachableStripeClient } from "../stripeClient";
+import { sendEmail, accountDeletionEmail } from "../lib/email";
 
 const router: IRouter = Router();
 
@@ -47,6 +48,15 @@ router.delete("/", async (req, res) => {
   // 1. Look up user record (for email-keyed deletes like feedback).
   const user = await storage.getUserByClerkId(clerkUserId);
   const userEmail: string | null = user?.email ?? null;
+
+  // 1b. Send the deletion confirmation email NOW, while we still have the
+  //     user's address. We `await` (rather than fire-and-forget) so the
+  //     network round-trip can't be cut off mid-flight by Node tearing down
+  //     the request after the wipe completes. `sendEmail` swallows its own
+  //     errors and returns a Result, so this can't throw or block deletion.
+  if (userEmail) {
+    await sendEmail(accountDeletionEmail({ to: userEmail }));
+  }
 
   // 2. Cancel Stripe subscription if any (best-effort — must not block deletion).
   if (user?.stripe_customer_id) {

@@ -97,9 +97,17 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 
 **Key files:**
 - `src/stripeClient.ts` — Stripe SDK + StripeSync initialization via Replit Connectors
-- `src/storage.ts` — DB query helpers (users, subscription lookups)
+- `src/storage.ts` — DB query helpers (users, subscription lookups). `upsertUser` detects first-time inserts via `(created_at = updated_at)` and fires the welcome email.
 - `src/db.ts` — raw pg pool
-- `src/webhookHandlers.ts` — Stripe webhook processing
+- `src/webhookHandlers.ts` — Stripe webhook dispatcher. Handles `invoice.payment_succeeded` (receipt) + `invoice.payment_failed` (dunning). Errors propagate so Stripe retries on 5xx.
+
+**Transactional Email (`src/lib/email/`):**
+- Provider-agnostic: `index.ts` exports `sendEmail()` against an `EmailProvider` interface. To swap providers later, replace `sendgrid.ts` with another implementation — call sites do not change.
+- Current provider: SendGrid via `@sendgrid/mail`.
+- Templates: `welcome`, `paymentReceipt`, `paymentFailed`, `accountDeletion`, `alertNotification` — all branded to app theme (`#0A1628`), HTML + plain-text fallback, escaped against injection.
+- Best-effort by design: if `SENDGRID_API_KEY` is missing, `sendEmail()` logs WARN and returns `{ skipped: true }` without throwing — dev environments and unconfigured prod stay functional.
+- Trigger points: `storage.upsertUser` (welcome), `webhookHandlers` (Stripe receipt/dunning), `routes/account.ts` (deletion confirmation, awaited before wipe), `lib/alertEvaluator.ts` (price alerts via SendGrid instead of `email:queued` stub).
+- Recipient addresses are logged at DEBUG only on success (PII); ERROR path includes them for triage.
 
 **AI Summaries:**
 - Model: `gpt-4o-mini` via Replit AI Integrations proxy (`AI_INTEGRATIONS_OPENAI_BASE_URL` + `AI_INTEGRATIONS_OPENAI_API_KEY`); falls back to `OPENAI_BASE_URL`/`OPENAI_API_KEY` if proxy env not set
@@ -115,6 +123,8 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - `ADMIN_SECRET_KEY` — protects /admin dashboard (auto-generated)
 - `CLERK_*` — managed by Clerk Replit integration
 - Stripe credentials — managed by Stripe Replit integration
+- `SENDGRID_API_KEY` — required for transactional email (welcome / payment receipt / dunning / account deletion / price alerts). Without it, `sendEmail()` logs WARN and skips gracefully — the rest of the app stays functional.
+- `EMAIL_FROM_ADDRESS` (optional, default `alerts@stockclarify.app`) and `EMAIL_FROM_NAME` (optional, default `StockClarify`). The from-domain must be verified in SendGrid for delivery.
 
 ## Reports feature
 

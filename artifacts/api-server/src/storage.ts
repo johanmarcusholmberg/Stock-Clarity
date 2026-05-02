@@ -1,4 +1,5 @@
 import { query, queryOne, execute } from "./db";
+import { sendEmail, welcomeEmail } from "./lib/email";
 
 export const storage = {
   // ── Stripe read helpers ─────────────────────────────────────────────────────
@@ -49,13 +50,32 @@ export const storage = {
 
   // ── User helpers ────────────────────────────────────────────────────────────
   async upsertUser(clerkUserId: string, email?: string) {
-    return queryOne<any>(`
+    // Detect first-time inserts via timestamp equality:
+    //   - INSERT path:   created_at = NOW() = updated_at  → equal
+    //   - UPDATE path:   created_at = (older value), updated_at = NOW() → not equal
+    // (Within a single SQL statement, NOW() returns the same value for both
+    // assignments, so the INSERT branch always satisfies the equality.)
+    // This is more semantically obvious than the `xmax = 0` Postgres trick
+    // and doesn't depend on engine internals.
+    const row = await queryOne<any>(`
       INSERT INTO users (id, clerk_user_id, email, created_at, updated_at)
       VALUES ($1, $1, $2, NOW(), NOW())
       ON CONFLICT (clerk_user_id) DO UPDATE
       SET email = COALESCE($2, users.email), updated_at = NOW()
-      RETURNING *
+      RETURNING *, (created_at = updated_at) AS __is_new
     `, [clerkUserId, email ?? null]);
+
+    // Fire-and-forget welcome email on first user creation. Best-effort:
+    // failure must not break the request that triggered the upsert (login,
+    // first API call, etc). `sendEmail` swallows its own errors and never
+    // throws, so the surrounding `.catch` is just defensive.
+    if (row?.__is_new && row?.email) {
+      void sendEmail(welcomeEmail({ to: row.email })).catch(() => {
+        /* already logged inside sendEmail */
+      });
+    }
+
+    return row;
   },
 
   async getUserByClerkId(clerkUserId: string) {
