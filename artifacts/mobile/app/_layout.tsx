@@ -6,7 +6,7 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { Feather } from "@expo/vector-icons";
-import { ClerkProvider, ClerkLoaded, useAuth } from "@clerk/expo";
+import { ClerkProvider, ClerkLoaded, useAuth, useUser } from "@clerk/expo";
 import { tokenCache } from "@clerk/expo/token-cache";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
@@ -22,6 +22,12 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { ToastProvider } from "@/components/Toast";
 import { initNetwork } from "@/lib/network";
+import {
+  captureSentryException,
+  clearSentryUser,
+  initSentry,
+  setSentryUser,
+} from "@/lib/sentry";
 import { WatchlistProvider, useWatchlist } from "@/context/WatchlistContext";
 import { SubscriptionProvider, useSubscription } from "@/context/SubscriptionContext";
 import { AlertsProvider } from "@/context/AlertsContext";
@@ -33,6 +39,11 @@ import { BenchmarkProvider } from "@/context/BenchmarkContext";
 import { FirstTimeNameModal } from "@/components/FirstTimeNameModal";
 
 SplashScreen.preventAutoHideAsync();
+
+// Initialize Sentry at module scope so the SDK is live before the first
+// render — including any error in fontsLoaded or ClerkProvider hydration.
+// Best-effort: silently no-ops if EXPO_PUBLIC_SENTRY_DSN isn't set.
+initSentry();
 
 // Wire NetInfo -> React Query's onlineManager + AppState -> focusManager.
 // Done at module scope so it's set up exactly once, before any provider mounts.
@@ -98,6 +109,27 @@ function PushNotificationRegistrar() {
   return null;
 }
 
+// Tag every Sentry event with the Clerk user id (and primary email) so
+// production crashes are filterable per-account. Cleared on sign-out so
+// later events aren't attributed to the previous account.
+function SentryUserSync() {
+  const { isSignedIn, userId } = useAuth();
+  const { user } = useUser();
+
+  useEffect(() => {
+    if (isSignedIn && userId) {
+      setSentryUser({
+        id: userId,
+        email: user?.primaryEmailAddress?.emailAddress ?? null,
+      });
+    } else {
+      clearSentryUser();
+    }
+  }, [isSignedIn, userId, user?.primaryEmailAddress?.emailAddress]);
+
+  return null;
+}
+
 function AppWithNamePrompt({ children }: { children: React.ReactNode }) {
   const { setDisplayName } = useWatchlist();
   return (
@@ -144,12 +176,14 @@ export default function RootLayout() {
       <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache} proxyUrl={proxyUrl}>
         <ClerkLoaded>
           <PushNotificationRegistrar />
+          <SentryUserSync />
           <SafeAreaProvider>
             <ErrorBoundary
               onError={(error, stackTrace) => {
-                // Sentry-ready hook. Once SENTRY_DSN is wired we'll forward
-                // here. For now, ensure crashes surface in logs instead of
-                // being silently swallowed by the boundary.
+                // Forward to Sentry (no-op if DSN not configured) AND keep
+                // the console log so the boundary's swallowed crash still
+                // shows up in dev tools / Replit logs.
+                captureSentryException(error, { stackTrace });
                 // eslint-disable-next-line no-console
                 console.error("[ErrorBoundary]", error, stackTrace);
               }}

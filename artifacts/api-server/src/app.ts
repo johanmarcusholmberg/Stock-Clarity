@@ -11,6 +11,11 @@ import { logger } from "./lib/logger";
 import { CLERK_PROXY_PATH, clerkProxyMiddleware } from "./middlewares/clerkProxyMiddleware";
 import { WebhookHandlers } from "./webhookHandlers";
 import { logError } from "./middlewares/errorLogger";
+import {
+  sentryErrorHandler,
+  sentryRequestContext,
+  setupExpressSentry,
+} from "./lib/sentry";
 
 const app: Express = express();
 
@@ -139,6 +144,10 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(clerkMiddleware());
 
+// Tag Sentry scope with Clerk userId + req id for every authenticated
+// request. Must come AFTER clerkMiddleware so req.auth() works.
+app.use(sentryRequestContext);
+
 // ── Rate limiting on /api ────────────────────────────────────────────────────
 // Layered limits so abuse on cheap endpoints can't drown out legit traffic on
 // expensive ones, and write/auth endpoints are tightest. Each limiter uses the
@@ -176,6 +185,14 @@ app.use("/legal", legalRouter);
 
 // ── All other API routes ─────────────────────────────────────────────────────
 app.use("/api", router);
+
+// ── Sentry error capture (must come BEFORE any response-sending handler) ────
+// Sends the original error to Sentry, then forwards down the chain so
+// `logError` and Express's default handler still run.
+app.use(sentryErrorHandler);
+// Defense-in-depth: also wire Sentry's official Express handler if
+// available. No-op when SENTRY_DSN isn't set.
+setupExpressSentry(app);
 
 // ── Error logging middleware ─────────────────────────────────────────────────
 app.use(logError);

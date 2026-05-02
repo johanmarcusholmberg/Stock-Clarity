@@ -1,3 +1,7 @@
+// Sentry must initialize before ANY other import so its OpenTelemetry hooks
+// can wrap http/express/etc. as they're loaded. See ./instrument.ts.
+import "./instrument";
+
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startAlertEvaluator } from "./lib/alertEvaluator";
