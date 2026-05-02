@@ -432,6 +432,7 @@ function ReportsModal({
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
+            style={styles.yearStripWrap}
             contentContainerStyle={styles.yearStrip}
           >
             {years.map((y) => {
@@ -469,7 +470,7 @@ function ReportsModal({
         )}
 
         {/* Body */}
-        <ScrollView contentContainerStyle={styles.modalBody}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.modalBody}>
           {unsupported ? (
             <View style={[styles.emptyBox, { borderColor: colors.border }]}>
               <Feather name="globe" size={22} color={colors.mutedForeground} style={{ marginBottom: 8 }} />
@@ -879,6 +880,11 @@ const styles = StyleSheet.create({
   bellBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   closeBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: "center", justifyContent: "center" },
 
+  // Constrain the horizontal year strip to its content height. Without
+  // `flexGrow: 0` it stretches to fill the modal vertically and the
+  // `alignItems: "center"` on the inner row visually drops the chips into
+  // the middle of all that empty space.
+  yearStripWrap: { flexGrow: 0, flexShrink: 0 },
   yearStrip: { paddingHorizontal: 16, paddingVertical: 8, gap: 6, alignItems: "center" },
   yearChip: {
     paddingHorizontal: 10,
