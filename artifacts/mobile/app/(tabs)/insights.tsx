@@ -123,6 +123,68 @@ function SectionHeader({ title, icon, right }: { title: string; icon: FeatherIco
   );
 }
 
+/**
+ * Compact benchmark picker chip used inline in the "Portfolio vs ..." and
+ * "Risk Metrics" section headers. Tapping it opens the market picker so the
+ * surrounding chart/metrics update instantly.
+ */
+function BenchmarkChip({
+  benchmark,
+  isAuto,
+  onPress,
+}: {
+  benchmark: Benchmark;
+  isAuto: boolean;
+  onPress: () => void;
+}) {
+  const colors = useColors();
+  return (
+    <TouchableOpacity
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        onPress();
+      }}
+      activeOpacity={0.7}
+      accessibilityLabel={`Change benchmark — currently ${benchmarkLabel(benchmark)}${isAuto ? ", auto-selected" : ""}`}
+      accessibilityRole="button"
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.secondary,
+      }}
+    >
+      <Text
+        style={{
+          color: colors.foreground,
+          fontSize: 13,
+          fontFamily: "Inter_700Bold",
+        }}
+        numberOfLines={1}
+      >
+        {benchmarkLabel(benchmark)}
+      </Text>
+      {isAuto ? (
+        <Text
+          style={{
+            color: colors.mutedForeground,
+            fontSize: 10,
+            fontFamily: "Inter_500Medium",
+          }}
+        >
+          AUTO
+        </Text>
+      ) : null}
+      <Feather name="chevron-down" size={14} color={colors.mutedForeground} />
+    </TouchableOpacity>
+  );
+}
+
 function ColoredChange({
   pct,
   abs,
@@ -336,32 +398,6 @@ export default function InsightsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Market / benchmark selector — controls the index used by Risk
-            Metrics ("Beta vs ...") and Benchmark Comparison sections. */}
-        <TouchableOpacity
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setMarketPickerVisible(true);
-          }}
-          activeOpacity={0.7}
-          accessibilityLabel="Change benchmark market"
-          style={[
-            s.marketPill,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-        >
-          <Feather name="bar-chart-2" size={14} color={colors.primary} />
-          <Text style={[s.marketPillLabel, { color: colors.mutedForeground }]}>
-            Compared to
-          </Text>
-          <Text style={[s.marketPillValue, { color: colors.foreground }]} numberOfLines={1}>
-            {benchmarkLabel(benchmark)}
-            {benchmarkSelection === "auto" ? " · Auto" : ""}
-          </Text>
-          <Feather name="chevron-down" size={16} color={colors.mutedForeground} />
-        </TouchableOpacity>
-        <View style={{ height: 12 }} />
-
         {/* ── Today's Snapshot (Free — always visible) ────────────────────── */}
         <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <SectionHeader title="Today's Snapshot" icon="activity" />
@@ -523,7 +559,17 @@ export default function InsightsScreen() {
           style={{ marginTop: 14 }}
         >
           <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <SectionHeader title="Risk Metrics" icon="shield" />
+            <SectionHeader
+              title="Risk Metrics"
+              icon="shield"
+              right={
+                <BenchmarkChip
+                  benchmark={benchmark}
+                  isAuto={benchmarkSelection === "auto"}
+                  onPress={() => setMarketPickerVisible(true)}
+                />
+              }
+            />
             <View style={s.grid}>
               <RiskStat
                 label="Beta vs"
@@ -578,7 +624,20 @@ export default function InsightsScreen() {
           style={{ marginTop: 14 }}
         >
           <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <SectionHeader title={`Portfolio vs ${benchmarkLabel(benchmark)}`} icon="activity" />
+            {/* Title + inline benchmark picker. Tapping the chip opens the
+                market picker; the chart and stat tiles below update instantly
+                when a new market is chosen. */}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12, marginTop: 4, flexWrap: "wrap" }}>
+              <Feather name="activity" size={16} color={colors.primary} />
+              <Text style={{ color: colors.foreground, fontSize: 16, fontFamily: "Inter_700Bold" }}>
+                Portfolio vs
+              </Text>
+              <BenchmarkChip
+                benchmark={benchmark}
+                isAuto={benchmarkSelection === "auto"}
+                onPress={() => setMarketPickerVisible(true)}
+              />
+            </View>
             <TwoLineSparkline
               a={benchmarkLocked ? DUMMY_PORTFOLIO_SERIES : portfolioSeries}
               b={benchmarkLocked ? DUMMY_BENCHMARK_SERIES : benchmarkPrices}
@@ -783,22 +842,6 @@ const s = StyleSheet.create({
   changeToggle: { flexDirection: "row", alignItems: "center", borderRadius: 8, borderWidth: 1, overflow: "hidden", alignSelf: "flex-start" },
   changeToggleText: { fontSize: 12, fontFamily: "Inter_700Bold", paddingHorizontal: 10, paddingVertical: 6 },
   changeToggleDivider: { width: 1, height: "100%" },
-  marketPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-  },
-  marketPillLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
-  marketPillValue: {
-    flex: 1,
-    fontSize: 13,
-    fontFamily: "Inter_700Bold",
-    textAlign: "right",
-  },
   snapshotCard: {
     flex: 1,
     paddingVertical: 14,
