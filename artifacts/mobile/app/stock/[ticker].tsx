@@ -944,7 +944,7 @@ export default function StockDetailScreen() {
               {formatPrice(displayPrice, currency)}
             </Text>
             <View style={[styles.changePill, { backgroundColor: `${changeColor}22` }]}>
-              <Feather name={isPositive ? "trending-up" : "trending-down"} size={13} color={changeColor} />
+              <Feather name={isPositive ? "trending-up" : "trending-down"} size={13} color={colors.mutedForeground} />
               <Text style={[styles.changeText, { color: changeColor }]}>
                 {isPositive ? "+" : ""}{periodChangePct.toFixed(2)}%
               </Text>
