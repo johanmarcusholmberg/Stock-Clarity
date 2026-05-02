@@ -394,7 +394,10 @@ function ReportsModal({
               SEC 10-K & 10-Q with AI executive summaries
             </Text>
           </View>
-          {userId && (
+          {/* Bell is hidden for unsupported (non-US) tickers — the worker
+              can't resolve them via SEC EDGAR, so a subscription would never
+              fire. */}
+          {userId && !unsupported && (
             <TouchableOpacity
               onPress={onToggleSubscription}
               disabled={subscribing}

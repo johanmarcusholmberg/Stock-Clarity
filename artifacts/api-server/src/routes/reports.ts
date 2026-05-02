@@ -9,6 +9,10 @@ import {
   savePersistedSummary,
   summarizeReport,
 } from "../lib/reports";
+// NB: subscription POST also rejects non-US tickers — see check below. The
+// reports worker can only resolve US-listed CIKs via SEC EDGAR, so allowing
+// a foreign symbol to be subscribed would just generate hourly worker
+// warnings forever with no value to the user.
 import { computeEffectiveTier } from "../lib/tierService";
 import { execute, query, queryOne } from "../db";
 import { reportsSchemaReady } from "../lib/reportsSchema";
@@ -184,6 +188,15 @@ router.post("/subscriptions/:userId", async (req, res) => {
   if (!symbol) return void res.status(400).json({ error: "Missing symbol" });
   if (!["push", "email", "both"].includes(channel)) {
     return void res.status(400).json({ error: "channel must be push|email|both" });
+  }
+  // The worker can only resolve US-listed symbols via SEC EDGAR. Reject the
+  // subscription up-front for foreign tickers (.ST, .L, .DE, .TO, …) so the
+  // user gets immediate feedback instead of a silent never-firing alert.
+  if (!isLikelyUSTicker(symbol)) {
+    return void res.status(400).json({
+      error: "unsupported_symbol",
+      message: nonUSExchangeMessage(symbol),
+    });
   }
   try {
     await execute(
