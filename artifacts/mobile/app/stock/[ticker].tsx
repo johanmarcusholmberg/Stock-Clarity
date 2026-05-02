@@ -207,54 +207,94 @@ function computeXLabels(
   }
 
   // ── 1M: one label per week (~every 5 trading days) ───────────────
+  // Don't push n-1 unconditionally — if the dataset's tail happens to land
+  // a couple of bars after the last weekly mark, the trailing label sits
+  // right on top of the previous one and looks like duplicated text.
   if (rangeKey === "1mo") {
     const indices: number[] = [];
     for (let i = 0; i < n; i += 5) indices.push(i);
-    if (indices[indices.length - 1] !== n - 1) indices.push(n - 1);
+    const last = indices[indices.length - 1] ?? -1;
+    if (n - 1 - last >= 3) indices.push(n - 1);
     return sampleIndices(indices, 6).map((i) => ({ label: fmtDate(timestamps[i]), x: px(i) }));
   }
 
   // ── YTD: one label per month ──────────────────────────────────────
+  // Pick the FIRST data point of each unique calendar month — no synthetic
+  // first-or-last entries, so there's no risk of two labels with the same
+  // text rendering on top of each other.
   if (rangeKey === "ytd") {
-    const indices: number[] = [0];
-    let lastMonth = new Date(timestamps[0]).getMonth();
-    for (let i = 1; i < n; i++) {
+    const monthStarts: number[] = [];
+    let lastMonth: number | null = null;
+    for (let i = 0; i < n; i++) {
       const mo = new Date(timestamps[i]).getMonth();
-      if (mo !== lastMonth) { indices.push(i); lastMonth = mo; }
+      if (mo !== lastMonth) { monthStarts.push(i); lastMonth = mo; }
     }
-    return sampleIndices(indices, 8).map((i) => ({ label: fmtMonthShort(timestamps[i]), x: px(i) }));
+    return sampleIndices(monthStarts, 8).map((i) => ({ label: fmtMonthShort(timestamps[i]), x: px(i) }));
   }
 
-  // ── 1Y: one label every 2 months ─────────────────────────────────
+  // ── 1Y: one label every other month, month name only ─────────────
+  // Year suffix is redundant on a 1-year window (month progression already
+  // implies the year; "Dec → Jan" makes the boundary obvious). Dropping it
+  // also keeps every label to ~3 chars so they fit cleanly in 52-px cells.
+  // Slice to the latest 6 buckets so the most recent 12 months are always
+  // labeled even when monthStarts overshoots due to range padding.
   if (rangeKey === "1y") {
-    const monthBounds: number[] = [0];
-    let lastMonth = new Date(timestamps[0]).getMonth();
-    for (let i = 1; i < n; i++) {
+    const monthStarts: number[] = [];
+    let lastMonth: number | null = null;
+    for (let i = 0; i < n; i++) {
       const mo = new Date(timestamps[i]).getMonth();
-      if (mo !== lastMonth) { monthBounds.push(i); lastMonth = mo; }
+      if (mo !== lastMonth) { monthStarts.push(i); lastMonth = mo; }
     }
-    const everyOther = monthBounds.filter((_, i) => i % 2 === 0);
-    return sampleIndices(everyOther, 6).map((i) => ({ label: fmtMonthYear(timestamps[i]), x: px(i) }));
+    const everyOther = monthStarts.filter((_, i) => i % 2 === 0);
+    return everyOther.slice(-6).map((i) => ({ label: fmtMonthShort(timestamps[i]), x: px(i) }));
   }
 
-  // ── 3Y: one label per 6 months (every 6th monthly data point) ────
+  // ── 3Y: one label per (year × half-year) bucket ──────────────────
+  // Bucketing by H1/H2 of each year produces ~6 evenly-spaced labels
+  // regardless of how many monthly points the upstream returned. No
+  // trailing push so we never get the "Apr 24, Apr 24" double-label seen
+  // in the old `i += 6 + push n-1` algorithm.
   if (rangeKey === "3y") {
+    const seen = new Set<string>();
     const indices: number[] = [];
-    for (let i = 0; i < n; i += 6) indices.push(i);
-    if (indices[indices.length - 1] !== n - 1) indices.push(n - 1);
-    return sampleIndices(indices, 7).map((i) => ({ label: fmtMonthYear(timestamps[i]), x: px(i) }));
+    for (let i = 0; i < n; i++) {
+      const d = new Date(timestamps[i]);
+      const half = d.getMonth() < 6 ? "H1" : "H2";
+      const key = `${d.getFullYear()}-${half}`;
+      if (!seen.has(key)) { seen.add(key); indices.push(i); }
+    }
+    // Keep the most recent 6 buckets — drops a leading partial bucket
+    // before it can crowd the next "Jan/Jul" label of the following year.
+    return indices.slice(-6).map((i) => ({ label: fmtMonthYear(timestamps[i]), x: px(i) }));
   }
 
-  // ── 5Y: one label per calendar year ──────────────────────────────
+  // ── 5Y: one label per unique calendar year ───────────────────────
+  // Emit a label at the FIRST data point of each year and stop there —
+  // the previous algorithm's unconditional `push n-1` produced a second
+  // "2026" label right next to the real Jan-2026 boundary, which rendered
+  // as the visible "20262026" overlap on the right edge.
+  // If the data starts late in a calendar year (Q4), drop that leading
+  // year — otherwise its label crowds the next "Jan" label only ~3 months
+  // later (the same kind of overlap we just removed at the trailing edge).
   if (rangeKey === "5y") {
-    const yearBounds: number[] = [0];
-    let lastYear = new Date(timestamps[0]).getFullYear();
-    for (let i = 1; i < n; i++) {
+    const yearStartIndices: number[] = [];
+    let lastYear: number | null = null;
+    for (let i = 0; i < n; i++) {
       const yr = new Date(timestamps[i]).getFullYear();
-      if (yr !== lastYear) { yearBounds.push(i); lastYear = yr; }
+      if (yr !== lastYear) { yearStartIndices.push(i); lastYear = yr; }
     }
-    if (yearBounds[yearBounds.length - 1] !== n - 1) yearBounds.push(n - 1);
-    return sampleIndices(yearBounds, 6).map((i) => ({ label: fmtYear(timestamps[i]), x: px(i) }));
+    // Only drop the leading partial-Q4 year if there are still plenty of
+    // year labels left (>= 4 keeps a minimum of 3 labels after the shift).
+    // For unusually short 5Y payloads (e.g., a recently-listed stock) we'd
+    // rather show the slightly-crowded leading year than leave the chart
+    // with only one or two year markers.
+    if (
+      yearStartIndices.length >= 4 &&
+      new Date(timestamps[yearStartIndices[0]]).getMonth() >= 9
+    ) {
+      yearStartIndices.shift();
+    }
+    return yearStartIndices.map((i) => ({ label: fmtYear(timestamps[i]), x: px(i) }));
   }
 
   // ── Fallback: 5 evenly-spaced ─────────────────────────────────────
@@ -494,7 +534,12 @@ function InteractiveChart({ prices, timestamps, rangeKey, color, positiveColor, 
                 {
                   color: mutedColor,
                   position: "absolute",
-                  left: Math.max(0, lbl.x - 26),
+                  // Clamp into the chart's horizontal bounds so the leftmost /
+                  // rightmost labels can't overflow the SVG and get visually
+                  // pushed against neighboring ticks. Centered for middle labels;
+                  // edge clamping shifts at most ~26 px which is invisible at
+                  // these label widths.
+                  left: Math.max(0, Math.min(width - 52, lbl.x - 26)),
                   width: 52,
                   textAlign: "center",
                 },
