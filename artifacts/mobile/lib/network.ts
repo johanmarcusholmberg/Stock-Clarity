@@ -4,27 +4,35 @@ import { useEffect, useSyncExternalStore } from "react";
 import { AppState, AppStateStatus, Platform } from "react-native";
 
 /**
- * NetInfo bridge for the StockClarify app.
+ * Network bridge for the StockClarify app.
  *
  * Two responsibilities:
  *   1. Drive `useOnline()` so any component can render an offline state.
  *   2. Wire React Query's `onlineManager` so queries pause while offline
  *      and auto-resume when connectivity returns.
  *
- * Connectivity signal: we trust `isConnected` as the primary signal and
- * deliberately ignore `isInternetReachable` for two reasons:
- *   - On web, `isInternetReachable` is not actively probed by default and
- *     can lag (or never update) after the browser regains connectivity,
- *     leaving the offline banner stuck.
- *   - The captive-portal case (`isConnected: true, isInternetReachable:
- *     false`) is rare; when it happens, API failures will surface their
- *     own retry/error UI anyway.
+ * Implementation differs by platform:
  *
- * `isConnected === null` (e.g. brief boot window) is treated as online to
- * avoid flashing the banner while NetInfo seeds.
+ *   - **Web**: we listen directly to the browser's `online`/`offline`
+ *     window events and read `navigator.onLine` synchronously. We do NOT
+ *     route through NetInfo on web because:
+ *       - Its background `_internetReachability` probe fetches an external
+ *         URL (`clients3.google.com/generate_204`) that fails in sandboxed
+ *         envs and pins `isInternetReachable: false` indefinitely.
+ *       - The event delivery chain (window event → nativeHandler →
+ *         NativeEventEmitter → state machine) sometimes drops the
+ *         online-recovery event in test browsers.
+ *     The browser events are reliable and synchronous.
+ *
+ *   - **Native (iOS/Android)**: we use NetInfo, which is the right tool
+ *     for native (handles airplane mode, captive-portal style probes,
+ *     cellular vs wifi, etc).
+ *
+ * `isConnected === null` is treated as online to avoid flashing the
+ * banner during the brief boot window before the first event fires.
  */
 
-function deriveOnline(state: NetInfoState): boolean {
+function deriveOnlineFromNetInfo(state: NetInfoState): boolean {
   return state.isConnected !== false;
 }
 
@@ -43,33 +51,69 @@ export function initNetwork(): () => void {
   if (initialised) return () => {};
   initialised = true;
 
-  // Hand React Query its own subscriber so queries pause/resume.
-  onlineManager.setEventListener((setOnlineRq) => {
-    const unsub = NetInfo.addEventListener((state) => {
-      setOnlineRq(deriveOnline(state));
-    });
-    return () => unsub();
-  });
+  const cleanups: Array<() => void> = [];
 
-  // Drive our own `useOnline()` hook.
-  const detach = NetInfo.addEventListener((state) => {
-    setOnline(deriveOnline(state));
-  });
+  if (Platform.OS === "web") {
+    // Direct browser API path.
+    if (typeof window !== "undefined" && typeof navigator !== "undefined") {
+      const apply = () => {
+        const next = navigator.onLine !== false;
+        setOnline(next);
+      };
+      apply();
 
-  // Seed initial state — addEventListener doesn't fire immediately.
-  NetInfo.fetch().then((state) => setOnline(deriveOnline(state))).catch(() => {});
+      const onOnline = () => apply();
+      const onOffline = () => apply();
+      window.addEventListener("online", onOnline);
+      window.addEventListener("offline", onOffline);
+      cleanups.push(() => {
+        window.removeEventListener("online", onOnline);
+        window.removeEventListener("offline", onOffline);
+      });
 
-  // React Query refetches on app focus by default; on native we need to
-  // bridge AppState to focusManager because the web `focus` event doesn't fire.
-  const focusSub = AppState.addEventListener("change", (status: AppStateStatus) => {
-    if (Platform.OS !== "web") {
-      focusManager.setFocused(status === "active");
+      // React Query's onlineManager — feed it the same signal.
+      onlineManager.setEventListener((setOnlineRq) => {
+        const update = () => setOnlineRq(navigator.onLine !== false);
+        update();
+        window.addEventListener("online", update);
+        window.addEventListener("offline", update);
+        return () => {
+          window.removeEventListener("online", update);
+          window.removeEventListener("offline", update);
+        };
+      });
     }
-  });
+  } else {
+    // Native: NetInfo path.
+    onlineManager.setEventListener((setOnlineRq) => {
+      const unsub = NetInfo.addEventListener((state) => {
+        setOnlineRq(deriveOnlineFromNetInfo(state));
+      });
+      return () => unsub();
+    });
+
+    const detach = NetInfo.addEventListener((state) => {
+      setOnline(deriveOnlineFromNetInfo(state));
+    });
+    cleanups.push(detach);
+
+    NetInfo.fetch()
+      .then((state) => setOnline(deriveOnlineFromNetInfo(state)))
+      .catch(() => {});
+
+    // RQ refetches on app focus by default; on native we need to bridge
+    // AppState to focusManager because the web `focus` event doesn't fire.
+    const focusSub = AppState.addEventListener(
+      "change",
+      (status: AppStateStatus) => {
+        focusManager.setFocused(status === "active");
+      },
+    );
+    cleanups.push(() => focusSub.remove());
+  }
 
   return () => {
-    detach();
-    focusSub.remove();
+    for (const c of cleanups) c();
     initialised = false;
   };
 }
