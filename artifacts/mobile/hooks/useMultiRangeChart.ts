@@ -38,8 +38,15 @@ const STALE_TIMES: number[] = [
  * switching ranges is an instant view-state swap once the initial fetch
  * completes.
  */
-export function useMultiRangeChart(ticker: string | undefined) {
+export function useMultiRangeChart(
+  ticker: string | undefined,
+  options: { autoRefresh?: boolean } = {},
+) {
   const queryClient = useQueryClient();
+  // When autoRefresh is false (e.g. market closed) we mark cached data as
+  // never going stale, so TanStack Query skips background refetches and
+  // doesn't pull new stock data outside trading hours.
+  const autoRefresh = options.autoRefresh ?? true;
 
   const queries = useQueries({
     queries: CHART_RANGES.map((r, idx) => ({
@@ -58,7 +65,9 @@ export function useMultiRangeChart(ticker: string | undefined) {
         };
       },
       enabled: !!ticker,
-      staleTime: STALE_TIMES[idx],
+      staleTime: autoRefresh ? STALE_TIMES[idx] : Infinity,
+      refetchOnWindowFocus: autoRefresh,
+      refetchOnReconnect: autoRefresh,
       // Keep previous data visible while a background refetch is in-flight
       // so the chart never blanks on a stale-time-triggered refresh.
       placeholderData: (prev: RangeChartData | undefined) => prev,

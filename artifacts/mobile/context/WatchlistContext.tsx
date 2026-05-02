@@ -3,7 +3,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { useAuth } from "@clerk/expo";
 import { useUser } from "@clerk/expo";
 import { getQuotes } from "@/services/stockApi";
-import { isMarketOpen } from "@/utils/marketHours";
+import { isMarketOpenWithBuffer } from "@/utils/marketHours";
 
 import { getApiBase } from "../lib/apiBase";
 // Re-export StockEvent so components can import it from here
@@ -370,7 +370,7 @@ export function WatchlistProvider({
       const anyOpen = allTickers.some((t) => {
         const stock = stockDataRef.current[t];
         if (!stock) return false;
-        return isMarketOpen(stock.exchange || "");
+        return isMarketOpenWithBuffer(stock.exchange || "", 5);
       });
       if (anyOpen) refreshQuotes();
     }, FIFTEEN_MIN);

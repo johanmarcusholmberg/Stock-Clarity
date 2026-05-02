@@ -34,7 +34,7 @@ import { useAlerts } from "@/context/AlertsContext";
 import { PaywallSheet } from "@/components/PaywallSheet";
 import AlertSetupSheet from "@/components/AlertSetupSheet";
 import { getQuotes, getEvents, CHART_RANGES, EVENT_PERIODS, formatPrice, formatMarketCap, exchangeToFlag, type StockEvent, type EventPeriod } from "@/services/stockApi";
-import { isMarketOpen } from "@/utils/marketHours";
+import { isMarketOpen, isMarketOpenWithBuffer } from "@/utils/marketHours";
 import { previousTradingDayLabel } from "@/utils/relativeTradingDay";
 import ExpandableEventCard from "@/components/ExpandableEventCard";
 import ReportSummary from "@/components/ReportSummary";
@@ -333,13 +333,12 @@ function InteractiveChart({ prices, timestamps, rangeKey, color, positiveColor, 
   const crosshairY = touchIndex !== null ? toSvgY(displayValues[touchIndex]) : null;
   const crosshairVal = touchIndex !== null ? displayValues[touchIndex] : null;
 
-  // Direction-based crosshair color: green if going up from previous point, red if down
-  const hoverDirColor = useMemo(() => {
-    if (touchIndex === null || !displayValues.length) return color;
-    const curr = displayValues[touchIndex];
-    const prev = touchIndex > 0 ? displayValues[touchIndex - 1] : displayValues[touchIndex];
-    return curr >= prev ? positiveColor : negativeColor;
-  }, [touchIndex, displayValues, positiveColor, negativeColor, color]);
+  // Crosshair stays the chart's neutral muted color regardless of direction —
+  // the hover tooltip is a read-out, not a directional signal, so it shouldn't
+  // flip between green and red as the finger moves across the line.
+  // (positiveColor/negativeColor kept in props for future use.)
+  void positiveColor; void negativeColor; void color;
+  const hoverDirColor = mutedColor;
 
   const panResponder = useMemo(
     () =>
@@ -509,7 +508,9 @@ function InteractiveChart({ prices, timestamps, rangeKey, color, positiveColor, 
 const chartStyles = StyleSheet.create({
   tooltip: {
     position: "absolute",
-    top: -28,
+    // Sits inside the chart area near the top instead of floating above it,
+    // so the read-out never overlaps the range / mode toggles above the chart.
+    top: 4,
     borderRadius: 8,
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -545,8 +546,11 @@ export default function StockDetailScreen() {
   } = useSubscription();
 
   const [liveQuote, setLiveQuote] = useState<any>(null);
-  // All chart ranges fetched in parallel via TanStack Query
-  const chart = useMultiRangeChart(ticker);
+  // All chart ranges fetched in parallel via TanStack Query.
+  // autoRefresh is wired to market hours below — when the market is closed
+  // (with a 5 min buffer on each side) we don't pull new stock data.
+  const [marketAutoRefresh, setMarketAutoRefresh] = useState(false);
+  const chart = useMultiRangeChart(ticker, { autoRefresh: marketAutoRefresh });
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState(false);
   const [chartMode, setChartMode] = useState<ChartMode>("price");
@@ -587,6 +591,22 @@ export default function StockDetailScreen() {
 
   const cachedStock = stocks[ticker ?? ""];
   const inAnyFolder = isInWatchlist(ticker ?? "");
+
+  // ── Market hours (with 5 min buffer) ───────────────────────────────
+  // Used to gate auto-refresh, manual refresh, and pull-to-refresh — we
+  // don't pull new stock data when the exchange is closed.  Re-evaluated
+  // on the 10s tickMs heartbeat so it flips at open/close time.
+  const marketOpenBuffered = useMemo(() => {
+    const exch =
+      liveQuote?.exchange ?? liveQuote?.fullExchangeName ?? cachedStock?.exchange ?? "";
+    return exch ? isMarketOpenWithBuffer(exch, 5) : false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveQuote?.exchange, liveQuote?.fullExchangeName, cachedStock?.exchange, tickMs]);
+
+  // Sync the chart hook's autoRefresh flag with the buffered market state.
+  useEffect(() => {
+    setMarketAutoRefresh(marketOpenBuffered);
+  }, [marketOpenBuffered]);
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const chartWidth = SCREEN_WIDTH - 32;
@@ -654,12 +674,18 @@ export default function StockDetailScreen() {
     }
   }, [ticker, updateStockQuote]);
 
+  // Skip the per-range-switch quote refetch when the market is closed and we
+  // already have a cached quote — there's nothing new to fetch outside trading
+  // hours, so no point hitting the data provider.
+  const liveQuoteRef = useRef<any>(null);
+  useEffect(() => { liveQuoteRef.current = liveQuote; }, [liveQuote]);
   useEffect(() => {
     if (!ticker) return;
+    if (!marketOpenBuffered && liveQuoteRef.current) return;
     getQuotes([ticker]).then((quotes) => {
       if (quotes[0]) applyQuote(quotes[0]);
     }).catch(() => {});
-  }, [selectedRange, ticker, applyQuote]);
+  }, [selectedRange, ticker, applyQuote, marketOpenBuffered]);
 
   // Manual refresh (Pro/Premium only): cancels any in-flight chart fetches,
   // bypasses the server-side chart cache via fresh=1, and populates the cache
@@ -667,7 +693,7 @@ export default function StockDetailScreen() {
   // 5 min (Pro) / 1 min (Premium). On error the cooldown timestamp is rolled
   // back so the user can retry immediately.
   const handleManualRefresh = useCallback(async () => {
-    if (isOnCooldown || refreshing || !ticker) return;
+    if (isOnCooldown || refreshing || !ticker || !marketOpenBuffered) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     console.log(`[stock-detail] manual refresh tapped for ${ticker}`);
     setRefreshing(true);
@@ -695,20 +721,22 @@ export default function StockDetailScreen() {
     } finally {
       setRefreshing(false);
     }
-  }, [isOnCooldown, refreshing, ticker, chart, applyQuote]);
+  }, [isOnCooldown, refreshing, ticker, chart, applyQuote, marketOpenBuffered]);
 
   // Pull-to-refresh: fetches a fresh quote so the hero price updates.
   // Does NOT invalidate chart queries or trigger the cooldown — that's
   // reserved for the manual refresh button (Pro/Premium).
   const handlePullRefresh = useCallback(async () => {
     if (!ticker) return;
+    // Don't pull new stock data when the market is closed (with 5 min buffer).
+    if (!marketOpenBuffered) return;
     setPullRefreshing(true);
     try {
       const quotes = await getQuotes([ticker]);
       if (quotes[0]) applyQuote(quotes[0]);
     } catch {}
     setPullRefreshing(false);
-  }, [ticker, applyQuote]);
+  }, [ticker, applyQuote, marketOpenBuffered]);
 
   // Load events (news with AI summaries).
   // Cache: AsyncStorage with TTL matching the backend (day=20min, week=4h,
@@ -746,6 +774,9 @@ export default function StockDetailScreen() {
     const exch = liveQuote?.exchange ?? liveQuote?.fullExchangeName ?? exchange;
     return exch ? isMarketOpen(exch) : false;
   }, [liveQuote?.exchange, liveQuote?.fullExchangeName, exchange]);
+
+  // marketOpenBuffered is defined further up (right after liveQuote) so the
+  // refresh callbacks can depend on it.
 
   // Label under the PREV CLOSE card. Maps the previous trading day to a
   // relative name ("Yesterday", "Friday", "Thursday, 17 Apr") so Monday
@@ -1077,51 +1108,64 @@ export default function StockDetailScreen() {
 
           {/* ── Manual refresh ── */}
           <View style={{ paddingHorizontal: 16, paddingBottom: 14, paddingTop: 4 }}>
-            {/* Freshness label — shows when the currently displayed data was received */}
-            {chart.lastUpdatedAt[selectedRange] ? (
-              <Text style={[styles.updatedAtNote, { color: colors.mutedForeground }]}>
-                {fmtUpdatedAt(chart.lastUpdatedAt[selectedRange], tickMs)}
-              </Text>
-            ) : null}
+            {/* Freshness label — show the most recent fetch time across ALL
+                ranges so the text is consistent regardless of which range tab
+                the user has selected (1D vs 1Y showed wildly different times
+                because each range has its own stale-time / fetch cadence). */}
+            {(() => {
+              const all = Object.values(chart.lastUpdatedAt).filter(
+                (v): v is number => typeof v === "number" && v > 0,
+              );
+              const latest = all.length ? Math.max(...all) : null;
+              return latest ? (
+                <Text style={[styles.updatedAtNote, { color: colors.mutedForeground }]}>
+                  {fmtUpdatedAt(latest, tickMs)}
+                </Text>
+              ) : null;
+            })()}
             {/* Free tier: info text */}
             {tier === "free" && (
               <Text style={[styles.autoUpdateNote, { color: colors.mutedForeground }]}>
                 Auto-updates every 15 min · Upgrade to Pro or Premium for manual refresh
               </Text>
             )}
-            {/* Pro / Premium: refresh button */}
+            {/* Pro / Premium: refresh button.  Disabled while the market is
+                closed (with 5 min buffer) — there's no fresh data to fetch
+                outside trading hours. */}
             {(tier === "pro" || tier === "premium") && (
               <TouchableOpacity
                 onPress={handleManualRefresh}
-                disabled={isOnCooldown || refreshing}
+                disabled={isOnCooldown || refreshing || !marketOpenBuffered}
                 style={[
                   styles.refreshButton,
                   {
-                    backgroundColor: (isOnCooldown || refreshing) ? colors.secondary : refreshError ? `${colors.negative}14` : `${colors.primary}18`,
-                    borderColor: (isOnCooldown || refreshing) ? colors.border : refreshError ? `${colors.negative}40` : `${colors.primary}44`,
+                    backgroundColor: (isOnCooldown || refreshing || !marketOpenBuffered) ? colors.secondary : refreshError ? `${colors.negative}14` : `${colors.primary}18`,
+                    borderColor: (isOnCooldown || refreshing || !marketOpenBuffered) ? colors.border : refreshError ? `${colors.negative}40` : `${colors.primary}44`,
                   },
                 ]}
               >
                 <Feather
                   name="refresh-cw"
                   size={13}
-                  color={(isOnCooldown || refreshing) ? colors.mutedForeground : refreshError ? colors.negative : colors.primary}
+                  color={(isOnCooldown || refreshing || !marketOpenBuffered) ? colors.mutedForeground : refreshError ? colors.negative : colors.primary}
                 />
-                <Text style={[styles.refreshButtonText, { color: (isOnCooldown || refreshing) ? colors.mutedForeground : refreshError ? colors.negative : colors.primary }]}>
+                <Text style={[styles.refreshButtonText, { color: (isOnCooldown || refreshing || !marketOpenBuffered) ? colors.mutedForeground : refreshError ? colors.negative : colors.primary }]}>
                   {refreshing
                     ? "Refreshing all data…"
                     : refreshError
                     ? "Refresh failed — try again"
+                    : !marketOpenBuffered
+                    ? "Market closed — refresh disabled"
                     : isOnCooldown
                     ? `Refreshes in ${cooldownMin} min`
                     : "Refresh Stock"}
                 </Text>
-                {!refreshing && !refreshError && !isOnCooldown && tier === "pro" && (
+                {!refreshing && !refreshError && !isOnCooldown && marketOpenBuffered && tier === "pro" && (
                   <View style={[styles.tierChip, { backgroundColor: colors.warning + "22" }]}>
                     <Text style={[styles.tierChipText, { color: colors.warning }]}>PRO</Text>
                   </View>
                 )}
-                {!refreshing && !refreshError && !isOnCooldown && tier === "premium" && (
+                {!refreshing && !refreshError && !isOnCooldown && marketOpenBuffered && tier === "premium" && (
                   <View style={[styles.tierChip, { backgroundColor: colors.positive + "22" }]}>
                     <Text style={[styles.tierChipText, { color: colors.positive }]}>PREMIUM</Text>
                   </View>

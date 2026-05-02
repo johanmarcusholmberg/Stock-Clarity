@@ -158,6 +158,14 @@ function localTime(timezone: string): { hour: number; min: number; weekday: numb
 
 /** Returns true if the stock's exchange is currently open for trading. */
 export function isMarketOpen(exchangeRaw: string): boolean {
+  return isMarketOpenWithBuffer(exchangeRaw, 0);
+}
+
+/** Returns true if the stock's exchange is open, optionally widening the
+ * open window by `bufferMin` minutes on both sides.  This lets data refresh
+ * a few minutes before the bell and a few minutes after the close, so
+ * end-of-session prints aren't missed. */
+export function isMarketOpenWithBuffer(exchangeRaw: string, bufferMin: number): boolean {
   const key = normaliseExchange(exchangeRaw);
   const sched = SCHEDULES[key] ?? SCHEDULES["DEFAULT"];
   const { hour, min, weekday } = localTime(sched.timezone);
@@ -165,8 +173,8 @@ export function isMarketOpen(exchangeRaw: string): boolean {
   if (weekday === 0 || weekday === 6) return false;
 
   const nowMins   = hour * 60 + min;
-  const openMins  = sched.openHour * 60 + sched.openMin;
-  const closeMins = sched.closeHour * 60 + sched.closeMin;
+  const openMins  = sched.openHour * 60 + sched.openMin - bufferMin;
+  const closeMins = sched.closeHour * 60 + sched.closeMin + bufferMin;
   return nowMins >= openMins && nowMins < closeMins;
 }
 
