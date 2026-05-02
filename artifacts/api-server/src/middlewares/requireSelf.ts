@@ -31,6 +31,28 @@ import { logger } from "../lib/logger";
 const ENFORCE_NO_SESSION =
   (process.env.AUTH_ENFORCE_SELF ?? "true").toLowerCase() !== "false";
 
+// Default resolver: read the verified Clerk session off the request. Wrapped
+// in try/catch because `getAuth` throws if `clerkMiddleware` hasn't run on
+// this request (e.g. mounted before the middleware chain reached it). In
+// that case we treat it as "no session" rather than a 500.
+const defaultSessionResolver = (req: Request): string | null => {
+  try {
+    return getAuth(req)?.userId ?? null;
+  } catch {
+    return null;
+  }
+};
+
+// Test seam: tests replace this with a stub via `__setSessionResolver` so
+// they can drive the auth-matrix branches without standing up a full Clerk
+// session. Production code never touches this.
+let sessionResolver: (req: Request) => string | null = defaultSessionResolver;
+export function __setSessionResolver(
+  fn: ((req: Request) => string | null) | null,
+): void {
+  sessionResolver = fn ?? defaultSessionResolver;
+}
+
 function pickTargetUserId(req: Request): string | null {
   const fromParams = (req.params as Record<string, unknown> | undefined)?.userId;
   if (typeof fromParams === "string" && fromParams) return fromParams;
@@ -57,12 +79,7 @@ export const requireSelf: RequestHandler<any, any, any, any> = (
     return;
   }
 
-  let sessionUserId: string | null = null;
-  try {
-    sessionUserId = getAuth(req as Request)?.userId ?? null;
-  } catch {
-    sessionUserId = null;
-  }
+  const sessionUserId = sessionResolver(req as Request);
 
   if (!sessionUserId) {
     if (ENFORCE_NO_SESSION) {

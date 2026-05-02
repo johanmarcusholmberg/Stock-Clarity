@@ -166,9 +166,47 @@ const writeLimiter = rateLimit({
   standardHeaders: "draft-7",
   legacyHeaders: false,
 });
+// AI-summary endpoints are by far our most expensive per-request cost
+// (LLM tokens). Cap aggressively; legit users only call these on demand.
+const aiLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 10,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+});
+// Skip GETs so dashboard reads aren't throttled by write limits.
+const writesOnly = (req: express.Request) => req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS";
+const writeLimiterPostOnly = rateLimit({
+  windowMs: 60_000,
+  limit: 20,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  skip: writesOnly,
+});
+
 app.use("/api", baselineLimiter);
+// Cheap, high-volume reads — keep at expensive (30/min) since stocks/news
+// hit upstream APIs we don't want to fan out.
 app.use("/api/stocks", expensiveLimiter);
 app.use("/api/news", expensiveLimiter);
+// LLM-cost endpoints — tightest of all.
+app.use("/api/reports", aiLimiter);
+// Signed-URL minting: don't let anyone burn through HMAC ops.
+app.use("/api/export/sign", writeLimiter);
+// Subscription / billing surface — writes only, GETs (subscription state
+// reads) stay on baseline.
+app.use("/api/payment", writeLimiterPostOnly);
+// User-mutating CRUD — writes only.
+app.use("/api/holdings", writeLimiterPostOnly);
+app.use("/api/watchlist", writeLimiterPostOnly);
+app.use("/api/alerts", writeLimiterPostOnly);
+app.use("/api/notifications", writeLimiterPostOnly);
+app.use("/api/notify", writeLimiterPostOnly);
+app.use("/api/push-tokens", writeLimiterPostOnly);
+// Anonymous-friendly write endpoints — looser cap, but still capped to
+// stop one bad client from spamming the analytics table.
+app.use("/api/analytics", expensiveLimiter);
+// Existing tight caps.
 app.use("/api/feedback", writeLimiter);
 app.use("/api/account", writeLimiter);
 app.use("/api/auth", writeLimiter);
