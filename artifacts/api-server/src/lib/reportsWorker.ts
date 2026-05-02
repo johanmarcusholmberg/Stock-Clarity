@@ -43,14 +43,6 @@ async function subscribersFor(symbol: string): Promise<
   );
 }
 
-async function alreadySeen(symbol: string, accession: string): Promise<boolean> {
-  const row = await queryOne<{ accession: string }>(
-    `SELECT accession FROM report_filings_seen WHERE symbol = $1 AND accession = $2`,
-    [symbol, accession],
-  );
-  return !!row;
-}
-
 async function recordSeen(symbol: string, f: Filing): Promise<void> {
   await execute(
     `INSERT INTO report_filings_seen (symbol, accession, type, filed_at)
@@ -58,6 +50,20 @@ async function recordSeen(symbol: string, f: Filing): Promise<void> {
      ON CONFLICT (symbol, accession) DO NOTHING`,
     [symbol, f.accessionNumber, f.type, f.filedAt],
   );
+}
+
+// Atomic claim: returns true only if THIS call was the one that actually
+// inserted the row. Race-safe across multiple worker instances — only one
+// caller wins the INSERT, so only one caller fans out notifications.
+async function claimFiling(symbol: string, f: Filing): Promise<boolean> {
+  const row = await queryOne<{ accession: string }>(
+    `INSERT INTO report_filings_seen (symbol, accession, type, filed_at)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (symbol, accession) DO NOTHING
+     RETURNING accession`,
+    [symbol, f.accessionNumber, f.type, f.filedAt],
+  );
+  return !!row;
 }
 
 async function isSymbolSeeded(symbol: string): Promise<boolean> {
@@ -136,11 +142,16 @@ async function processSymbol(symbol: string): Promise<void> {
     return;
   }
 
-  for (const filing of filings) {
-    if (await alreadySeen(symbol, filing.accessionNumber)) continue;
-    await recordSeen(symbol, filing);
+  // Only fetch subscribers once per symbol-tick (they don't change mid-loop).
+  let subs: Array<{ user_id: string; delivery_channel: "push" | "email" | "both" }> | null = null;
 
-    const subs = await subscribersFor(symbol);
+  for (const filing of filings) {
+    // Atomic claim — only the worker that wins the INSERT notifies. This
+    // prevents double-fan-out when multiple instances run concurrently.
+    const claimed = await claimFiling(symbol, filing);
+    if (!claimed) continue;
+
+    if (!subs) subs = await subscribersFor(symbol);
     for (const s of subs) {
       try {
         if (s.delivery_channel === "push" || s.delivery_channel === "both") {

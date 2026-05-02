@@ -1253,6 +1253,9 @@ export default function StockDetailScreen() {
           ))}
         </View>
 
+        {/* ── SEC Reports launcher ── */}
+        {ticker ? <ReportSummary ticker={ticker} /> : null}
+
         {/* ── AI News Section ── */}
         <View style={[styles.section, { paddingHorizontal: 16 }]}>
           <View style={styles.sectionHeaderRow}>
@@ -1342,8 +1345,6 @@ export default function StockDetailScreen() {
           )}
         </View>
 
-        {/* ── Reports (10-K / 10-Q) ── */}
-        {ticker ? <ReportSummary ticker={ticker} /> : null}
       </ScrollView>
 
       {/* ── Folder Picker Sheet ── */}

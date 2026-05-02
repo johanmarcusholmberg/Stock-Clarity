@@ -1,12 +1,11 @@
 import { Feather } from "@expo/vector-icons";
-import { useAuth } from "@clerk/clerk-expo";
+import { useAuth } from "@clerk/expo";
 import * as Haptics from "expo-haptics";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
   Modal,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,180 +14,307 @@ import {
 } from "react-native";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription } from "@/context/SubscriptionContext";
+import { PaywallSheet } from "@/components/PaywallSheet";
 import {
-  getReportFilings,
-  getReportSummary,
-  getReportSubscription,
-  setReportSubscription,
   deleteReportSubscription,
+  getReportFilings,
+  getReportSubscription,
+  getReportSummary,
   PremiumRequiredError,
+  setReportSubscription,
   type Filing,
   type SummaryResponse,
 } from "@/services/stockApi";
 
 interface Props {
   ticker: string;
-  onUpgradeRequired?: () => void;
 }
 
 function formatDate(iso: string): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 }
 
-function yearOf(iso: string): number | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.getUTCFullYear();
+function yearOf(filing: Filing): number {
+  const src = filing.reportDate || filing.filedAt;
+  const y = src ? Number(src.slice(0, 4)) : NaN;
+  return Number.isFinite(y) ? y : 0;
 }
 
-interface FilingsByYear {
-  years: number[];
-  groups: Map<number, Filing[]>;
-  latestYear: number | null;
-}
-
-function groupFilingsByYear(filings: Filing[]): FilingsByYear {
-  const groups = new Map<number, Filing[]>();
-  for (const f of filings) {
-    const y = yearOf(f.reportDate) ?? yearOf(f.filedAt);
-    if (y == null) continue;
-    if (!groups.has(y)) groups.set(y, []);
-    groups.get(y)!.push(f);
-  }
-  for (const list of groups.values()) {
-    list.sort((a, b) => {
-      // Annual first, then by report date desc
-      if (a.type !== b.type) return a.type === "10-K" ? -1 : 1;
-      return (b.reportDate || b.filedAt).localeCompare(a.reportDate || a.filedAt);
-    });
-  }
-  const years = Array.from(groups.keys()).sort((a, b) => b - a);
-  return { years, groups, latestYear: years[0] ?? null };
-}
-
-export default function ReportSummary({ ticker, onUpgradeRequired }: Props) {
+// Compact one-row launcher rendered inline in the stock page. Tapping it opens
+// the full reports modal (filings list, year selector, premium-gated AI
+// summary, side-by-side compare, subscribe-to-new-filings toggle).
+export default function ReportSummary({ ticker }: Props) {
   const colors = useColors();
   const { tier } = useSubscription();
-  const { userId } = useAuth();
   const isPremium = tier === "premium";
+  const { userId } = useAuth();
 
   const [open, setOpen] = useState(false);
   const [filings, setFilings] = useState<Filing[]>([]);
   const [filingsLoading, setFilingsLoading] = useState(false);
   const [filingsError, setFilingsError] = useState<string | null>(null);
-  const [selectedYear, setSelectedYear] = useState<number | null>(null);
-
-  // Per-accession summary cache so flipping between filings is instant
-  // after first generation.
-  const [summaries, setSummaries] = useState<Record<string, SummaryResponse>>({});
-  const [activeAccession, setActiveAccession] = useState<string | null>(null);
-  const [summaryLoading, setSummaryLoading] = useState(false);
-  const [summaryError, setSummaryError] = useState<string | null>(null);
-
-  // Compare mode: pick exactly two filings to view side-by-side.
-  const [compareMode, setCompareMode] = useState(false);
-  const [compareSelection, setCompareSelection] = useState<string[]>([]);
-  const [compareLoading, setCompareLoading] = useState(false);
-
-  // Notification subscription state for this ticker.
+  const [latestType, setLatestType] = useState<string | null>(null);
+  const [latestDate, setLatestDate] = useState<string | null>(null);
   const [subscribed, setSubscribed] = useState(false);
-  const [subToggling, setSubToggling] = useState(false);
+  const [subscribing, setSubscribing] = useState(false);
+  const [paywallOpen, setPaywallOpen] = useState(false);
 
-  // Lazy-load filings + subscription on first open.
+  // Pre-load only the latest-filing summary line for the inline row.
   useEffect(() => {
-    if (!open) return;
     let cancelled = false;
-    setFilingsLoading(true);
     setFilingsError(null);
     getReportFilings(ticker)
       .then((rows) => {
         if (cancelled) return;
-        setFilings(rows);
-        const g = groupFilingsByYear(rows);
-        setSelectedYear(g.latestYear);
+        if (rows.length) {
+          setLatestType(rows[0].type);
+          setLatestDate(rows[0].reportDate || rows[0].filedAt);
+        }
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        const message = err instanceof Error ? err.message : "Failed to load filings";
-        setFilingsError(message);
-        setFilings([]);
-      })
-      .finally(() => {
-        if (!cancelled) setFilingsLoading(false);
+        setFilingsError(err instanceof Error ? err.message : "Failed to load filings");
       });
     return () => {
       cancelled = true;
     };
-  }, [open, ticker]);
+  }, [ticker]);
 
+  // When the modal opens, ensure full filings list is loaded and refresh
+  // the user's subscription state for this ticker.
+  const ensureLoaded = useCallback(async () => {
+    if (!filings.length && !filingsLoading) {
+      setFilingsLoading(true);
+      setFilingsError(null);
+      try {
+        const rows = await getReportFilings(ticker);
+        setFilings(rows);
+      } catch (err) {
+        setFilingsError(err instanceof Error ? err.message : "Failed to load filings");
+      } finally {
+        setFilingsLoading(false);
+      }
+    }
+    if (userId) {
+      try {
+        const sub = await getReportSubscription(userId, ticker);
+        setSubscribed(!!sub);
+      } catch {
+        // non-fatal
+      }
+    }
+  }, [ticker, filings.length, filingsLoading, userId]);
+
+  const handleOpen = useCallback(() => {
+    Haptics.selectionAsync();
+    setOpen(true);
+    ensureLoaded();
+  }, [ensureLoaded]);
+
+  const toggleSubscription = useCallback(async () => {
+    if (!userId || subscribing) return;
+    setSubscribing(true);
+    try {
+      if (subscribed) {
+        await deleteReportSubscription(userId, ticker);
+        setSubscribed(false);
+      } else {
+        await setReportSubscription(userId, ticker, "push");
+        setSubscribed(true);
+      }
+    } catch (e) {
+      // swallow — small UI affordance, retry on next tap
+    } finally {
+      setSubscribing(false);
+    }
+  }, [userId, subscribed, subscribing, ticker]);
+
+  return (
+    <>
+      <View style={[styles.section, { paddingHorizontal: 16 }]}>
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={handleOpen}
+          style={[styles.launcher, { backgroundColor: colors.card, borderColor: colors.border }]}
+          accessibilityLabel="Open SEC filings & reports"
+        >
+          <View style={[styles.iconCircle, { backgroundColor: `${colors.primary}1F` }]}>
+            <Feather name="file-text" size={16} color={colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.launcherTitle, { color: colors.foreground }]}>SEC Reports</Text>
+            <Text
+              style={[styles.launcherSub, { color: colors.mutedForeground }]}
+              numberOfLines={1}
+            >
+              {filingsError
+                ? filingsError
+                : latestType && latestDate
+                  ? `Latest ${latestType} · ${formatDate(latestDate)}`
+                  : "10-K & 10-Q filings with AI summaries"}
+            </Text>
+          </View>
+          {!isPremium && (
+            <View style={[styles.premiumPill, { borderColor: `${colors.primary}66`, backgroundColor: `${colors.primary}14` }]}>
+              <Feather name="zap" size={10} color={colors.primary} />
+              <Text style={[styles.premiumPillText, { color: colors.primary }]}>Premium</Text>
+            </View>
+          )}
+          <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+        </TouchableOpacity>
+      </View>
+
+      <ReportsModal
+        visible={open}
+        onClose={() => setOpen(false)}
+        ticker={ticker}
+        filings={filings}
+        filingsLoading={filingsLoading}
+        filingsError={filingsError}
+        isPremium={isPremium}
+        userId={userId ?? null}
+        subscribed={subscribed}
+        subscribing={subscribing}
+        onToggleSubscription={toggleSubscription}
+        onNeedPremium={() => setPaywallOpen(true)}
+      />
+
+      <PaywallSheet
+        visible={paywallOpen}
+        onClose={() => setPaywallOpen(false)}
+        triggerReason="general"
+        currentTier={tier}
+      />
+    </>
+  );
+}
+
+// ── Modal ───────────────────────────────────────────────────────────────────
+interface ModalProps {
+  visible: boolean;
+  onClose: () => void;
+  ticker: string;
+  filings: Filing[];
+  filingsLoading: boolean;
+  filingsError: string | null;
+  isPremium: boolean;
+  userId: string | null;
+  subscribed: boolean;
+  subscribing: boolean;
+  onToggleSubscription: () => void;
+  onNeedPremium: () => void;
+}
+
+type ViewMode = "list" | "summary" | "compare";
+
+function ReportsModal({
+  visible,
+  onClose,
+  ticker,
+  filings,
+  filingsLoading,
+  filingsError,
+  isPremium,
+  userId,
+  subscribed,
+  subscribing,
+  onToggleSubscription,
+  onNeedPremium,
+}: ModalProps) {
+  const colors = useColors();
+
+  // Group filings by year, defaulting selection to the most recent year.
+  // Annual (10-K) rows are surfaced first within each year.
+  const byYear = useMemo(() => {
+    const m = new Map<number, Filing[]>();
+    for (const f of filings) {
+      const y = yearOf(f);
+      const arr = m.get(y) ?? [];
+      arr.push(f);
+      m.set(y, arr);
+    }
+    for (const arr of m.values()) {
+      arr.sort((a, b) => {
+        if (a.type !== b.type) return a.type === "10-K" ? -1 : 1;
+        return (b.filedAt ?? "").localeCompare(a.filedAt ?? "");
+      });
+    }
+    return m;
+  }, [filings]);
+
+  const years = useMemo(
+    () => Array.from(byYear.keys()).sort((a, b) => b - a),
+    [byYear],
+  );
+
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  // Reset to the most recent year whenever the available year set changes
+  // (new ticker or fresh filings). Without this, `selectedYear` could point
+  // at a year that no longer exists in `byYear` and render an empty list.
   useEffect(() => {
-    if (!open || !userId) return;
-    let cancelled = false;
-    getReportSubscription(userId, ticker)
-      .then((sub) => {
-        if (!cancelled) setSubscribed(!!sub);
-      })
-      .catch(() => {
-        /* non-fatal */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, ticker, userId]);
+    if (!years.length) {
+      setSelectedYear(null);
+      return;
+    }
+    setSelectedYear((prev) => (prev && years.includes(prev) ? prev : years[0]));
+  }, [years]);
 
-  const grouped = useMemo(() => groupFilingsByYear(filings), [filings]);
+  const [mode, setMode] = useState<ViewMode>("list");
+  const [activeAccession, setActiveAccession] = useState<string | null>(null);
+  const [compareSelection, setCompareSelection] = useState<string[]>([]);
 
-  const handleClose = useCallback(() => {
-    setOpen(false);
-    setCompareMode(false);
-    setCompareSelection([]);
+  // Summary state — one for "summary" mode, two for "compare".
+  const [summary, setSummary] = useState<SummaryResponse | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [compareSummaries, setCompareSummaries] = useState<
+    [SummaryResponse | null, SummaryResponse | null]
+  >([null, null]);
+  const [compareLoading, setCompareLoading] = useState(false);
+  const [compareError, setCompareError] = useState<string | null>(null);
+
+  const resetSummary = useCallback(() => {
+    setSummary(null);
     setSummaryError(null);
+    setActiveAccession(null);
   }, []);
 
-  const handleSummarize = useCallback(
+  const fetchSummary = useCallback(
     async (filing: Filing) => {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      const cached = summaries[filing.accessionNumber];
-      if (cached) {
-        setActiveAccession(filing.accessionNumber);
-        setSummaryError(null);
-        return;
-      }
       if (!isPremium) {
-        onUpgradeRequired?.();
-        setSummaryError("AI report summaries are a Premium feature.");
+        onNeedPremium();
         return;
       }
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setMode("summary");
       setActiveAccession(filing.accessionNumber);
+      setSummary(null);
       setSummaryError(null);
       setSummaryLoading(true);
       try {
-        const data = await getReportSummary(ticker, filing.accessionNumber, userId ?? undefined);
-        setSummaries((prev) => ({ ...prev, [filing.accessionNumber]: data }));
+        const data = await getReportSummary(ticker, filing.accessionNumber, userId);
+        setSummary(data);
       } catch (err: unknown) {
         if (err instanceof PremiumRequiredError) {
-          onUpgradeRequired?.();
-          setSummaryError("AI report summaries are a Premium feature.");
+          onNeedPremium();
+          setMode("list");
+          setActiveAccession(null);
         } else {
           const message = err instanceof Error ? err.message : "Failed to summarize report";
-          const isApiKeyMissing = message.includes("ANTHROPIC_API_KEY") || message === "HTTP 503";
+          const apiKeyMissing =
+            message.includes("ANTHROPIC_API_KEY") || message === "HTTP 503";
           setSummaryError(
-            isApiKeyMissing ? "AI summaries unavailable — contact the admin" : message,
+            apiKeyMissing ? "AI summaries unavailable — contact the admin" : message,
           );
         }
       } finally {
         setSummaryLoading(false);
       }
     },
-    [summaries, isPremium, ticker, userId, onUpgradeRequired],
+    [ticker, isPremium, userId, onNeedPremium],
   );
 
   const toggleCompareSelection = useCallback((accession: string) => {
@@ -199,642 +325,544 @@ export default function ReportSummary({ ticker, onUpgradeRequired }: Props) {
     });
   }, []);
 
-  const handleRunCompare = useCallback(async () => {
-    if (compareSelection.length !== 2) return;
+  const runCompare = useCallback(async () => {
     if (!isPremium) {
-      onUpgradeRequired?.();
+      onNeedPremium();
       return;
     }
+    if (compareSelection.length !== 2) return;
+    setMode("compare");
     setCompareLoading(true);
-    setSummaryError(null);
+    setCompareError(null);
+    setCompareSummaries([null, null]);
     try {
-      for (const acc of compareSelection) {
-        if (summaries[acc]) continue;
-        const data = await getReportSummary(ticker, acc, userId ?? undefined);
-        setSummaries((prev) => ({ ...prev, [acc]: data }));
-      }
+      const [a, b] = await Promise.all([
+        getReportSummary(ticker, compareSelection[0], userId),
+        getReportSummary(ticker, compareSelection[1], userId),
+      ]);
+      setCompareSummaries([a, b]);
     } catch (err: unknown) {
       if (err instanceof PremiumRequiredError) {
-        onUpgradeRequired?.();
-        setSummaryError("AI report summaries are a Premium feature.");
+        onNeedPremium();
+        setMode("list");
       } else {
-        const message = err instanceof Error ? err.message : "Compare failed";
-        setSummaryError(message);
+        setCompareError(err instanceof Error ? err.message : "Comparison failed");
       }
     } finally {
       setCompareLoading(false);
     }
-  }, [compareSelection, summaries, isPremium, ticker, userId, onUpgradeRequired]);
+  }, [compareSelection, ticker, isPremium, userId, onNeedPremium]);
 
-  const handleToggleSubscription = useCallback(async () => {
-    if (!userId) return;
-    setSubToggling(true);
-    try {
-      if (subscribed) {
-        await deleteReportSubscription(userId, ticker);
-        setSubscribed(false);
-      } else {
-        await setReportSubscription(userId, ticker, "push");
-        setSubscribed(true);
-      }
-      Haptics.selectionAsync().catch(() => {});
-    } catch {
-      /* surface? swallow for now */
-    } finally {
-      setSubToggling(false);
-    }
-  }, [userId, subscribed, ticker]);
-
-  const activeSummary = activeAccession ? summaries[activeAccession] ?? null : null;
-
-  const yearFilings: Filing[] = selectedYear != null
-    ? grouped.groups.get(selectedYear) ?? []
-    : [];
-
-  const compareFilings = useMemo(() => {
-    return compareSelection
-      .map((acc) => filings.find((f) => f.accessionNumber === acc))
-      .filter((f): f is Filing => !!f);
-  }, [compareSelection, filings]);
+  const visibleFilings = selectedYear ? (byYear.get(selectedYear) ?? []) : [];
+  const inCompareMode = mode === "list" && compareSelection.length > 0;
 
   return (
-    <>
-      {/* Collapsed row — what shows on the stock page itself. */}
-      <View style={[styles.rowWrap, { paddingHorizontal: 16 }]}>
-        <Pressable
-          onPress={() => {
-            Haptics.selectionAsync().catch(() => {});
-            setOpen(true);
-          }}
-          style={({ pressed }) => [
-            styles.row,
-            {
-              backgroundColor: colors.card,
-              borderColor: colors.border,
-              opacity: pressed ? 0.85 : 1,
-            },
-          ]}
-        >
-          <View style={[styles.rowIcon, { backgroundColor: `${colors.primary}1F` }]}>
-            <Feather name="file-text" size={18} color={colors.primary} />
-          </View>
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose} presentationStyle="pageSheet">
+      <View style={[styles.modalRoot, { backgroundColor: colors.background }]}>
+        {/* Header */}
+        <View style={[styles.modalHeader, { borderColor: colors.border }]}>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.rowTitle, { color: colors.foreground }]}>
-              SEC Reports
+            <Text style={[styles.modalTitle, { color: colors.foreground }]}>
+              {ticker} Reports
             </Text>
-            <Text style={[styles.rowSubtitle, { color: colors.mutedForeground }]}>
-              10-K & 10-Q filings · AI summaries · {isPremium ? "included" : "Premium"}
+            <Text style={[styles.modalSubtitle, { color: colors.mutedForeground }]}>
+              SEC 10-K & 10-Q with AI executive summaries
             </Text>
           </View>
-          <Feather name="chevron-right" size={20} color={colors.mutedForeground} />
-        </Pressable>
-      </View>
-
-      <Modal
-        visible={open}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={handleClose}
-      >
-        <View style={[styles.modalRoot, { backgroundColor: colors.background }]}>
-          {/* Header */}
-          <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
-            <TouchableOpacity onPress={handleClose} style={styles.headerBtn}>
-              <Feather name="x" size={22} color={colors.foreground} />
-            </TouchableOpacity>
-            <View style={{ flex: 1, alignItems: "center" }}>
-              <Text style={[styles.modalTitle, { color: colors.foreground }]}>
-                {ticker} Reports
-              </Text>
-              <Text style={[styles.modalSubtitle, { color: colors.mutedForeground }]}>
-                10-K (annual) & 10-Q (quarterly)
-              </Text>
-            </View>
+          {userId && (
             <TouchableOpacity
-              onPress={handleToggleSubscription}
-              disabled={!userId || subToggling}
-              style={styles.headerBtn}
-              accessibilityLabel={subscribed ? "Unsubscribe from new filings" : "Get notified of new filings"}
+              onPress={onToggleSubscription}
+              disabled={subscribing}
+              style={[
+                styles.bellBtn,
+                {
+                  backgroundColor: subscribed ? `${colors.primary}22` : "transparent",
+                  borderColor: subscribed ? `${colors.primary}66` : colors.border,
+                },
+              ]}
+              accessibilityLabel={subscribed ? "Unsubscribe from new filing alerts" : "Subscribe to new filing alerts"}
             >
-              {subToggling ? (
+              {subscribing ? (
                 <ActivityIndicator size="small" color={colors.primary} />
               ) : (
                 <Feather
                   name={subscribed ? "bell" : "bell-off"}
-                  size={20}
+                  size={16}
                   color={subscribed ? colors.primary : colors.mutedForeground}
                 />
               )}
             </TouchableOpacity>
-          </View>
-
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+          )}
+          <TouchableOpacity
+            onPress={onClose}
+            style={[styles.closeBtn, { borderColor: colors.border }]}
+            accessibilityLabel="Close reports"
           >
-            {/* Year selector */}
-            {grouped.years.length > 0 && (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ gap: 8, paddingBottom: 12 }}
-              >
-                {grouped.years.map((y) => {
-                  const active = y === selectedYear;
-                  return (
-                    <TouchableOpacity
-                      key={y}
-                      onPress={() => setSelectedYear(y)}
-                      style={[
-                        styles.yearChip,
-                        {
-                          backgroundColor: active ? colors.primary : colors.card,
-                          borderColor: active ? colors.primary : colors.border,
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.yearChipText,
-                          { color: active ? colors.primaryForeground : colors.foreground },
-                        ]}
-                      >
-                        {y}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            )}
+            <Feather name="x" size={18} color={colors.foreground} />
+          </TouchableOpacity>
+        </View>
 
-            {/* Compare toggle */}
-            {filings.length >= 2 && (
-              <View style={styles.compareRow}>
+        {/* Year tabs */}
+        {years.length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.yearStrip}
+          >
+            {years.map((y) => {
+              const active = y === selectedYear;
+              return (
                 <TouchableOpacity
+                  key={y}
                   onPress={() => {
-                    setCompareMode((m) => !m);
-                    setCompareSelection([]);
+                    setSelectedYear(y);
+                    if (mode !== "list") {
+                      setMode("list");
+                      resetSummary();
+                    }
                   }}
                   style={[
-                    styles.compareToggle,
+                    styles.yearChip,
                     {
-                      backgroundColor: compareMode ? `${colors.primary}22` : "transparent",
-                      borderColor: compareMode ? colors.primary : colors.border,
+                      backgroundColor: active ? colors.primary : colors.card,
+                      borderColor: active ? colors.primary : colors.border,
                     },
                   ]}
                 >
-                  <Feather
-                    name="git-compare"
-                    size={13}
-                    color={compareMode ? colors.primary : colors.mutedForeground}
-                  />
                   <Text
                     style={[
-                      styles.compareToggleText,
-                      { color: compareMode ? colors.primary : colors.mutedForeground },
+                      styles.yearChipText,
+                      { color: active ? colors.primaryForeground : colors.foreground },
                     ]}
                   >
-                    {compareMode ? "Cancel compare" : "Compare two filings"}
+                    {y || "—"}
                   </Text>
                 </TouchableOpacity>
-                {compareMode && (
-                  <TouchableOpacity
-                    onPress={handleRunCompare}
-                    disabled={compareSelection.length !== 2 || compareLoading}
+              );
+            })}
+          </ScrollView>
+        )}
+
+        {/* Body */}
+        <ScrollView contentContainerStyle={styles.modalBody}>
+          {filingsLoading ? (
+            <View style={styles.loadingRow}>
+              <ActivityIndicator color={colors.primary} />
+              <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>
+                Loading filings…
+              </Text>
+            </View>
+          ) : filingsError ? (
+            <View style={[styles.emptyBox, { borderColor: colors.border }]}>
+              <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>{filingsError}</Text>
+            </View>
+          ) : !filings.length ? (
+            <View style={[styles.emptyBox, { borderColor: colors.border }]}>
+              <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
+                No 10-K or 10-Q filings found for {ticker}.
+              </Text>
+            </View>
+          ) : mode === "list" ? (
+            <>
+              {visibleFilings.map((f) => {
+                const isAnnual = f.type === "10-K";
+                const badgeBg = isAnnual ? `${colors.primary}1F` : `${colors.positive}1F`;
+                const badgeBorder = isAnnual ? `${colors.primary}55` : `${colors.positive}55`;
+                const badgeFg = isAnnual ? colors.primary : colors.positive;
+                const isSelected = compareSelection.includes(f.accessionNumber);
+                return (
+                  <View
+                    key={f.accessionNumber}
                     style={[
-                      styles.compareRunBtn,
+                      styles.filingRow,
                       {
-                        backgroundColor:
-                          compareSelection.length === 2 ? colors.primary : colors.secondary,
+                        backgroundColor: colors.card,
+                        borderColor: isSelected ? `${colors.primary}88` : colors.border,
                       },
                     ]}
                   >
-                    {compareLoading ? (
-                      <ActivityIndicator size="small" color={colors.primaryForeground} />
-                    ) : (
-                      <Text
-                        style={[
-                          styles.compareRunBtnText,
-                          {
-                            color:
-                              compareSelection.length === 2
-                                ? colors.primaryForeground
-                                : colors.mutedForeground,
-                          },
-                        ]}
-                      >
-                        Compare ({compareSelection.length}/2)
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                )}
-              </View>
-            )}
-
-            {/* Filings list for selected year */}
-            {filingsLoading ? (
-              <View style={styles.loadingRow}>
-                <ActivityIndicator color={colors.primary} />
-                <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>
-                  Loading filings…
-                </Text>
-              </View>
-            ) : filingsError ? (
-              <View style={[styles.emptyBox, { borderColor: colors.border }]}>
-                <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
-                  {filingsError}
-                </Text>
-              </View>
-            ) : yearFilings.length === 0 ? (
-              <View style={[styles.emptyBox, { borderColor: colors.border }]}>
-                <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
-                  No 10-K or 10-Q filings found for {ticker}.
-                </Text>
-              </View>
-            ) : (
-              <View style={{ gap: 8 }}>
-                {yearFilings.map((f) => {
-                  const isAnnual = f.type === "10-K";
-                  const badgeBg = isAnnual ? `${colors.primary}1F` : `${colors.positive}1F`;
-                  const badgeBorder = isAnnual ? `${colors.primary}55` : `${colors.positive}55`;
-                  const badgeFg = isAnnual ? colors.primary : colors.positive;
-                  const isActive = activeAccession === f.accessionNumber;
-                  const isCompareSelected = compareSelection.includes(f.accessionNumber);
-                  return (
-                    <Pressable
-                      key={f.accessionNumber}
-                      onPress={() => {
-                        if (compareMode) toggleCompareSelection(f.accessionNumber);
-                      }}
+                    <TouchableOpacity
+                      onPress={() => toggleCompareSelection(f.accessionNumber)}
                       style={[
-                        styles.filingRow,
+                        styles.checkBox,
                         {
-                          backgroundColor: colors.card,
-                          borderColor: isCompareSelected
-                            ? colors.primary
-                            : isActive
-                              ? `${colors.primary}66`
-                              : colors.border,
-                          borderWidth: isCompareSelected ? 2 : 1,
+                          borderColor: isSelected ? colors.primary : colors.border,
+                          backgroundColor: isSelected ? colors.primary : "transparent",
                         },
                       ]}
+                      accessibilityLabel={isSelected ? "Deselect for compare" : "Select for compare"}
                     >
-                      <View
-                        style={[
-                          styles.typeBadge,
-                          { backgroundColor: badgeBg, borderColor: badgeBorder },
-                        ]}
-                      >
-                        <Text style={[styles.typeBadgeText, { color: badgeFg }]}>{f.type}</Text>
-                      </View>
-                      <View style={styles.filingInfo}>
-                        <Text style={[styles.filingPeriod, { color: colors.foreground }]}>
-                          {isAnnual ? "Annual" : "Quarterly"} · {formatDate(f.reportDate)}
-                        </Text>
-                        <Text style={[styles.filingFiled, { color: colors.mutedForeground }]}>
-                          Filed {formatDate(f.filedAt)}
-                        </Text>
-                      </View>
-                      {compareMode ? (
-                        <View
-                          style={[
-                            styles.checkbox,
-                            {
-                              borderColor: isCompareSelected ? colors.primary : colors.border,
-                              backgroundColor: isCompareSelected
-                                ? colors.primary
-                                : "transparent",
-                            },
-                          ]}
-                        >
-                          {isCompareSelected && (
-                            <Feather name="check" size={14} color={colors.primaryForeground} />
-                          )}
-                        </View>
-                      ) : (
-                        <View style={styles.filingActions}>
-                          <TouchableOpacity
-                            onPress={() => Linking.openURL(f.edgarUrl)}
-                            style={[styles.linkBtn, { borderColor: colors.border }]}
-                          >
-                            <Feather name="external-link" size={11} color={colors.mutedForeground} />
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            onPress={() => handleSummarize(f)}
-                            disabled={summaryLoading && isActive}
-                            style={[
-                              styles.summarizeBtn,
-                              {
-                                backgroundColor:
-                                  summaryLoading && isActive
-                                    ? colors.secondary
-                                    : colors.primary,
-                              },
-                            ]}
-                          >
-                            {summaryLoading && isActive ? (
-                              <ActivityIndicator size="small" color={colors.mutedForeground} />
-                            ) : (
-                              <>
-                                {!isPremium && (
-                                  <Feather
-                                    name="lock"
-                                    size={10}
-                                    color={colors.primaryForeground}
-                                  />
-                                )}
-                                <Feather
-                                  name="zap"
-                                  size={11}
-                                  color={colors.primaryForeground}
-                                />
-                                <Text
-                                  style={[
-                                    styles.summarizeBtnText,
-                                    { color: colors.primaryForeground },
-                                  ]}
-                                >
-                                  {summaries[f.accessionNumber] ? "View" : "Summarize"}
-                                </Text>
-                              </>
-                            )}
-                          </TouchableOpacity>
-                        </View>
+                      {isSelected && (
+                        <Feather name="check" size={11} color={colors.primaryForeground} />
                       )}
-                    </Pressable>
-                  );
-                })}
-              </View>
-            )}
-
-            {/* Errors / paywall hint */}
-            {summaryError && (
-              <View
-                style={[
-                  styles.summaryCard,
-                  {
-                    backgroundColor: `${colors.negative}10`,
-                    borderColor: `${colors.negative}40`,
-                  },
-                ]}
-              >
-                <Text style={[styles.errorText, { color: colors.negative }]}>{summaryError}</Text>
-              </View>
-            )}
-
-            {/* Compare view: two filings side-by-side */}
-            {compareMode &&
-              compareFilings.length === 2 &&
-              compareFilings.every((f) => summaries[f.accessionNumber]) && (
-                <View style={{ marginTop: 16 }}>
-                  <Text style={[styles.subhead, { color: colors.foreground, marginBottom: 8 }]}>
-                    Side-by-side comparison
-                  </Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={styles.compareGrid}>
-                      {compareFilings.map((f) => {
-                        const s = summaries[f.accessionNumber]!;
-                        return (
-                          <SummaryCard
-                            key={f.accessionNumber}
-                            data={s}
-                            colors={colors}
-                            compact
-                          />
-                        );
-                      })}
+                    </TouchableOpacity>
+                    <View style={[styles.typeBadge, { backgroundColor: badgeBg, borderColor: badgeBorder }]}>
+                      <Text style={[styles.typeBadgeText, { color: badgeFg }]}>{f.type}</Text>
                     </View>
-                  </ScrollView>
-                </View>
-              )}
+                    <View style={styles.filingInfo}>
+                      <Text style={[styles.filingPeriod, { color: colors.foreground }]}>
+                        Period {formatDate(f.reportDate)}
+                      </Text>
+                      <Text style={[styles.filingFiled, { color: colors.mutedForeground }]}>
+                        Filed {formatDate(f.filedAt)}
+                      </Text>
+                    </View>
+                    <View style={styles.filingActions}>
+                      <TouchableOpacity
+                        onPress={() => Linking.openURL(f.edgarUrl)}
+                        style={[styles.linkBtn, { borderColor: colors.border }]}
+                        accessibilityLabel={`Open ${f.type} on SEC EDGAR`}
+                      >
+                        <Feather name="external-link" size={11} color={colors.mutedForeground} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => fetchSummary(f)}
+                        style={[styles.summarizeBtn, { backgroundColor: colors.primary }]}
+                      >
+                        <Feather name="zap" size={11} color={colors.primaryForeground} />
+                        <Text style={[styles.summarizeBtnText, { color: colors.primaryForeground }]}>
+                          {isPremium ? "Summarize" : "Premium"}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })}
+            </>
+          ) : mode === "summary" ? (
+            <SummaryCard
+              summary={summary}
+              loading={summaryLoading}
+              error={summaryError}
+              activeAccession={activeAccession}
+              onBack={() => {
+                setMode("list");
+                resetSummary();
+              }}
+            />
+          ) : (
+            <CompareView
+              loading={compareLoading}
+              error={compareError}
+              left={compareSummaries[0]}
+              right={compareSummaries[1]}
+              onBack={() => {
+                setMode("list");
+                setCompareSummaries([null, null]);
+                setCompareError(null);
+              }}
+            />
+          )}
+        </ScrollView>
 
-            {/* Single-summary view */}
-            {!compareMode && activeSummary && (
-              <SummaryCard data={activeSummary} colors={colors} />
-            )}
-          </ScrollView>
-        </View>
-      </Modal>
-    </>
+        {/* Compare action bar */}
+        {inCompareMode && (
+          <View style={[styles.compareBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.compareCount, { color: colors.mutedForeground }]}>
+              {compareSelection.length} of 2 selected
+            </Text>
+            <View style={{ flex: 1 }} />
+            <TouchableOpacity
+              onPress={() => setCompareSelection([])}
+              style={[styles.linkBtn, { borderColor: colors.border, paddingHorizontal: 10 }]}
+            >
+              <Text style={[styles.linkBtnText, { color: colors.mutedForeground }]}>Clear</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={runCompare}
+              disabled={compareSelection.length !== 2}
+              style={[
+                styles.compareGoBtn,
+                {
+                  backgroundColor:
+                    compareSelection.length === 2 ? colors.primary : colors.secondary,
+                  opacity: compareSelection.length === 2 ? 1 : 0.6,
+                },
+              ]}
+            >
+              <Feather name="columns" size={11} color={colors.primaryForeground} />
+              <Text style={[styles.compareGoText, { color: colors.primaryForeground }]}>
+                Compare
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    </Modal>
   );
 }
 
-// ── Summary card (shared by single + compare views) ────────────────────────
+// ── Summary card ────────────────────────────────────────────────────────────
 function SummaryCard({
-  data,
-  colors,
-  compact = false,
+  summary,
+  loading,
+  error,
+  activeAccession,
+  onBack,
 }: {
-  data: SummaryResponse;
-  colors: ReturnType<typeof useColors>;
-  compact?: boolean;
+  summary: SummaryResponse | null;
+  loading: boolean;
+  error: string | null;
+  activeAccession: string | null;
+  onBack: () => void;
 }) {
+  const colors = useColors();
+
   const sentimentStyle = useMemo(() => {
-    const s = data.summary.sentiment;
+    if (!summary) return null;
+    const s = summary.summary.sentiment;
     if (s === "positive") {
-      return {
-        bg: `${colors.positive}22`,
-        border: `${colors.positive}44`,
-        fg: colors.positive,
-        label: "Positive",
-        icon: "trending-up" as const,
-      };
+      return { bg: `${colors.positive}22`, border: `${colors.positive}44`, fg: colors.positive, label: "Positive", icon: "trending-up" as const };
     }
     if (s === "negative") {
-      return {
-        bg: `${colors.negative}22`,
-        border: `${colors.negative}44`,
-        fg: colors.negative,
-        label: "Negative",
-        icon: "trending-down" as const,
-      };
+      return { bg: `${colors.negative}22`, border: `${colors.negative}44`, fg: colors.negative, label: "Negative", icon: "trending-down" as const };
     }
-    return {
-      bg: `${colors.warning}22`,
-      border: `${colors.warning}44`,
-      fg: colors.warning,
-      label: "Neutral",
-      icon: "minus" as const,
-    };
-  }, [data, colors]);
+    return { bg: `${colors.warning}22`, border: `${colors.warning}44`, fg: colors.warning, label: "Neutral", icon: "minus" as const };
+  }, [summary, colors.positive, colors.negative, colors.warning]);
 
   return (
-    <View
-      style={[
-        styles.summaryCard,
-        compact && { width: 300, marginRight: 12, marginTop: 0 },
-        { backgroundColor: colors.card, borderColor: colors.border },
-      ]}
-    >
-      <View style={styles.summaryHeader}>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.periodLabel, { color: colors.mutedForeground }]}>
-            {data.summary.period} · {data.type}
-          </Text>
-          <Text style={[styles.headline, { color: colors.foreground }]}>
-            {data.summary.headline}
-          </Text>
-        </View>
-        <View
-          style={[
-            styles.sentimentBadge,
-            { backgroundColor: sentimentStyle.bg, borderColor: sentimentStyle.border },
-          ]}
-        >
-          <Feather name={sentimentStyle.icon} size={11} color={sentimentStyle.fg} />
-          <Text style={[styles.sentimentBadgeText, { color: sentimentStyle.fg }]}>
-            {sentimentStyle.label}
-          </Text>
-        </View>
-      </View>
+    <View style={{ gap: 12 }}>
+      <TouchableOpacity onPress={onBack} style={styles.backRow}>
+        <Feather name="chevron-left" size={16} color={colors.primary} />
+        <Text style={[styles.backText, { color: colors.primary }]}>Back to filings</Text>
+      </TouchableOpacity>
 
-      <View style={styles.metricsGrid}>
-        {(
-          [
-            { label: "Revenue", value: data.summary.keyMetrics.revenue },
-            { label: "Net Income", value: data.summary.keyMetrics.netIncome },
-            { label: "EPS", value: data.summary.keyMetrics.eps },
-            { label: "Op Cash Flow", value: data.summary.keyMetrics.operatingCashFlow },
-          ] as const
-        ).map((m) => (
-          <View
-            key={m.label}
-            style={[
-              styles.metricItem,
-              { backgroundColor: colors.secondary, borderColor: colors.border },
-            ]}
-          >
-            <Text style={[styles.metricLabel, { color: colors.mutedForeground }]}>{m.label}</Text>
-            <Text style={[styles.metricValue, { color: colors.foreground }]} numberOfLines={2}>
-              {m.value && m.value !== "null" ? m.value : "—"}
+      {loading && activeAccession && (
+        <View style={[styles.summaryCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.skeletonHeadline}>
+            <ActivityIndicator color={colors.primary} />
+            <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>
+              Reading filing & generating summary…
             </Text>
           </View>
-        ))}
-      </View>
+        </View>
+      )}
 
-      {data.summary.highlights.length > 0 && (
-        <View style={styles.highlightsBlock}>
-          <Text style={[styles.subhead, { color: colors.foreground }]}>Highlights</Text>
-          {data.summary.highlights.map((h, i) => (
-            <View key={i} style={styles.bulletRow}>
-              <View style={[styles.bullet, { backgroundColor: colors.primary }]} />
-              <Text style={[styles.bulletText, { color: colors.foreground }]}>{h}</Text>
+      {error && (
+        <View style={[styles.summaryCard, { backgroundColor: `${colors.negative}10`, borderColor: `${colors.negative}40` }]}>
+          <Text style={[styles.errorText, { color: colors.negative }]}>{error}</Text>
+        </View>
+      )}
+
+      {summary && sentimentStyle && (
+        <View style={[styles.summaryCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.summaryHeader}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.periodLabel, { color: colors.mutedForeground }]}>
+                {summary.summary.period} · {summary.type}
+              </Text>
+              <Text style={[styles.headline, { color: colors.foreground }]}>
+                {summary.summary.headline}
+              </Text>
             </View>
-          ))}
+            <View style={[styles.sentimentBadge, { backgroundColor: sentimentStyle.bg, borderColor: sentimentStyle.border }]}>
+              <Feather name={sentimentStyle.icon} size={11} color={sentimentStyle.fg} />
+              <Text style={[styles.sentimentBadgeText, { color: sentimentStyle.fg }]}>
+                {sentimentStyle.label}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.metricsGrid}>
+            {(
+              [
+                { label: "Revenue", value: summary.summary.keyMetrics.revenue },
+                { label: "Net Income", value: summary.summary.keyMetrics.netIncome },
+                { label: "EPS", value: summary.summary.keyMetrics.eps },
+                { label: "Operating Cash Flow", value: summary.summary.keyMetrics.operatingCashFlow },
+              ] as const
+            ).map((m) => (
+              <View key={m.label} style={[styles.metricItem, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+                <Text style={[styles.metricLabel, { color: colors.mutedForeground }]}>{m.label}</Text>
+                <Text style={[styles.metricValue, { color: colors.foreground }]} numberOfLines={2}>
+                  {m.value && m.value !== "null" ? m.value : "—"}
+                </Text>
+              </View>
+            ))}
+          </View>
+
+          {summary.summary.highlights.length > 0 && (
+            <View style={styles.highlightsBlock}>
+              <Text style={[styles.subhead, { color: colors.foreground }]}>Highlights</Text>
+              {summary.summary.highlights.map((h, i) => (
+                <View key={i} style={styles.bulletRow}>
+                  <View style={[styles.bullet, { backgroundColor: colors.primary }]} />
+                  <Text style={[styles.bulletText, { color: colors.foreground }]}>{h}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {summary.summary.analystNote && (
+            <View style={[styles.analystBox, { backgroundColor: `${colors.primary}0F`, borderColor: `${colors.primary}33` }]}>
+              <Text style={[styles.analystLabel, { color: colors.primary }]}>Analyst note</Text>
+              <Text style={[styles.analystText, { color: colors.foreground }]}>
+                {summary.summary.analystNote}
+              </Text>
+            </View>
+          )}
+
+          <TouchableOpacity
+            onPress={() => Linking.openURL(summary.filing.edgarUrl)}
+            style={[styles.fullReportBtn, { borderColor: colors.border }]}
+          >
+            <Text style={[styles.fullReportText, { color: colors.primary }]}>
+              Read full {summary.type} on SEC EDGAR
+            </Text>
+            <Feather name="external-link" size={12} color={colors.primary} />
+          </TouchableOpacity>
         </View>
       )}
+    </View>
+  );
+}
 
-      {data.summary.analystNote && (
-        <View
-          style={[
-            styles.analystBox,
-            { backgroundColor: `${colors.primary}0F`, borderColor: `${colors.primary}33` },
-          ]}
-        >
-          <Text style={[styles.analystLabel, { color: colors.primary }]}>Analyst note</Text>
-          <Text style={[styles.analystText, { color: colors.foreground }]}>
-            {data.summary.analystNote}
-          </Text>
-        </View>
-      )}
+// ── Compare view ────────────────────────────────────────────────────────────
+function CompareView({
+  loading,
+  error,
+  left,
+  right,
+  onBack,
+}: {
+  loading: boolean;
+  error: string | null;
+  left: SummaryResponse | null;
+  right: SummaryResponse | null;
+  onBack: () => void;
+}) {
+  const colors = useColors();
+  const metricKeys = [
+    { key: "revenue", label: "Revenue" },
+    { key: "netIncome", label: "Net Income" },
+    { key: "eps", label: "EPS" },
+    { key: "operatingCashFlow", label: "Op. Cash Flow" },
+  ] as const;
 
-      <TouchableOpacity
-        onPress={() => Linking.openURL(data.filing.edgarUrl)}
-        style={[styles.fullReportBtn, { borderColor: colors.border }]}
-      >
-        <Text style={[styles.fullReportText, { color: colors.primary }]}>
-          Read full {data.type} on SEC EDGAR
-        </Text>
-        <Feather name="external-link" size={12} color={colors.primary} />
+  return (
+    <View style={{ gap: 12 }}>
+      <TouchableOpacity onPress={onBack} style={styles.backRow}>
+        <Feather name="chevron-left" size={16} color={colors.primary} />
+        <Text style={[styles.backText, { color: colors.primary }]}>Back to filings</Text>
       </TouchableOpacity>
+
+      {loading && (
+        <View style={[styles.summaryCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.skeletonHeadline}>
+            <ActivityIndicator color={colors.primary} />
+            <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>
+              Generating comparison…
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {error && (
+        <View style={[styles.summaryCard, { backgroundColor: `${colors.negative}10`, borderColor: `${colors.negative}40` }]}>
+          <Text style={[styles.errorText, { color: colors.negative }]}>{error}</Text>
+        </View>
+      )}
+
+      {left && right && (
+        <>
+          <View style={styles.compareCols}>
+            <CompareColumn s={left} />
+            <CompareColumn s={right} />
+          </View>
+
+          <View style={[styles.summaryCard, { backgroundColor: colors.card, borderColor: colors.border, gap: 8 }]}>
+            <Text style={[styles.subhead, { color: colors.foreground }]}>Side-by-side metrics</Text>
+            {metricKeys.map((m) => (
+              <View key={m.key} style={styles.compareMetricRow}>
+                <Text style={[styles.compareMetricLabel, { color: colors.mutedForeground }]}>
+                  {m.label}
+                </Text>
+                <Text style={[styles.compareMetricValue, { color: colors.foreground }]} numberOfLines={1}>
+                  {(left.summary.keyMetrics as any)[m.key] || "—"}
+                </Text>
+                <Text style={[styles.compareMetricValue, { color: colors.foreground }]} numberOfLines={1}>
+                  {(right.summary.keyMetrics as any)[m.key] || "—"}
+                </Text>
+              </View>
+            ))}
+          </View>
+        </>
+      )}
+    </View>
+  );
+}
+
+function CompareColumn({ s }: { s: SummaryResponse }) {
+  const colors = useColors();
+  return (
+    <View style={[styles.compareCol, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <Text style={[styles.periodLabel, { color: colors.mutedForeground }]}>
+        {s.summary.period} · {s.type}
+      </Text>
+      <Text style={[styles.compareHeadline, { color: colors.foreground }]} numberOfLines={4}>
+        {s.summary.headline}
+      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  rowWrap: { paddingBottom: 16 },
-  row: {
+  section: { paddingBottom: 12 },
+
+  launcher: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingVertical: 14,
     paddingHorizontal: 14,
-    borderRadius: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
     borderWidth: 1,
   },
-  rowIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+  iconCircle: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  launcherTitle: { fontSize: 14, fontFamily: "Inter_700Bold", marginBottom: 2 },
+  launcherSub: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  premiumPill: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
   },
-  rowTitle: { fontSize: 15, fontFamily: "Inter_700Bold" },
-  rowSubtitle: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
+  premiumPillText: { fontSize: 10, fontFamily: "Inter_700Bold" },
 
+  // Modal
   modalRoot: { flex: 1 },
   modalHeader: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     borderBottomWidth: 1,
-    gap: 8,
+    gap: 10,
   },
-  headerBtn: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  modalTitle: { fontSize: 16, fontFamily: "Inter_700Bold" },
-  modalSubtitle: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 1 },
+  modalTitle: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  modalSubtitle: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
+  bellBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  closeBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: "center", justifyContent: "center" },
 
+  yearStrip: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
   yearChip: {
     paddingHorizontal: 14,
     paddingVertical: 7,
-    borderRadius: 999,
+    borderRadius: 14,
     borderWidth: 1,
+    marginRight: 8,
   },
-  yearChipText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  yearChipText: { fontSize: 12, fontFamily: "Inter_700Bold" },
 
-  compareRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-    paddingBottom: 12,
-  },
-  compareToggle: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  compareToggleText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
-  compareRunBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: 110,
-  },
-  compareRunBtnText: { fontSize: 12, fontFamily: "Inter_700Bold" },
+  modalBody: { padding: 16, gap: 8 },
 
   loadingRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 18 },
   loadingText: { fontSize: 13, fontFamily: "Inter_400Regular" },
 
-  emptyBox: {
-    padding: 20,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderStyle: "dashed",
-    alignItems: "center",
-  },
+  emptyBox: { padding: 20, borderRadius: 12, borderWidth: 1, borderStyle: "dashed", alignItems: "center" },
   emptyText: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center" },
 
   filingRow: {
@@ -843,27 +871,34 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 12,
     borderRadius: 12,
-    gap: 10,
-  },
-  typeBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
     borderWidth: 1,
-    minWidth: 50,
-    alignItems: "center",
+    gap: 10,
+    marginBottom: 8,
   },
+  checkBox: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  typeBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, minWidth: 50, alignItems: "center" },
   typeBadgeText: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.4 },
   filingInfo: { flex: 1, gap: 2 },
   filingPeriod: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   filingFiled: { fontSize: 11, fontFamily: "Inter_400Regular" },
   filingActions: { flexDirection: "row", gap: 6, alignItems: "center" },
   linkBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
     paddingHorizontal: 8,
     paddingVertical: 7,
     borderRadius: 8,
     borderWidth: 1,
   },
+  linkBtnText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
   summarizeBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -871,27 +906,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 7,
     borderRadius: 8,
-    minWidth: 92,
+    minWidth: 88,
     justifyContent: "center",
   },
   summarizeBtnText: { fontSize: 11, fontFamily: "Inter_700Bold" },
 
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
-    borderWidth: 2,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  backRow: { flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4 },
+  backText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
 
-  summaryCard: {
-    marginTop: 16,
-    padding: 16,
-    borderRadius: 14,
-    borderWidth: 1,
-    gap: 14,
-  },
+  summaryCard: { padding: 16, borderRadius: 14, borderWidth: 1, gap: 14 },
+  skeletonHeadline: { flexDirection: "row", alignItems: "center", gap: 10 },
   errorText: { fontSize: 13, fontFamily: "Inter_400Regular" },
 
   summaryHeader: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
@@ -902,27 +926,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginBottom: 4,
   },
-  headline: { fontSize: 16, fontFamily: "Inter_700Bold", lineHeight: 22 },
-  sentimentBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
+  headline: { fontSize: 17, fontFamily: "Inter_700Bold", lineHeight: 23 },
+  sentimentBadge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16, borderWidth: 1 },
   sentimentBadgeText: { fontSize: 11, fontFamily: "Inter_700Bold" },
 
   metricsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  metricItem: {
-    width: "48%",
-    flexGrow: 1,
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    gap: 4,
-  },
+  metricItem: { width: "48%", flexGrow: 1, padding: 12, borderRadius: 10, borderWidth: 1, gap: 4 },
   metricLabel: { fontSize: 11, fontFamily: "Inter_400Regular" },
   metricValue: { fontSize: 14, fontFamily: "Inter_700Bold" },
 
@@ -932,34 +941,36 @@ const styles = StyleSheet.create({
   bullet: { width: 6, height: 6, borderRadius: 3, marginTop: 7 },
   bulletText: { flex: 1, fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 19 },
 
-  analystBox: {
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    gap: 4,
-  },
-  analystLabel: {
-    fontSize: 10,
-    fontFamily: "Inter_700Bold",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
+  analystBox: { padding: 12, borderRadius: 10, borderWidth: 1, gap: 4 },
+  analystLabel: { fontSize: 10, fontFamily: "Inter_700Bold", textTransform: "uppercase", letterSpacing: 0.5 },
   analystText: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 19, fontStyle: "italic" },
 
-  fullReportBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-  },
+  fullReportBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, borderRadius: 10, borderWidth: 1 },
   fullReportText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
 
-  compareGrid: {
+  compareCols: { flexDirection: "row", gap: 8 },
+  compareCol: { flex: 1, padding: 12, borderRadius: 10, borderWidth: 1, gap: 6 },
+  compareHeadline: { fontSize: 13, fontFamily: "Inter_700Bold", lineHeight: 18 },
+  compareMetricRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  compareMetricLabel: { width: 110, fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  compareMetricValue: { flex: 1, fontSize: 12, fontFamily: "Inter_600SemiBold", textAlign: "right" },
+
+  compareBar: {
     flexDirection: "row",
-    paddingTop: 4,
-    paddingBottom: 4,
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderTopWidth: 1,
   },
+  compareCount: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  compareGoBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  compareGoText: { fontSize: 12, fontFamily: "Inter_700Bold" },
 });
