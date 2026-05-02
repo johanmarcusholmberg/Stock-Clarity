@@ -1,0 +1,150 @@
+We are not ready to publish yet.
+
+Please create a clear step-by-step publication readiness plan for StockClarify before we proceed to app store submission.
+
+Do not implement anything yet.
+Do not change code.
+Do not commit or push anything.
+
+Your task is to inspect the current project and produce a structured readiness checklist.
+
+Focus on what remains before StockClarify can be published to:
+1. Apple App Store
+2. Google Play Store
+
+Please review the current codebase, configuration, workflows, tests, and app setup.
+
+Include the following sections:
+
+1. Current readiness status
+- What is already ready
+- What is partially ready
+- What is clearly missing
+
+2. Required technical steps before publication
+Check and report on:
+- Expo / React Native configuration
+- app.json / app.config setup
+- bundle identifiers / package names
+- app name and display name
+- versioning and build numbers
+- environment variables
+- API base URL and production backend configuration
+- Clerk authentication production setup
+- permissions used by the app
+- deep links / redirect URLs if relevant
+- app icons and splash screens
+- adaptive Android icon
+- iOS icon requirements
+- production error handling
+- logging level for production
+- feature flags
+- health checks
+- fallback states
+- loading states
+
+3. Backend/API readiness
+Check and report on:
+- production API deployment status
+- environment variables required for production
+- API health endpoint
+- CORS or mobile access requirements
+- rate limiting
+- security headers
+- authentication checks
+- payment/subscription readiness if applicable
+- whether mock/dev routes are still exposed
+- whether any mock/demo data is still used in production paths
+
+4. Test readiness
+Check and report on:
+- which test suites currently pass
+- which tests fail
+- whether newsPreloadWorker.test.ts blocks publication
+- missing tests that should be added before publication
+- manual QA flows that must be tested on real devices
+
+5. Mobile QA checklist
+Create a manual test checklist for:
+- first app launch
+- onboarding flow
+- login/register/logout
+- Google/Apple login if supported
+- adding/removing stocks
+- watchlist behavior
+- stock detail page
+- 1D/1M/1Y chart behavior
+- alerts/notifications
+- share-card
+- portfolio/folder behavior
+- offline or poor network behavior
+- app restart behavior
+- permissions prompts
+- error states
+- loading states
+- dark/light mode if relevant
+
+6. App Store / Google Play requirements
+List everything needed for store submission:
+- Apple Developer account requirements
+- Google Play Console requirements
+- bundle/package identifiers
+- screenshots
+- app description
+- privacy policy
+- terms of use
+- support URL
+- marketing URL if needed
+- data safety form
+- App Privacy details for Apple
+- age rating/content rating
+- encryption/export compliance questions
+- financial disclaimer requirements
+- subscription/in-app purchase requirements if relevant
+
+7. Legal and content readiness
+Check what is needed for a stock/finance-related app:
+- clear financial disclaimer
+- not financial advice disclaimer
+- data provider disclaimer
+- delayed/real-time market data clarification
+- privacy policy
+- terms of service
+- account deletion instructions
+- user data handling summary
+
+8. Production build path
+Explain the recommended build path:
+- whether to use Expo Application Services/EAS
+- required EAS setup
+- recommended build profiles
+- preview build vs production build
+- Android internal testing track
+- iOS TestFlight
+- final production submission
+
+9. Risk list
+Create a prioritized risk list:
+- Blockers
+- High-priority before publish
+- Medium-priority polish
+- Can wait until after v1
+
+10. Final step-by-step action plan
+Create a practical ordered checklist from the current state to publication.
+
+For each step, include:
+- step name
+- why it is needed
+- files or systems likely involved
+- whether it is code, config, account setup, QA, legal, or store listing work
+- estimated complexity: low / medium / high
+- whether approval is needed before implementation
+
+Important:
+- Do not start Tier 2 yet.
+- Do not implement changes.
+- Do not change any files.
+- Do not create branches, commits, or pull requests.
+- This task is analysis and planning only.
+- The output should be specific to the current StockClarify project, not a generic mobile publishing checklist.
