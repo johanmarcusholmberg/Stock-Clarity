@@ -51,3 +51,9 @@ channel = "stable-25_05"
 
 [userenv.development]
 ENABLE_DEV_TOOLS = "true"
+
+[userenv.production]
+NEWS_PRELOAD_ENABLED = "true"
+NOTIFY_ENABLED = "true"
+HOLDINGS_ENABLED = "true"
+REPORTS_NOTIFY_ENABLED = "true"
