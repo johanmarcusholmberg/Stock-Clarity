@@ -1,7 +1,7 @@
 // Server-side Sentry helpers. Init lives in `src/instrument.ts` and runs
 // before this module is loaded.
 import * as Sentry from "@sentry/node";
-import type { RequestHandler, Express } from "express";
+import type { RequestHandler, Express, ErrorRequestHandler } from "express";
 
 const enabled = Boolean(process.env.SENTRY_DSN);
 
@@ -80,18 +80,28 @@ export const sentryRequestContext: RequestHandler = (req, _res, next) => {
 };
 
 /**
- * Wires Sentry's official Express error handler. This is the SOLE error
- * capture path on the server — we deliberately don't install a custom
- * error middleware on top, because Sentry's handler already (a) reads
- * the active isolation scope (so our request tags stick), (b) captures
- * once per error, and (c) forwards to the next handler so `logError`
- * still runs.
+ * Wires an express error middleware that forwards uncaught route errors
+ * to Sentry. Equivalent to `Sentry.setupExpressErrorHandler(app)` but
+ * without the auto-instrumentation precheck that prints "[Sentry] express
+ * is not instrumented" at startup — that check fires unconditionally in
+ * a bundled build because esbuild inlines express into the output, so
+ * Sentry's require-in-the-middle hook can never see it. Tracing /
+ * performance auto-instrumentation isn't a launch goal; error capture is.
+ *
+ * The middleware reads the active isolation scope (set by
+ * `sentryRequestContext` above) so our req_id / userId tags stick, then
+ * forwards via `next(err)` so the existing `logError` middleware still
+ * runs.
  */
 export function setupExpressSentry(app: Express): void {
   if (!enabled) return;
-  try {
-    Sentry.setupExpressErrorHandler(app);
-  } catch {
-    // older sentry/node versions or bundling edge cases — safe to ignore
-  }
+  const sentryErrorMiddleware: ErrorRequestHandler = (err, _req, _res, next) => {
+    try {
+      Sentry.captureException(err);
+    } catch {
+      // never throw from instrumentation
+    }
+    next(err);
+  };
+  app.use(sentryErrorMiddleware);
 }

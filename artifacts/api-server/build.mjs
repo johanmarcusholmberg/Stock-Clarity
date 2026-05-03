@@ -30,6 +30,14 @@ async function buildAll() {
     format: "esm",
     outdir: distDir,
     outExtension: { ".js": ".mjs" },
+    // Code splitting so both entries (index.ts + instrument.ts) share a
+    // single copy of @sentry/node and @opentelemetry/*. Without this each
+    // entry gets its own bundled copy of the SDK, the `--import` copy
+    // initializes Sentry in one module graph, and the express required by
+    // the server lives in the other — Sentry then warns "[Sentry] express
+    // is not instrumented" at startup.
+    splitting: true,
+    chunkNames: "chunks/[name]-[hash]",
     logLevel: "info",
     // Some packages may not be bundleable, so we externalize them, we can add more here as needed.
     // Some of the packages below may not be imported or installed, but we're adding them in case they are in the future.
