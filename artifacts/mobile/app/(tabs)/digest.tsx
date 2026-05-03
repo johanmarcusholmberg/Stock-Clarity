@@ -1,5 +1,4 @@
 import { Feather } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   ActivityIndicator,
@@ -16,7 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { useWatchlist } from "@/context/WatchlistContext";
 import { useSubscription } from "@/context/SubscriptionContext";
-import { getEvents, type EventPeriod, type StockEvent } from "@/services/stockApi";
+import { type StockEvent } from "@/services/stockApi";
 import ExpandableEventCard from "@/components/ExpandableEventCard";
 import { PaywallSheet } from "@/components/PaywallSheet";
 import { PortfolioPicker } from "@/components/PortfolioPicker";
@@ -27,18 +26,8 @@ type Colors = ReturnType<typeof useColors>;
 
 type Tab = "daily" | "weekly";
 
-// Cache keys are versioned — v2 invalidates older caches that stored
-// pre-refactor DigestEntry shapes with sourceUrl fields. New entries use
-// the StockEvent shape (with event.url) fetched through getEvents().
-// Daily cache lives in DigestContext now (eager-loaded at app root).
-const WEEKLY_CACHE_KEY = "@stockclarify_digest_weekly_v2";
-const WEEKLY_DATE_KEY = "@stockclarify_digest_weekly_date_v2";
-
-function weekString() {
-  const d = new Date();
-  const week = Math.ceil(d.getDate() / 7);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-W${week}`;
-}
+// Daily and weekly caches are both managed by DigestContext now
+// (eager-loaded at app root on login and on portfolio change).
 
 interface FilterState {
   tickers: Set<string>;
@@ -177,7 +166,7 @@ export default function DigestScreen() {
   const insets = useSafeAreaInsets();
   const { stocks, folders, activeFolderId } = useWatchlist();
   const { tier } = useSubscription();
-  const { dailyEntries, dailyLoading, loadDaily } = useDigest();
+  const { dailyEntries, dailyLoading, loadDaily, weeklyEntries, weeklyLoading, loadWeekly } = useDigest();
   const [activeTab, setActiveTab] = useState<Tab>("daily");
   const [filterVisible, setFilterVisible] = useState(false);
   const [showPaywall, setShowPaywall] = useState(false);
@@ -190,8 +179,6 @@ export default function DigestScreen() {
     setFilterState({ tickers: new Set() });
   }, [activeFolderId]);
 
-  const [weeklyEntries, setWeeklyEntries] = useState<StockEvent[]>([]);
-  const [weeklyLoading, setWeeklyLoading] = useState(false);
   const [dailyRefreshing, setDailyRefreshing] = useState(false);
   const [weeklyRefreshing, setWeeklyRefreshing] = useState(false);
 
@@ -211,57 +198,6 @@ export default function DigestScreen() {
     if (isDefaultFolder) return allWatchlistTickers;
     return activeFolder?.tickers || [];
   }, [isDefaultFolder, allWatchlistTickers, activeFolder]);
-
-  const fetchForPeriod = useCallback(async (period: EventPeriod): Promise<StockEvent[]> => {
-    const currentTickers = Object.keys(stocks);
-    if (!currentTickers.length) return [];
-
-    const results = await Promise.allSettled(
-      currentTickers.map(async (ticker) => {
-        const evts = await getEvents(ticker, period);
-        return evts.slice(0, 3);
-      })
-    );
-
-    return results
-      .flatMap((r) => (r.status === "fulfilled" ? r.value : []))
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  }, [stocks]);
-
-  const loadWeekly = useCallback(async (force = false) => {
-    const cached = await AsyncStorage.getItem(WEEKLY_CACHE_KEY);
-    const cachedDate = await AsyncStorage.getItem(WEEKLY_DATE_KEY);
-
-    if (!force && cached && cachedDate === weekString()) {
-      try {
-        const parsed = JSON.parse(cached) as StockEvent[];
-        if (parsed.length > 0) {
-          setWeeklyEntries(parsed);
-          return;
-        }
-      } catch {}
-    }
-
-    setWeeklyLoading(true);
-    try {
-      const entries = await fetchForPeriod("week");
-      setWeeklyEntries(entries);
-      await AsyncStorage.setItem(WEEKLY_CACHE_KEY, JSON.stringify(entries));
-      await AsyncStorage.setItem(WEEKLY_DATE_KEY, weekString());
-    } catch {
-      if (cached) {
-        try { setWeeklyEntries(JSON.parse(cached)); } catch {}
-      }
-    } finally {
-      setWeeklyLoading(false);
-    }
-  }, [fetchForPeriod]);
-
-  useEffect(() => {
-    if (activeTab === "weekly" && tickers.length > 0 && weeklyEntries.length === 0) {
-      loadWeekly();
-    }
-  }, [activeTab, tickers.join(",")]);
 
   const handleDailyRefresh = async () => {
     setDailyRefreshing(true);
