@@ -1,6 +1,7 @@
 import React, { forwardRef } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import type { StockEvent } from "@/services/stockApi";
+import { AI_DISCLAIMER_TEXT } from "./disclaimerStrings";
 
 // Branded image template captured by react-native-view-shot. This
 // component is rendered offscreen at a fixed width (1080px-equivalent)
@@ -74,6 +75,7 @@ const ShareableEventCard = forwardRef<View, Props>(({ event, stockName }, ref) =
 
       <View style={s.footer}>
         <Text style={s.footerText}>AI-summarised by StockClarify</Text>
+        <Text style={s.footerDisclaimer}>{AI_DISCLAIMER_TEXT}</Text>
       </View>
     </View>
   );
@@ -187,5 +189,15 @@ const s = StyleSheet.create({
     fontSize: 12,
     fontFamily: "Inter_500Medium",
     letterSpacing: 0.3,
+  },
+  footerDisclaimer: {
+    color: MUTED,
+    fontSize: 10,
+    fontFamily: "Inter_400Regular",
+    letterSpacing: 0.2,
+    marginTop: 4,
+    textAlign: "center",
+    paddingHorizontal: 12,
+    lineHeight: 13,
   },
 });

@@ -5,6 +5,7 @@ import { useColors } from "@/hooks/useColors";
 import { StockEvent } from "@/context/WatchlistContext";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { PaywallSheet } from "@/components/PaywallSheet";
+import { AIDisclaimer } from "@/components/Disclaimer";
 
 interface Props {
   event: StockEvent;
@@ -92,6 +93,7 @@ export default function EventCard({ event }: Props) {
             <SectionBlock label="What happened" text={event.what} colors={colors} />
             <SectionBlock label="Why it may matter" text={event.why} colors={colors} />
             <SectionBlock label="How unusual is this" text={event.unusual} colors={colors} />
+            <AIDisclaimer marginTop={4} />
           </View>
         )}
 

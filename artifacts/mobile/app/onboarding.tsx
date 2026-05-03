@@ -23,6 +23,8 @@ interface Slide {
   title: string;
   body: string;
   highlights?: { label: string; text: string; color: string }[];
+  /** Small grey caveat at the bottom of the slide (e.g. financial-advice disclaimer). */
+  footnote?: string;
 }
 
 const SLIDES: Slide[] = [
@@ -51,6 +53,8 @@ const SLIDES: Slide[] = [
       { label: "WHY IT MATTERS", text: "What it means for the stock.", color: "#F59E0B" },
       { label: "UNUSUAL", text: "What's surprising or worth watching.", color: "#94A3B8" },
     ],
+    footnote:
+      "StockClarify is an information tool, not a financial advisor. AI summaries can be incomplete or wrong — verify anything that matters before you act on it.",
   },
 ];
 
@@ -117,6 +121,9 @@ export default function OnboardingScreen() {
                   </View>
                 ))}
               </View>
+            ) : null}
+            {item.footnote ? (
+              <Text style={[s.footnote, { color: colors.mutedForeground }]}>{item.footnote}</Text>
             ) : null}
           </View>
         )}
@@ -207,6 +214,14 @@ const s = StyleSheet.create({
     marginBottom: 4,
   },
   highlightText: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18 },
+  footnote: {
+    marginTop: 18,
+    fontSize: 11,
+    lineHeight: 15,
+    fontFamily: "Inter_400Regular",
+    textAlign: "center",
+    maxWidth: 320,
+  },
   footer: {
     paddingHorizontal: 24,
     paddingBottom: 12,

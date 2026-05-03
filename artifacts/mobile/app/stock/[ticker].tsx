@@ -28,6 +28,7 @@ import Svg, {
 } from "react-native-svg";
 import { useColors } from "@/hooks/useColors";
 import { useMultiRangeChart } from "@/hooks/useMultiRangeChart";
+import { DataDisclaimer } from "@/components/Disclaimer";
 import { useWatchlist } from "@/context/WatchlistContext";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { useAlerts } from "@/context/AlertsContext";
@@ -1344,6 +1345,8 @@ export default function StockDetailScreen() {
             ))
           )}
         </View>
+
+        <DataDisclaimer />
 
       </ScrollView>
 

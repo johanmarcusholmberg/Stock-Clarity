@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useAuth } from "@clerk/expo";
+import { router } from "expo-router";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription, Plan } from "@/context/SubscriptionContext";
 import { trackPremiumEvent } from "@/lib/premiumTelemetry";
@@ -256,7 +257,8 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general", curr
     subscribeBtnText: { color: colors.primaryForeground, fontSize: 15, fontFamily: "Inter_700Bold" },
     subscribeBtnTextSecondary: { color: colors.foreground },
     footer: { paddingHorizontal: 24, paddingTop: 8 },
-    footerText: { color: colors.mutedForeground, fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "center" },
+    footerText: { color: colors.mutedForeground, fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 16 },
+    footerLink: { color: colors.primary, fontFamily: "Inter_600SemiBold", textDecorationLine: "underline" },
     restoreBtn: { paddingVertical: 10, marginTop: 8, alignItems: "center" },
     restoreBtnText: { color: colors.primary, fontSize: 14, fontFamily: "Inter_600SemiBold" },
   });
@@ -402,9 +404,26 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general", curr
               Early subscribers keep this price for 12 months.
             </Text>
             <Text style={s.footerText}>
-              Subscriptions automatically renew unless cancelled at least 24 hours before
-              the end of the current period. Manage subscriptions in your Account Settings.
-              By purchasing, you agree to our Terms of Service and Privacy Policy.
+              Pro and Premium are billed monthly at the price shown above
+              {!IS_NATIVE ? ", or annually on web" : ""}. Payment is charged to your
+              {Platform.OS === "ios" ? " Apple ID" : Platform.OS === "android" ? " Google Play" : " payment method"}
+              {" "}at confirmation. Subscriptions automatically renew at the same price
+              for the same period unless auto-renew is turned off at least 24 hours
+              before the end of the current period. Your account is charged for
+              renewal within 24 hours before the end of the current period. You can
+              manage and cancel subscriptions in your store account settings after
+              purchase.
+            </Text>
+            <Text style={[s.footerText, { marginTop: 6 }]}>
+              By subscribing, you agree to our{" "}
+              <Text style={s.footerLink} onPress={() => router.push("/legal/terms")}>
+                Terms of Service
+              </Text>
+              {" "}and{" "}
+              <Text style={s.footerLink} onPress={() => router.push("/legal/privacy")}>
+                Privacy Policy
+              </Text>
+              .
             </Text>
             <TouchableOpacity
               onPress={handleRestore}

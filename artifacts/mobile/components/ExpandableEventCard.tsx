@@ -18,6 +18,7 @@ import { computeEventBadge } from "@/utils/eventBadge";
 import type { StockEvent } from "@/services/stockApi";
 import TruncatedSummary from "./TruncatedSummary";
 import ShareableEventCard from "./ShareableEventCard";
+import { AIDisclaimer } from "@/components/Disclaimer";
 import { shareViewAsImage } from "@/utils/shareCard";
 import { useToast } from "./Toast";
 
@@ -245,6 +246,10 @@ export default function ExpandableEventCard({
             lines={SUMMARY_LINES}
             color={colors.mutedForeground}
           />
+          {/* Even in the collapsed state we surface AI-generated text, so the
+              disclaimer must travel with it (audit #13 requires labelling
+              every AI surface, not only the expanded one). */}
+          <AIDisclaimer marginTop={6} />
         </View>
       ) : null}
 
@@ -269,6 +274,7 @@ export default function ExpandableEventCard({
               <Text style={[s.sectionText, { color: colors.foreground }]}>{event.unusual}</Text>
             </View>
           ) : null}
+          <AIDisclaimer marginTop={4} marginBottom={4} />
           <View style={s.actionRow}>
             {validUrl ? (
               <TouchableOpacity

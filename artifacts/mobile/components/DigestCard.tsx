@@ -6,6 +6,7 @@ import { Linking, StyleSheet, Text, TouchableOpacity, View, Animated } from "rea
 import { useColors } from "@/hooks/useColors";
 import { DigestEntry } from "@/context/WatchlistContext";
 import TruncatedSummary from "./TruncatedSummary";
+import { AIDisclaimer } from "@/components/Disclaimer";
 
 interface Props {
   entry: DigestEntry;
@@ -119,6 +120,8 @@ export default function DigestCard({ entry }: Props) {
             iconColor={colors.positive}
             colors={colors}
           />
+
+          <AIDisclaimer marginTop={2} marginBottom={4} />
 
           {/* Source link */}
           {entry.sourceUrl && (

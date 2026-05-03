@@ -23,6 +23,7 @@ import { useSubscription } from "@/context/SubscriptionContext";
 import { useBenchmark } from "@/context/BenchmarkContext";
 import { PremiumGate, isFeatureLocked } from "@/components/PremiumGate";
 import { PaywallSheet } from "@/components/PaywallSheet";
+import { DataDisclaimer } from "@/components/Disclaimer";
 import { PortfolioPicker } from "@/components/PortfolioPicker";
 import { MarketPickerSheet } from "@/components/MarketPickerSheet";
 import { ExportSheet, type ExportFormat } from "@/components/ExportSheet";
@@ -785,6 +786,8 @@ export default function InsightsScreen() {
             </TouchableOpacity>
           </View>
         </PremiumGate>
+
+        <DataDisclaimer />
       </ScrollView>
 
       <PaywallSheet visible={paywallVisible} onClose={() => setPaywallVisible(false)} triggerReason="general" currentTier={tier} />
