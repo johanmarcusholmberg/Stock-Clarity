@@ -11,7 +11,6 @@ import { logger } from "./lib/logger";
 import { CLERK_PROXY_PATH, clerkProxyMiddleware } from "./middlewares/clerkProxyMiddleware";
 import { WebhookHandlers } from "./webhookHandlers";
 import { logError } from "./middlewares/errorLogger";
-import { sentryRequestContext, setupExpressSentry } from "./lib/sentry";
 
 const app: Express = express();
 
@@ -140,10 +139,6 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(clerkMiddleware());
 
-// Tag Sentry scope with Clerk userId + req id for every authenticated
-// request. Must come AFTER clerkMiddleware so req.auth() works.
-app.use(sentryRequestContext);
-
 // ── Rate limiting on /api ────────────────────────────────────────────────────
 // Layered limits so abuse on cheap endpoints can't drown out legit traffic on
 // expensive ones, and write/auth endpoints are tightest. Each limiter uses the
@@ -252,15 +247,10 @@ app.use("/legal", legalRouter);
 // ── All other API routes ─────────────────────────────────────────────────────
 app.use("/api", router);
 
-// ── Sentry error capture (must come AFTER routes, BEFORE logError) ──────────
-// This is the SOLE Sentry error path on the server — Sentry's official
-// Express handler reads the active isolation scope (so the req_id +
-// userId set by `sentryRequestContext` stick to the captured event),
-// captures once, and forwards down the chain so `logError` still runs.
-// No-op when SENTRY_DSN isn't set.
-setupExpressSentry(app);
-
 // ── Error logging middleware ─────────────────────────────────────────────────
+// Errors flow through pino → Better Stack via the configured transport in
+// `lib/logger.ts`. No separate error-tracking SDK is wired up; the pino
+// `error`-level stream is the sole error-capture path.
 app.use(logError);
 
 export default app;

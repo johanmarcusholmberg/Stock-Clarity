@@ -15,29 +15,12 @@ async function buildAll() {
   await rm(distDir, { recursive: true, force: true });
 
   await esbuild({
-    // Two entry points:
-    //   - index.ts: the server itself
-    //   - instrument.ts: Sentry SDK init, loaded via `node --import` BEFORE
-    //     the server module graph so @sentry/node's OTel auto-instrumentation
-    //     can wrap http/express as they're required. Without --import, Sentry
-    //     warns "[Sentry] express is not instrumented" at startup.
-    entryPoints: [
-      path.resolve(artifactDir, "src/index.ts"),
-      path.resolve(artifactDir, "src/instrument.ts"),
-    ],
+    entryPoints: [path.resolve(artifactDir, "src/index.ts")],
     platform: "node",
     bundle: true,
     format: "esm",
     outdir: distDir,
     outExtension: { ".js": ".mjs" },
-    // Code splitting so both entries (index.ts + instrument.ts) share a
-    // single copy of @sentry/node and @opentelemetry/*. Without this each
-    // entry gets its own bundled copy of the SDK, the `--import` copy
-    // initializes Sentry in one module graph, and the express required by
-    // the server lives in the other — Sentry then warns "[Sentry] express
-    // is not instrumented" at startup.
-    splitting: true,
-    chunkNames: "chunks/[name]-[hash]",
     logLevel: "info",
     // Some packages may not be bundleable, so we externalize them, we can add more here as needed.
     // Some of the packages below may not be imported or installed, but we're adding them in case they are in the future.
@@ -126,8 +109,12 @@ async function buildAll() {
     ],
     sourcemap: "linked",
     plugins: [
-      // pino relies on workers to handle logging, instead of externalizing it we use a plugin to handle it
-      esbuildPluginPino({ transports: ["pino-pretty"] })
+      // pino relies on workers to handle logging, instead of externalizing it we use a plugin to handle it.
+      // @logtail/pino is the Better Stack transport — it MUST be listed here
+      // (not just installed) or pino fails at runtime with "unable to
+      // determine transport target for @logtail/pino" because the bundled
+      // worker entry never gets emitted.
+      esbuildPluginPino({ transports: ["pino-pretty", "@logtail/pino"] })
     ],
     // Make sure packages that are cjs only (e.g. express) but are bundled continue to work in our esm output file
     banner: {
