@@ -12,6 +12,31 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useRef } from "react";
+import { Platform } from "react-native";
+
+// Expo web ships @expo/vector-icons fonts via Metro-bundled URLs, but in our
+// proxied Android-sized iframe (the canvas mobile preview) the auto-injected
+// @font-face URL is unreliable — Feather glyphs render as tofu boxes (□)
+// because the browser falls back to the system font when "Feather" isn't
+// registered in CSS. We work around this by serving Feather.ttf from
+// /public/fonts and registering @font-face ourselves at module load, before
+// any Feather <Text> mounts. Native and EAS builds skip this entirely
+// (Platform.OS !== 'web') and use Expo's normal asset pipeline.
+if (Platform.OS === "web" && typeof document !== "undefined") {
+  const FONT_FACE_ID = "stockclarify-feather-font-face";
+  if (!document.getElementById(FONT_FACE_ID)) {
+    const style = document.createElement("style");
+    style.id = FONT_FACE_ID;
+    style.textContent = `@font-face {
+  font-family: 'Feather';
+  src: url('/fonts/Feather.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}`;
+    document.head.appendChild(style);
+  }
+}
 
 import { registerForPushNotifications } from "@/services/pushRegistration";
 import { setAuthTokenGetter } from "@/lib/authedFetch";
