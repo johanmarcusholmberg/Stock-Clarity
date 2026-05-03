@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@clerk/expo";
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { AppState, type AppStateStatus } from "react-native";
 import { useWatchlist } from "@/context/WatchlistContext";
 import { getEvents, type EventPeriod, type StockEvent } from "@/services/stockApi";
 
@@ -41,10 +42,21 @@ function todayString() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// ISO 8601 week number — week starts Monday, week 1 is the week
+// containing the year's first Thursday. Avoids the previous bug where
+// `Math.ceil(date / 7)` reset week numbers mid-month (e.g. Jan 31 →
+// Feb 1 jumped from W5 back to W1) and caused the weekly cache window
+// to expire incorrectly.
 function weekString() {
   const d = new Date();
-  const week = Math.ceil(d.getDate() / 7);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-W${week}`;
+  // Copy to a UTC date pinned to Thursday of the current ISO week.
+  const target = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = target.getUTCDay() || 7; // Sun=0 → 7
+  target.setUTCDate(target.getUTCDate() + 4 - dayNum);
+  const isoYear = target.getUTCFullYear();
+  const yearStart = new Date(Date.UTC(isoYear, 0, 1));
+  const week = Math.ceil(((target.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `${isoYear}-W${String(week).padStart(2, "0")}`;
 }
 
 interface DigestContextValue {
@@ -238,6 +250,34 @@ export function DigestProvider({ children }: { children: React.ReactNode }) {
     loadDaily();
     loadWeekly();
   }, [tickerKey, activeFolderId, userId]);
+
+  // Refresh when the app comes back to the foreground so an overnight
+  // session never serves yesterday's brief. Only triggers when the
+  // date/week window has actually rolled over — the in-window case is a
+  // free cache hit. Forced so a stale-but-valid window still revalidates
+  // any tickers that may have new news since the last fetch.
+  const lastForegroundRef = useRef<{ day: string; week: string }>({
+    day: todayString(),
+    week: weekString(),
+  });
+  useEffect(() => {
+    if (!userId) return;
+    const sub = AppState.addEventListener("change", (next: AppStateStatus) => {
+      if (next !== "active") return;
+      const today = todayString();
+      const thisWeek = weekString();
+      // Always pass force=true on foreground resume. When the window
+      // rolled over the cache is invalid and we want a fresh fetch.
+      // When it didn't, the cached entries stay on screen (SWR) while
+      // a background revalidation runs — matching cache + signature
+      // would otherwise short-circuit and skip the network entirely.
+      loadDaily(true);
+      loadWeekly(true);
+      lastForegroundRef.current.day = today;
+      lastForegroundRef.current.week = thisWeek;
+    });
+    return () => sub.remove();
+  }, [userId, loadDaily, loadWeekly]);
 
   return (
     <DigestContext.Provider
