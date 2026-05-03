@@ -20,20 +20,14 @@ if (dsn) {
     // Tracing left at a low sample rate so flipping integrations on later
     // doesn't suddenly blow through the free Sentry quota.
     tracesSampleRate: process.env.NODE_ENV === "production" ? 0.05 : 0.5,
-    // LAUNCH MODE: error-capture only.
-    // We deliberately disable all default integrations (HTTP/Express OTel
-    // auto-instrumentation, console capture, etc) for launch. Reasons:
-    //   1. We're inside an esbuild bundle — even though @opentelemetry/*
-    //      is now bundled (see build.mjs comment), OTel's monkeypatch
-    //      hooks are fragile when many packages live in one module graph,
-    //      so silent partial-tracing is a real risk.
-    //   2. Performance tracing isn't a launch goal; pino logs cover
-    //      request/latency observability.
-    //   3. setupExpressErrorHandler() in app.ts + manual captureException
-    //      via captureSentryException() work independently of integrations.
-    // Post-launch: drop `integrations: []` (or selectively enable
-    // `httpIntegration()` + `expressIntegration()`) to turn tracing on.
-    integrations: [],
+    // Default integrations are now ON. They previously had to be off because
+    // this file was bundled into the same dist/index.mjs as the server, so
+    // Sentry initialized AFTER express had already been required and the OTel
+    // hooks couldn't attach (warning: "[Sentry] express is not instrumented").
+    // Now this file is built as a separate entry and loaded via
+    // `node --import ./dist/instrument.mjs` (see package.json `start`), which
+    // runs before any other module — so http/express auto-instrumentation
+    // works reliably. tracesSampleRate above keeps span volume in check.
     beforeSend(event, hint) {
       const err = hint?.originalException;
       const msg = (err instanceof Error ? err.message : String(err ?? event.message ?? ""))

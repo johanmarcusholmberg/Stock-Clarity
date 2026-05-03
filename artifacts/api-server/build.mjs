@@ -15,7 +15,16 @@ async function buildAll() {
   await rm(distDir, { recursive: true, force: true });
 
   await esbuild({
-    entryPoints: [path.resolve(artifactDir, "src/index.ts")],
+    // Two entry points:
+    //   - index.ts: the server itself
+    //   - instrument.ts: Sentry SDK init, loaded via `node --import` BEFORE
+    //     the server module graph so @sentry/node's OTel auto-instrumentation
+    //     can wrap http/express as they're required. Without --import, Sentry
+    //     warns "[Sentry] express is not instrumented" at startup.
+    entryPoints: [
+      path.resolve(artifactDir, "src/index.ts"),
+      path.resolve(artifactDir, "src/instrument.ts"),
+    ],
     platform: "node",
     bundle: true,
     format: "esm",
