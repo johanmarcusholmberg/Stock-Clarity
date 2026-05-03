@@ -3,19 +3,17 @@ import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useRef, useState } from "react";
 import {
-  Dimensions,
   FlatList,
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
   ViewToken,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { markOnboardingComplete } from "@/hooks/useOnboarding";
-
-const { width: SCREEN_W } = Dimensions.get("window");
 
 interface Slide {
   icon: keyof typeof Feather.glyphMap;
@@ -60,6 +58,7 @@ const SLIDES: Slide[] = [
 
 export default function OnboardingScreen() {
   const colors = useColors();
+  const { width: SCREEN_W } = useWindowDimensions();
   const listRef = useRef<FlatList<Slide>>(null);
   const [index, setIndex] = useState(0);
 

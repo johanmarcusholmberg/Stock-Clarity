@@ -9,8 +9,8 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
-  Dimensions,
   Platform,
+  useWindowDimensions,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useAuth } from "@clerk/expo";
@@ -82,7 +82,7 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general", curr
   const [selectedInterval, setSelectedInterval] = useState<"month" | "year">("month");
   const [loadingPriceId, setLoadingPriceId] = useState<string | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
-  const { width } = Dimensions.get("window");
+  const { height: windowHeight } = useWindowDimensions();
 
   const handleRestore = async () => {
     if (isRestoring) return;
@@ -218,7 +218,7 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general", curr
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
       paddingBottom: Platform.OS === "ios" ? 40 : 24,
-      maxHeight: Dimensions.get("window").height * 0.94,
+      maxHeight: windowHeight * 0.94,
     },
     handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: "center", marginTop: 12, marginBottom: 8 },
     header: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
@@ -302,7 +302,7 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general", curr
           )}
           {IS_NATIVE && <View style={{ height: 8 }} />}
 
-          <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: Dimensions.get("window").height * 0.56 }}>
+          <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: windowHeight * 0.56 }}>
             {showLoading ? (
               <ActivityIndicator color={colors.primary} style={{ padding: 32 }} />
             ) : visiblePlans.length === 0 ? (

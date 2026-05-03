@@ -4,7 +4,6 @@ import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   ActivityIndicator,
-  Dimensions,
   Linking,
   Modal,
   PanResponder,
@@ -14,6 +13,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -40,7 +40,6 @@ import { previousTradingDayLabel } from "@/utils/relativeTradingDay";
 import ExpandableEventCard from "@/components/ExpandableEventCard";
 import ReportSummary from "@/components/ReportSummary";
 
-const SCREEN_WIDTH = Dimensions.get("window").width;
 const CHART_HEIGHT = 185;
 const Y_AXIS_WIDTH = 54;
 const CHART_PADDING = { top: 16, bottom: 16, right: 8 };
@@ -571,6 +570,7 @@ export default function StockDetailScreen() {
   const { ticker } = useLocalSearchParams<{ ticker: string }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { width: SCREEN_WIDTH } = useWindowDimensions();
   const { stocks, updateStockQuote, addToWatchlist, isInWatchlist, isInFolder, folders, addToFolder, removeFromFolder } = useWatchlist();
   const { enabled: alertsEnabled, getAlertsForSymbol } = useAlerts();
   const [folderSheetVisible, setFolderSheetVisible] = useState(false);
