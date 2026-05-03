@@ -127,9 +127,22 @@ These can all happen in parallel with Phase 1 account setups.
   6. (Optional) Set `EXPO_PUBLIC_IAP_PRODUCT_TIER_MAP` JSON only if final product ids don't follow the `<tier>_monthly` convention.
 - 🧪 **Verification flow** (after store products live + webhook secret set): App Store sandbox tester or Play closed-testing track → buy in PaywallSheet → confirm webhook arrives at server (logs show `revenuecat.webhook` event-id), users.iap_tier updates, app `tier` reflects within ~5s via `refresh()`.
 
-### 2G — Push notifications 🤝
-- Code: Expo Push Notifications wiring + `notification_tokens` table + alert delivery worker. 🤖
-- Credentials: APNs key from Apple Developer + FCM service account from Firebase. 👤
+### 2G — Push notifications 🤝 ✅ CODE DONE *(audited 2026-05-03)*
+
+- ✅ **Mobile registration** (`services/pushRegistration.ts`): asks permission on auth, fetches Expo push token via `Notifications.getExpoPushTokenAsync({ projectId })`, sets up the Android `default` channel with MAX importance + vibration pattern, POSTs to `/api/notifications/register`. Wired into `_layout.tsx` (line 135) — fires on every authed launch, idempotent server-side.
+- ✅ **Server token storage**: `expo_push_tokens` table in `lib/alertsSchema.ts` with `token` PK, `user_id`, `platform`, `timezone`, `last_seen` columns. Two upsert routes (`POST /api/push-tokens` and `POST /api/notifications/register`) both use `ON CONFLICT (token) DO UPDATE` — slight redundancy but functionally equivalent. `DELETE /api/push-tokens/:token` available for unregister.
+- ✅ **Push send** (`lib/pushDelivery.ts`): `sendExpoPush()` posts directly to `https://exp.host/--/api/v2/push/send` with 10s timeout. No `expo-server-sdk` dep needed for our scale. Error-tolerant — failures logged via pino, never thrown.
+- ✅ **Price-alert delivery worker** (`lib/alertEvaluator.ts`): per-tick fetches active alerts, fires when threshold hit, fans out to all of a user's tokens via `sendExpoPush`, records `delivered_via` (`push` | `push:failed` | `push:no_token`) in `alert_events`. Started in `index.ts` line 28.
+- ✅ **News notify evaluator** (`lib/notifyEvaluator.ts`): more advanced — daily-cap suppression per user, per-user IANA-timezone-aware quiet hours, dedup via `UNIQUE (subscription_id, source_kind, source_id, kind)` on `notification_events`, full telemetry into `user_events`. Insert-then-send-then-update-on-downgrade pattern keeps things idempotent. Started in `index.ts` line 53.
+- ✅ **Reports worker** (`lib/reportsWorker.ts`): polls SEC EDGAR per subscribed ticker, fans out push/email when 10-K/10-Q drops. Gated on `REPORTS_NOTIFY_ENABLED=true` (set in `[userenv.production]`).
+- ✅ **Privacy + permissions**: push token usage and APNs/FCM processors disclosed in `routes/legal.ts` privacy policy. iOS Info.plist purpose strings handled by `expo-notifications` plugin in `app.json`.
+
+- ⏭️ **Deferred (not MVP scope, comment in `pushDelivery.ts`):** DeviceNotRegistered receipt reconciliation. If a user uninstalls, their token sits in `expo_push_tokens` until the row TTL kicks them out. Cost is a few wasted Expo API calls per dead device — acceptable at launch. Add a daily cleanup worker post-launch if it becomes a signal.
+
+- 👤 **Still required before launch (no code change, store-credential work only):**
+  1. Apple Developer → Certificates, Identifiers & Profiles → Keys → create an APNs Auth Key (.p8) for the bundle ID `com.stockclarify.app`. Download once.
+  2. Firebase Console → create project → add Android app with package name `com.stockclarify.app` → download `google-services.json` and grab the FCM v1 service account JSON.
+  3. EAS dashboard (or `eas credentials`) → upload the APNs key + FCM service account so the production build can deliver pushes via Expo's gateway.
 
 ### 2H — Email delivery 🤝 ✅ DONE *(2026-05-02 — code only; secret + sender verification still required)*
 - ✅ Provider-agnostic email service at `src/lib/email/` so SendGrid can be swapped for Resend/Postmark/SES later by replacing one file (`sendgrid.ts`) — no call-site changes.
@@ -151,9 +164,28 @@ These can all happen in parallel with Phase 1 account setups.
 - ✅ artifact.toml routes `/legal` to API server (not Expo).
 - 👤 **Still required:** lawyer review before submission — especially the financial-app disclaimers and data-controller identity details.
 
-### 2J — Production deployment 🤖
-- Use Replit Deployments for the API server. Set production secrets. Verify webhooks land (Stripe + Clerk + RevenueCat).
-- Health checks, monitoring, structured logging.
+### 2J — Production deployment 🤖 ✅ DECISIONS LOCKED *(2026-05-03)*
+
+- ✅ **Deployment type chosen: Reserved VM (always-on), smallest tier.** Autoscale would scale the server to zero when idle, which silently stops the six background workers (`alertEvaluator`, `notifyEvaluator`, `earningsCalendarWorker`, `dividendWorker`, `portfolioSnapshotWorker`, `reportsWorker`) — all of them are `setTimeout` loops that need a long-lived process. Reserved VM keeps them running 24/7. Pick "Reserved VM" in the Publishing UI at first deploy (~$7/mo); geography setting also locks at first publish, so pick the right region (EU recommended given Nordic user base) before clicking Publish.
+- ✅ **Health check** at `/api/healthz` already wired in `artifacts/api-server/.replit-artifact/artifact.toml` under `[services.production.health.startup]`.
+- ✅ **Production build/run** already in `artifact.toml` (`pnpm --filter @workspace/api-server run build` → `node --enable-source-maps dist/index.mjs`). esbuild produces a single-file bundle with the @logtail/pino transports correctly externalized (see 2E hardening).
+- ✅ **Structured logging** already wired via pino + Better Stack (see 2E).
+- ✅ **Production env-flag defaults** already set in `.replit` `[userenv.production]`: `NEWS_PRELOAD_ENABLED`, `NOTIFY_ENABLED`, `HOLDINGS_ENABLED`, `REPORTS_NOTIFY_ENABLED` all `true`. Workers auto-no-op in dev unless these are flipped on.
+
+- 👤 **Production-secrets checklist** (set these in the Publishing UI Secrets tab before first deploy):
+  - **Auth & DB:** `CLERK_SECRET_KEY` (prod), `CLERK_PUBLISHABLE_KEY` (prod), `DATABASE_URL` (prod Postgres).
+  - **Payments:** `STRIPE_SECRET_KEY` (live), `STRIPE_WEBHOOK_SECRET` (live), `REVENUECAT_WEBHOOK_AUTH_HEADER`.
+  - **Email:** `SENDGRID_API_KEY`, optionally `EMAIL_FROM_ADDRESS`, `EMAIL_FROM_NAME`.
+  - **Logging:** `BETTER_STACK_SOURCE_TOKEN`.
+  - **Misc:** `ADMIN_SECRET_KEY`, `EXPORT_SIGNING_SECRET`, `ALLOWED_ORIGINS` (CORS allow-list for prod).
+  - **Mobile build secrets** (set on EAS, not Replit): `EXPO_PUBLIC_REVENUECAT_IOS_KEY`, `EXPO_PUBLIC_REVENUECAT_ANDROID_KEY`, `EXPO_PUBLIC_API_URL` pointing at the prod replit.app domain.
+
+- 👤 **Webhook URL updates after first deploy** (one-time dashboard work):
+  - Stripe: update webhook endpoint to `https://<prod-domain>/api/webhooks/stripe`.
+  - Clerk: update redirect URLs and webhook to prod domain.
+  - RevenueCat: update webhook to `https://<prod-domain>/api/webhooks/revenuecat` and confirm the auth header value matches `REVENUECAT_WEBHOOK_AUTH_HEADER`.
+
+- 🧪 **Smoke test after deploy:** hit `/api/healthz`, sign in via mobile build pointed at prod, fire a test push (set a price alert just above current price on a watched ticker), verify the alert evaluator log line appears in Better Stack within ~60s.
 
 ---
 
