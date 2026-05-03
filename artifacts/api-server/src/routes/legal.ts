@@ -141,7 +141,8 @@ router.get("/privacy", (_req, res) => {
     <li><strong>Market-data provider</strong> — supplies live quotes, fundamentals, and historical prices. We send only the tickers you have asked us to look up.</li>
     <li><strong>Expo / Apple APNs / Google FCM</strong> — delivers push notifications.</li>
     <li><strong>Email provider</strong> — sends transactional and digest emails.</li>
-    <li><strong>Sentry</strong> — collects crash and error reports (no personal data is intentionally included in stack traces).</li>
+    <li><strong>Better Stack</strong> — collects server error logs (no personal data is intentionally included in log lines or stack traces).</li>
+    <li><strong>Sentry</strong> — collects mobile-app crash reports (no personal data is intentionally included in stack traces; only your Clerk user id is attached so we can correlate a crash with the affected account).</li>
   </ul>
   <p>We do not sell your personal information. We do not run third-party advertising
   inside the app, and we do not share your data with advertisers.</p>
@@ -281,7 +282,7 @@ router.get("/terms", (_req, res) => {
 
   <h2>8. Third-Party Services</h2>
   <p>The Service relies on third-party services (Clerk, Stripe, Apple, Google,
-  OpenAI, our market-data provider, Sentry, and others). Their availability
+  OpenAI, our market-data provider, Better Stack, Sentry, and others). Their availability
   is outside our control, and outages or changes by these providers may
   affect the Service.</p>
 

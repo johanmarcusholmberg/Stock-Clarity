@@ -48,7 +48,8 @@ export default function PrivacyScreen() {
 • Stripe — subscription billing (web).
 • Yahoo Finance — market data and news.
 • OpenAI — AI summarisation of public news articles.
-• Sentry — crash and error reporting.
+• Sentry — mobile-app crash reports.
+• Better Stack — server-side error logs.
 • SendGrid — transactional emails (e.g. account notifications).
 Each processes data under its own terms and privacy policy.`}
         </Section>
