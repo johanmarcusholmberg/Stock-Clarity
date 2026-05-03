@@ -22,7 +22,7 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
 
 // Metro's file watcher crashes (ENOENT) when pnpm leaves transient
 // `*_tmp_<pid>` extract dirs behind under `node_modules/.pnpm/...`. This is
-// known to happen on Sentry, native add-ons, and other large packages whose
+// known to happen on native add-ons and other large packages whose
 // extract finishes after Metro has already started watching. Block those
 // paths so a hot dep install can't tear down the dev server.
 //

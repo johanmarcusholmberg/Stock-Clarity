@@ -23,12 +23,6 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { ToastProvider } from "@/components/Toast";
 import { initNetwork } from "@/lib/network";
-import {
-  captureSentryException,
-  clearSentryUser,
-  initSentry,
-  setSentryUser,
-} from "@/lib/sentry";
 import { WatchlistProvider, useWatchlist } from "@/context/WatchlistContext";
 import { SubscriptionProvider, useSubscription } from "@/context/SubscriptionContext";
 import { AlertsProvider } from "@/context/AlertsContext";
@@ -40,11 +34,6 @@ import { BenchmarkProvider } from "@/context/BenchmarkContext";
 import { FirstTimeNameModal } from "@/components/FirstTimeNameModal";
 
 SplashScreen.preventAutoHideAsync();
-
-// Initialize Sentry at module scope so the SDK is live before the first
-// render — including any error in fontsLoaded or ClerkProvider hydration.
-// Best-effort: silently no-ops if EXPO_PUBLIC_SENTRY_DSN isn't set.
-initSentry();
 
 // Wire NetInfo -> React Query's onlineManager + AppState -> focusManager.
 // Done at module scope so it's set up exactly once, before any provider mounts.
@@ -126,27 +115,6 @@ function PushNotificationRegistrar() {
   return null;
 }
 
-// Tag every Sentry event with the Clerk user id so production crashes are
-// filterable per-account. Cleared on sign-out so later events aren't
-// attributed to the previous account.
-//
-// PII policy: id only, no email. The Clerk dashboard is the source of
-// truth for {id -> email} lookups; duplicating it into Sentry would bloat
-// our PII surface without adding signal.
-function SentryUserSync() {
-  const { isSignedIn, userId } = useAuth();
-
-  useEffect(() => {
-    if (isSignedIn && userId) {
-      setSentryUser({ id: userId });
-    } else {
-      clearSentryUser();
-    }
-  }, [isSignedIn, userId]);
-
-  return null;
-}
-
 function AppWithNamePrompt({ children }: { children: React.ReactNode }) {
   const { setDisplayName } = useWatchlist();
   return (
@@ -194,14 +162,12 @@ export default function RootLayout() {
         <ClerkLoaded>
           <ClerkAuthBridge />
           <PushNotificationRegistrar />
-          <SentryUserSync />
           <SafeAreaProvider>
             <ErrorBoundary
               onError={(error, stackTrace) => {
-                // Forward to Sentry (no-op if DSN not configured) AND keep
-                // the console log so the boundary's swallowed crash still
-                // shows up in dev tools / Replit logs.
-                captureSentryException(error, { stackTrace });
+                // Log so the boundary's swallowed crash still shows up in
+                // dev tools / Replit logs. No remote crash reporter is
+                // wired up on mobile right now.
                 // eslint-disable-next-line no-console
                 console.error("[ErrorBoundary]", error, stackTrace);
               }}

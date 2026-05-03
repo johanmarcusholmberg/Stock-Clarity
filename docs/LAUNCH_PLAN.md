@@ -92,31 +92,22 @@ These can all happen in parallel with Phase 1 account setups.
   - Patched silent failures: `WatchlistContext.refreshQuotes` now returns `Promise<boolean>`; pull-to-refresh + feedback submit show toasts on offline/error (was silent). Destructive flows (delete folder/account) intentionally kept Alert.alert — confirmation modal is the right UX.
   - **Verified by e2e**: banner appears within ~2s of going offline, fully unmounts within ~2.5s of going online, multiple toggles pass.
 
-### 2E — Error reporting (Sentry-protocol → Better Stack) ✅ DONE
+### 2E — Observability: Better Stack server logs (Sentry fully removed) ✅ DONE
 
-- ✅ **Mobile (`@sentry/react-native@~7.2.0`, pinned to Expo SDK 54's recommended version):**
-  - `lib/sentry.ts` — `initSentry()` / `captureSentryException()` / `setSentryUser()` / `clearSentryUser()`. Best-effort: no-ops without `EXPO_PUBLIC_SENTRY_DSN`. Drops noise events (`Network request failed`, `Aborted`) in `beforeSend` so the Sentry feed stays signal-rich.
-  - `app/_layout.tsx`: `initSentry()` at module scope (live before first render); `<SentryUserSync />` reads Clerk `useAuth()` + `useUser()` and sets `{id, email}` on sign-in / clears on sign-out; `<ErrorBoundary onError>` now forwards to `captureSentryException` (was a TODO comment).
-- ✅ **API server (`@sentry/node@^9.50.0`):**
-  - `src/instrument.ts` — `Sentry.init()`, imported FIRST in `src/index.ts` (before any other import) so OTel hooks can wrap http/express. Best-effort: no-ops without `SENTRY_DSN`.
-  - `src/lib/sentry.ts` — `sentryRequestContext` middleware tags scope with `req_id` + Clerk `userId`; `sentryErrorHandler` captures and forwards; `setupExpressSentry()` adds Sentry's official Express handler as defense-in-depth. Drops 4xx-style noise in `beforeSend`.
-  - `app.ts`: `sentryRequestContext` mounted after `clerkMiddleware`; `sentryErrorHandler` + `setupExpressSentry` mounted after all routes, before `logError`.
-- ✅ **Metro fix (collateral):** Sentry's pnpm install left `_tmp_<pid>` extract dirs that crashed Metro's file watcher (`ENOENT`). Added a `metro.config.js` blockList for `node_modules/.pnpm/*_tmp_*` so future hot installs can't tear down the dev server.
-- ✅ **Vendor: Better Stack** (chosen over Sentry — Sentry-SDK-compatible drop-in at ~1/6th the cost, plus consolidates error tracking + uptime + status pages + logs in one tool). Two applications created in Better Stack's Error Tracking product, both in the Europe data region:
-  - `stockclarify-mobile` (platform: iOS — Better Stack has no React Native tile, but the DSN protocol is platform-agnostic; Android crashes still flow into the same project, tagged `os: android`).
-  - `stockclarify-api` (platform: Node.js).
-- ✅ **Secrets wired into Replit:** `EXPO_PUBLIC_SENTRY_DSN` (mobile, `EXPO_PUBLIC_` prefix exposes it to the client bundle — DSNs are public-by-design) and `SENTRY_DSN` (server). Env-var names keep the "SENTRY" prefix because that's the protocol name, not the vendor.
-- ✅ **End-to-end verified (2026-05-02):** fired one `captureMessage` + one `captureException` to each DSN via a one-shot `@sentry/node` script. Both flushed `true`; event IDs returned cleanly. Better Stack dashboard should now show 4 events (2 per project) tagged `environment: preflight-check` — safe to delete from the dashboard once you've eyeballed them.
-- ⏭️ **Optional later:** `SENTRY_RELEASE` env var for git-sha-based release tagging on the server (currently defaults to `stockclarify-api@1.0.0`).
-- ✅ **Architect-driven hardening pass:**
-  - Server `sentryRequestContext` now uses `Sentry.withIsolationScope` (AsyncLocalStorage-backed) instead of `withScope` — `withScope` was popped synchronously when the callback returned, so request tags evaporated before downstream async errors fired. Now `req_id` + `userId` propagate through the entire request's async tree.
-  - Removed our custom `sentryErrorHandler` middleware — `setupExpressSentry(app)` (Sentry's official Express handler) is the SOLE error-capture path. Reads the active isolation scope so request tags stick, captures once (no double events), forwards to `logError`.
-  - Mobile `setSentryUser` now sends `{id}` only — email dropped. Clerk dashboard is the source of truth for `id → email` lookups; duplicating into Sentry just bloated PII surface without adding signal. `SentryUserSync` no longer reads `useUser()`.
-- ✅ **Collateral build fix (OTel bundling):** `@sentry/node` v9 eagerly imports many `@opentelemetry/*` packages at module load, but pnpm only links direct deps into a workspace package's `node_modules` — so transitive OTel deps weren't resolvable at runtime (`ERR_MODULE_NOT_FOUND`). Removed `"@opentelemetry/*"` from `build.mjs` externals (with explanatory code comment) so esbuild bundles them all. OTel packages are pure JS (no native bindings); only `@sentry/profiling-node` stays externalized. Server boots clean, `/api/healthz` returns 200.
-- ⚙️ **Server tracing**: deliberately disabled at launch (`integrations: []` in `instrument.ts`). Pino logs already cover request/latency observability, and OTel monkeypatching inside an esbuild bundle is fragile — silent partial-tracing was a real risk. Error capture works independently. Post-launch: drop `integrations: []` (or selectively enable `httpIntegration()` + `expressIntegration()`) to turn tracing on. `tracesSampleRate` left at `0.05` prod / `0.5` dev so flipping the switch later doesn't blow the free quota.
-- ⏭️ **Deferred:**
-  - Source-map upload (requires `SENTRY_AUTH_TOKEN` + EAS build hook on mobile, esbuild plugin on server). Not a launch blocker; stack traces work without source maps but show minified names.
-  - Performance tracing on the server (see above).
+- ✅ **Decision (2026-05-03):** dropped Sentry entirely on both server and mobile. Server-side logs go to Better Stack via the `@logtail/pino` transport; mobile ships without a crash reporter at launch (revisit post-launch if needed).
+- ✅ **Server pipeline (`pino` + `@logtail/pino` + `pino-pretty`):**
+  - `src/lib/logger.ts` — singleton pino logger with two transport targets: `pino-pretty` (stdout, dev-friendly) and `@logtail/pino` (Better Stack, gated on `BETTER_STACK_SOURCE_TOKEN`). Default endpoint `https://in.logs.betterstack.com` works for the EU region.
+  - All route code uses `req.log` / module loggers — never `console.log`.
+- ✅ **esbuild build hardening (`build.mjs`):** worked around two `esbuild-plugin-pino` quirks that surfaced after the Sentry removal:
+  - The plugin uses a one-shot flag and only injects `__bundlerPathsOverrides` into the FIRST bundle that imports pino during a build. Across rebuilds, esbuild's parallel processing makes "first" non-deterministic — sometimes it lands in `index.mjs`, sometimes in `@logtail/pino.mjs`. When the main bundle missed out, pino's `transport.js` fell back to `join(__dirname, 'worker.js')` and crashed with `Cannot find module .../dist/worker.js`. Fix: inject the override map ourselves in the esbuild banner, walking up from `__dirname` to find the dist root (handles both top-level bundles and the nested `dist/@logtail/pino.mjs`). Idempotent — spreads any existing override the plugin set.
+  - Belt-and-suspenders: also mirror `dist/thread-stream-worker.mjs` to `dist/lib/worker.js` so any code path that bypasses the override still resolves to a working worker file.
+- ✅ **Smoke-tested (2026-05-03):** ad-hoc `pino + @logtail/pino` script flushed cleanly to Better Stack with `BETTER_STACK_SOURCE_TOKEN`. Server boots clean, `/api/healthz` returns 200, request logs flow through pino-pretty + Better Stack in parallel.
+- ✅ **Sentry removal scope:**
+  - Mobile: deleted `lib/sentry.ts`, uninstalled `@sentry/react-native`, removed `initSentry()` / `<SentryUserSync />` / `captureSentryException` from `app/_layout.tsx`, dropped Sentry bullet from privacy screen, simplified `<ErrorBoundary onError>` to `console.error`.
+  - Server: removed `src/instrument.ts`, `src/lib/sentry.ts`, all Sentry middleware and Express handlers, `@sentry/node` + `@sentry/profiling-node` deps, every Sentry mention in `routes/legal.ts` (privacy section + section 8), and the now-unused `@sentry/profiling-node` external + OTel-bundling comment from `build.mjs`.
+  - Codebase scan: zero remaining `sentry`/`@sentry` references in source.
+- ✅ **Metro fix retained:** the `node_modules/.pnpm/*_tmp_*` blockList in `metro.config.js` stays — useful protection against any future hot-install tearing down Metro's file watcher.
+- ⏭️ **Deferred:** mobile crash reporting. If post-launch crash data becomes a need, evaluate Sentry / Bugsnag / Better Stack mobile when they ship a first-class RN tile.
 
 ### 2F — RevenueCat IAP integration 🤝 *(biggest single item)* ✅ CODE DONE *(2026-05-02)*
 - This is the BIG one. Apple/Google take 15–30% on in-app subscriptions and reject apps that bypass their billing for digital goods.
