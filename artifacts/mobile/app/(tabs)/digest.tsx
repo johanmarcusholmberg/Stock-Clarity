@@ -221,14 +221,10 @@ export default function DigestScreen() {
     return entries.filter((e) => filterState.tickers.has(e.ticker));
   }, [filterState]);
 
-  const getPortfolioEntries = useCallback((entries: StockEvent[]): StockEvent[] => {
-    if (isDefaultFolder) return entries;
-    const tickerSet = new Set(activeFolder?.tickers || []);
-    return entries.filter((e) => tickerSet.has(e.ticker));
-  }, [isDefaultFolder, activeFolder]);
-
-  const filteredDaily = useMemo(() => getFilteredEntries(getPortfolioEntries(dailyEntries)), [dailyEntries, getFilteredEntries, getPortfolioEntries]);
-  const filteredWeekly = useMemo(() => getFilteredEntries(getPortfolioEntries(weeklyEntries)), [weeklyEntries, getFilteredEntries, getPortfolioEntries]);
+  // Entries arriving from DigestContext are already scoped to the active
+  // portfolio, so the only client-side filter left is the stock chip.
+  const filteredDaily = useMemo(() => getFilteredEntries(dailyEntries), [dailyEntries, getFilteredEntries]);
+  const filteredWeekly = useMemo(() => getFilteredEntries(weeklyEntries), [weeklyEntries, getFilteredEntries]);
 
   return (
     <>

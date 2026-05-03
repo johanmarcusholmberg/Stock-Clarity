@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@clerk/expo";
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AppState, type AppStateStatus } from "react-native";
 import { useWatchlist } from "@/context/WatchlistContext";
 import { getEvents, type EventPeriod, type StockEvent } from "@/services/stockApi";
@@ -13,20 +13,29 @@ import { getEvents, type EventPeriod, type StockEvent } from "@/services/stockAp
 // the same day/week.
 // v4 keys are namespaced per Clerk userId so a shared device never
 // shows one user's brief to another after sign-out / sign-in.
-const DAILY_PREFIX = "@stockclarify_digest_daily_v4";
-const WEEKLY_PREFIX = "@stockclarify_digest_weekly_v4";
+// v5 keys are additionally namespaced by activeFolderId — fetches now
+// scope to the active portfolio's tickers only, and each portfolio gets
+// its own persisted cache. Also coincides with the weekString switch to
+// ISO 8601 format (v4 weekly cache entries from the old format are
+// effectively orphaned and will be re-fetched on first read).
+const DAILY_PREFIX = "@stockclarify_digest_daily_v5";
+const WEEKLY_PREFIX = "@stockclarify_digest_weekly_v5";
 
-function dailyCacheKey(userId: string) {
-  return `${DAILY_PREFIX}:${userId}`;
+// Max parallel getEvents requests. Keeps large watchlists from
+// hammering the API and from stalling on flaky mobile networks.
+const FETCH_CONCURRENCY = 8;
+
+function dailyCacheKey(userId: string, folderId: string) {
+  return `${DAILY_PREFIX}:${userId}:${folderId}`;
 }
-function dailyDateKey(userId: string) {
-  return `${DAILY_PREFIX}_date:${userId}`;
+function dailyDateKey(userId: string, folderId: string) {
+  return `${DAILY_PREFIX}_date:${userId}:${folderId}`;
 }
-function weeklyCacheKey(userId: string) {
-  return `${WEEKLY_PREFIX}:${userId}`;
+function weeklyCacheKey(userId: string, folderId: string) {
+  return `${WEEKLY_PREFIX}:${userId}:${folderId}`;
 }
-function weeklyDateKey(userId: string) {
-  return `${WEEKLY_PREFIX}_date:${userId}`;
+function weeklyDateKey(userId: string, folderId: string) {
+  return `${WEEKLY_PREFIX}_date:${userId}:${folderId}`;
 }
 
 interface DigestCachePayload {
@@ -49,7 +58,6 @@ function todayString() {
 // to expire incorrectly.
 function weekString() {
   const d = new Date();
-  // Copy to a UTC date pinned to Thursday of the current ISO week.
   const target = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
   const dayNum = target.getUTCDay() || 7; // Sun=0 → 7
   target.setUTCDate(target.getUTCDate() + 4 - dayNum);
@@ -71,13 +79,40 @@ interface DigestContextValue {
 
 const DigestContext = createContext<DigestContextValue | null>(null);
 
+/**
+ * Run an async mapping function over `items` with at most `limit`
+ * promises in flight at once. Order of returned results matches input.
+ * Used to cap parallel `getEvents` calls so a 50-ticker watchlist
+ * doesn't fire 50 simultaneous requests.
+ */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<PromiseSettledResult<R>[]> {
+  const results: PromiseSettledResult<R>[] = new Array(items.length);
+  let cursor = 0;
+  const safeLimit = Math.max(1, Math.min(limit, items.length));
+  const workers = Array.from({ length: safeLimit }, async () => {
+    while (true) {
+      const i = cursor++;
+      if (i >= items.length) return;
+      try {
+        results[i] = { status: "fulfilled", value: await fn(items[i], i) };
+      } catch (reason) {
+        results[i] = { status: "rejected", reason };
+      }
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 async function fetchAll(tickers: string[], period: EventPeriod): Promise<StockEvent[]> {
-  const results = await Promise.allSettled(
-    tickers.map(async (ticker) => {
-      const evts = await getEvents(ticker, period);
-      return evts.slice(0, 3);
-    })
-  );
+  const results = await mapWithConcurrency(tickers, FETCH_CONCURRENCY, async (ticker) => {
+    const evts = await getEvents(ticker, period);
+    return evts.slice(0, 3);
+  });
   return results
     .flatMap((r) => (r.status === "fulfilled" ? r.value : []))
     .sort(
@@ -90,28 +125,38 @@ async function fetchAll(tickers: string[], period: EventPeriod): Promise<StockEv
  * Eagerly fetches both the daily and weekly digests at app-root level so
  * they're ready by the time the user opens the Digest tab. Triggered on
  * mount (= login, since this provider lives inside the auth-gated tab
- * tree), whenever the watchlist ticker set changes, and whenever the
- * active portfolio changes. Cache keys are scoped per Clerk userId, and
- * cached payloads carry a ticker signature so portfolio/watchlist edits
- * never serve stale data.
+ * tree), whenever the active portfolio's ticker set changes, and
+ * whenever the user switches portfolios. Cache keys are scoped per
+ * (userId, activeFolderId) and cached payloads carry a ticker signature
+ * so portfolio/watchlist edits never serve stale data.
  *
  * Stale-while-revalidate: when the cache is present but its ticker
- * signature differs from the current watchlist (e.g. user just added a
+ * signature differs from the current portfolio (e.g. user just added a
  * stock), we keep the old entries on screen and fetch in the background
  * instead of flashing a spinner.
  */
 export function DigestProvider({ children }: { children: React.ReactNode }) {
-  const { stocks, activeFolderId } = useWatchlist();
+  const { folders, activeFolderId } = useWatchlist();
   const { userId } = useAuth();
   const [dailyEntries, setDailyEntries] = useState<StockEvent[]>([]);
   const [dailyLoading, setDailyLoading] = useState(false);
   const [weeklyEntries, setWeeklyEntries] = useState<StockEvent[]>([]);
   const [weeklyLoading, setWeeklyLoading] = useState(false);
 
+  // Resolve the active portfolio's ticker list. The sentinel "default"
+  // folder shows the union of every folder's tickers.
+  const portfolioTickers = useMemo(() => {
+    if (activeFolderId === "default") {
+      return Array.from(new Set(folders.flatMap((f) => f.tickers)));
+    }
+    const f = folders.find((x) => x.id === activeFolderId);
+    return f?.tickers ?? [];
+  }, [folders, activeFolderId]);
+
   // Per-stream request epochs. Each load() increments the counter and
   // captures a token; only the latest in-flight request is allowed to
   // commit results. This guards against stale async fetches overwriting
-  // state after a user switch or a rapid watchlist change.
+  // state after a user switch, portfolio switch, or rapid watchlist edit.
   const dailyEpoch = useRef(0);
   const weeklyEpoch = useRef(0);
 
@@ -125,26 +170,28 @@ export function DigestProvider({ children }: { children: React.ReactNode }) {
       setLoading: (b: boolean) => void,
       epochRef: React.MutableRefObject<number>,
       requestUserId: string,
+      requestFolderId: string,
+      requestTickers: string[],
       force = false,
     ) => {
       const token = ++epochRef.current;
       const isCurrent = () =>
-        token === epochRef.current && requestUserId === userId;
+        token === epochRef.current &&
+        requestUserId === userId &&
+        requestFolderId === activeFolderId;
 
-      const currentTickers = Object.keys(stocks);
-      if (!currentTickers.length) {
+      if (!requestTickers.length) {
         if (isCurrent()) setEntries([]);
         return;
       }
 
-      const sig = tickerSignature(currentTickers);
+      const sig = tickerSignature(requestTickers);
       const cached = await AsyncStorage.getItem(cacheKey);
       const cachedDate = await AsyncStorage.getItem(dateKey);
       if (!isCurrent()) return;
 
       let hasUsableCache = false;
       let sigMatches = false;
-      let cachedIsEmptyForWindow = false;
       if (cached && cachedDate === windowString) {
         try {
           const parsed = JSON.parse(cached) as DigestCachePayload;
@@ -159,7 +206,6 @@ export function DigestProvider({ children }: { children: React.ReactNode }) {
             // window — treat as a cache hit so we don't flash a spinner.
             setEntries([]);
             hasUsableCache = true;
-            cachedIsEmptyForWindow = true;
           }
         } catch {}
       }
@@ -171,7 +217,7 @@ export function DigestProvider({ children }: { children: React.ReactNode }) {
       // already painted stale entries, refresh silently in the background.
       if (!hasUsableCache) setLoading(true);
       try {
-        const entries = await fetchAll(currentTickers, period);
+        const entries = await fetchAll(requestTickers, period);
         if (!isCurrent()) return;
         setEntries(entries);
         const payload: DigestCachePayload = { tickerSig: sig, entries };
@@ -179,13 +225,11 @@ export function DigestProvider({ children }: { children: React.ReactNode }) {
         await AsyncStorage.setItem(dateKey, windowString);
       } catch {
         // Cached entries (if any) are already on screen; nothing to undo.
-        // Suppress unused-var lint in the empty-cache branch.
-        void cachedIsEmptyForWindow;
       } finally {
         if (!hasUsableCache && isCurrent()) setLoading(false);
       }
     },
-    [stocks, userId],
+    [userId, activeFolderId],
   );
 
   const loadDaily = useCallback(
@@ -193,17 +237,19 @@ export function DigestProvider({ children }: { children: React.ReactNode }) {
       if (!userId) return;
       await loadDigest(
         "day",
-        dailyCacheKey(userId),
-        dailyDateKey(userId),
+        dailyCacheKey(userId, activeFolderId),
+        dailyDateKey(userId, activeFolderId),
         todayString(),
         setDailyEntries,
         setDailyLoading,
         dailyEpoch,
         userId,
+        activeFolderId,
+        portfolioTickers,
         force,
       );
     },
-    [loadDigest, userId],
+    [loadDigest, userId, activeFolderId, portfolioTickers],
   );
 
   const loadWeekly = useCallback(
@@ -211,17 +257,19 @@ export function DigestProvider({ children }: { children: React.ReactNode }) {
       if (!userId) return;
       await loadDigest(
         "week",
-        weeklyCacheKey(userId),
-        weeklyDateKey(userId),
+        weeklyCacheKey(userId, activeFolderId),
+        weeklyDateKey(userId, activeFolderId),
         weekString(),
         setWeeklyEntries,
         setWeeklyLoading,
         weeklyEpoch,
         userId,
+        activeFolderId,
+        portfolioTickers,
         force,
       );
     },
-    [loadDigest, userId],
+    [loadDigest, userId, activeFolderId, portfolioTickers],
   );
 
   // Reset in-memory state and bump epochs when the signed-in user
@@ -235,13 +283,22 @@ export function DigestProvider({ children }: { children: React.ReactNode }) {
     setWeeklyEntries([]);
   }, [userId]);
 
-  // Eager-load on mount (= login here), whenever the watchlist ticker set
-  // changes, and whenever the user switches portfolios. Joining is the
-  // cheapest stable key for a Set-of-strings dep that React's shallow
-  // comparison can't handle natively. Cache lookups (validated by ticker
-  // signature) make portfolio switches free when fresh data exists.
-  const tickerKey = Object.keys(stocks).join(",");
+  // Eager-load on mount (= login), whenever the active portfolio's
+  // ticker set changes, and whenever the user switches portfolios.
+  // Joining is the cheapest stable key for an array dep that React's
+  // shallow comparison can't handle natively. Cache lookups (validated
+  // by ticker signature) make portfolio switches free when fresh data
+  // exists for that portfolio.
+  //
+  // Bump both epochs unconditionally before deciding what to do, so any
+  // in-flight fetches from the previous folder/ticker-set are rejected
+  // when they resolve — including the early-return empty-folder branch
+  // (otherwise a slow prior fetch could repaint stale cross-portfolio
+  // entries on top of the now-empty state).
+  const tickerKey = portfolioTickers.join(",");
   useEffect(() => {
+    dailyEpoch.current++;
+    weeklyEpoch.current++;
     if (!userId || tickerKey.length === 0) {
       setDailyEntries([]);
       setWeeklyEntries([]);
@@ -252,10 +309,10 @@ export function DigestProvider({ children }: { children: React.ReactNode }) {
   }, [tickerKey, activeFolderId, userId]);
 
   // Refresh when the app comes back to the foreground so an overnight
-  // session never serves yesterday's brief. Only triggers when the
-  // date/week window has actually rolled over — the in-window case is a
-  // free cache hit. Forced so a stale-but-valid window still revalidates
-  // any tickers that may have new news since the last fetch.
+  // session never serves yesterday's brief. Force=true: when the
+  // date/week window rolled over, the cache is invalid and we want a
+  // fresh fetch; when it didn't, cached entries stay on screen (SWR)
+  // while a background revalidation runs.
   const lastForegroundRef = useRef<{ day: string; week: string }>({
     day: todayString(),
     week: weekString(),
@@ -264,17 +321,10 @@ export function DigestProvider({ children }: { children: React.ReactNode }) {
     if (!userId) return;
     const sub = AppState.addEventListener("change", (next: AppStateStatus) => {
       if (next !== "active") return;
-      const today = todayString();
-      const thisWeek = weekString();
-      // Always pass force=true on foreground resume. When the window
-      // rolled over the cache is invalid and we want a fresh fetch.
-      // When it didn't, the cached entries stay on screen (SWR) while
-      // a background revalidation runs — matching cache + signature
-      // would otherwise short-circuit and skip the network entirely.
+      lastForegroundRef.current.day = todayString();
+      lastForegroundRef.current.week = weekString();
       loadDaily(true);
       loadWeekly(true);
-      lastForegroundRef.current.day = today;
-      lastForegroundRef.current.week = thisWeek;
     });
     return () => sub.remove();
   }, [userId, loadDaily, loadWeekly]);
