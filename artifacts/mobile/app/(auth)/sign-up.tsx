@@ -8,12 +8,13 @@ import {
   MailIcon,
   TrendUpIcon,
 } from "@/components/icons/StockIcons";
-import { useSignIn, useSignUp, useOAuth } from "@/lib/clerk";
+import { useSignIn, useSignUp, useWebOAuth } from "@/lib/clerk";
 import { Link, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import React, { useEffect, useState, useMemo } from "react";
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -79,12 +80,15 @@ export default function SignUpScreen() {
   const router = useRouter();
   const { isLoaded, signUp, setActive } = useSignUp();
   const { signIn } = useSignIn();
-  const { startOAuthFlow: startGoogleOAuth } = useOAuth({ strategy: "oauth_google" });
-  // Initialize to the iOS heuristic so the button doesn't pop in after first
-  // render. The async check below confirms / disables it on simulators.
-  const [appleAvailable, setAppleAvailable] = useState(Platform.OS === "ios");
+  const { startOAuthFlow: startGoogleOAuth } = useWebOAuth("oauth_google");
+  const { startOAuthFlow: startAppleOAuthWeb } = useWebOAuth("oauth_apple");
+  // Show Apple on iOS and web; web requires Clerk Apple Services ID to be configured.
+  const [appleAvailable, setAppleAvailable] = useState(
+    Platform.OS === "ios" || Platform.OS === "web"
+  );
 
   useEffect(() => {
+    if (Platform.OS === "web") return;
     let cancelled = false;
     isAppleAuthAvailable().then((available) => {
       if (!cancelled) setAppleAvailable(available);
@@ -124,18 +128,52 @@ export default function SignUpScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setOAuthLoading("google");
     try {
-      const { createdSessionId, setActive: oauthSetActive } = await startGoogleOAuth();
-      if (createdSessionId && oauthSetActive) {
-        await oauthSetActive({ session: createdSessionId });
-        router.replace("/(tabs)");
+      if (Platform.OS === "web") {
+        await startGoogleOAuth();
+        // Browser redirects away
+      } else {
+        const { createdSessionId, setActive: oauthSetActive } = await startGoogleOAuth() as {
+          createdSessionId?: string;
+          setActive?: (args: { session: string }) => Promise<void>;
+        };
+        if (createdSessionId && oauthSetActive) {
+          await oauthSetActive({ session: createdSessionId });
+          router.replace("/(tabs)");
+        }
       }
     } catch {
+      // silent
     } finally {
-      setOAuthLoading(null);
+      if (Platform.OS !== "web") setOAuthLoading(null);
     }
   };
 
   const handleAppleSignUp = async () => {
+    if (Platform.OS === "web") {
+      setOAuthLoading("apple");
+      setError(null);
+      try {
+        await startAppleOAuthWeb();
+        // Browser redirects away
+      } catch (err: any) {
+        if (
+          err?.message?.includes("not enabled") ||
+          err?.message?.includes("configuration")
+        ) {
+          Alert.alert(
+            "Apple Sign-In",
+            "Apple Sign-In on web requires additional setup. Please use email or Google to sign in.",
+            [{ text: "OK" }]
+          );
+        } else {
+          setError(getClerkErrorMessage(err, "Apple sign-up failed. Please try again."));
+        }
+      } finally {
+        setOAuthLoading(null);
+      }
+      return;
+    }
+
     if (!signUp || !signIn) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setOAuthLoading("apple");
@@ -143,9 +181,6 @@ export default function SignUpScreen() {
     try {
       const credential = await requestAppleCredential();
 
-      // Sign in first — Apple's identity token works for both new & returning
-      // users. If the account doesn't exist yet, Clerk hands us a transferable
-      // signal that we forward to signUp.create to mint the new account.
       const signInAttempt = await signIn.create({
         strategy: "oauth_token_apple",
         token: credential.identityToken,
@@ -157,16 +192,12 @@ export default function SignUpScreen() {
         return;
       }
 
-      // Existing Apple user with MFA — punt them to the sign-in screen, where
-      // the full MFA flow lives, instead of duplicating it here.
       if (signInAttempt.status === "needs_second_factor") {
         setError("This Apple ID is already linked to an account. Please sign in instead.");
         router.replace("/(auth)/sign-in");
         return;
       }
 
-      // First-time Apple users: forward fullName so the profile isn't empty.
-      // Apple only returns this on the very first authorization.
       const signUpAttempt = await signUp.create({
         transfer: true,
         firstName: credential.fullName?.givenName ?? undefined,
@@ -228,7 +259,6 @@ export default function SignUpScreen() {
         code: verificationCode,
       });
       if (result.status === "complete" && result.createdSessionId) {
-        // Record initial password in history (non-blocking)
         try {
           const apiBase = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "");
           if (apiBase) {
@@ -239,7 +269,7 @@ export default function SignUpScreen() {
             });
           }
         } catch {
-          // Non-blocking — history storage failure shouldn't block signup
+          // Non-blocking
         }
         setSessionId(result.createdSessionId);
         setPendingVerification(false);
@@ -413,10 +443,8 @@ export default function SignUpScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Password strength indicator — shown after user starts typing */}
           {passwordTouched && password.length > 0 && (
             <View style={{ marginTop: 10, gap: 0 }}>
-              {/* Strength bar */}
               <View style={{ flexDirection: "row", gap: 4, marginBottom: 10 }}>
                 {Array.from({ length: 5 }).map((_, i) => {
                   const filled = i < passwordStrength;
@@ -439,7 +467,6 @@ export default function SignUpScreen() {
                   );
                 })}
               </View>
-              {/* Checklist */}
               <View style={{ gap: 4 }}>
                 {passwordRuleResults.map((rule) => (
                   <View key={rule.key} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -504,19 +531,36 @@ export default function SignUpScreen() {
             <Text style={[styles.socialButtonText, { color: colors.foreground }]}>Continue with Google</Text>
           </TouchableOpacity>
           {appleAvailable && (
-            oauthLoading === "apple" ? (
-              <View style={[styles.socialButton, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <ActivityIndicator color={colors.foreground} size="small" />
-                <Text style={[styles.socialButtonText, { color: colors.foreground }]}>Signing up with Apple…</Text>
-              </View>
-            ) : (
-              <AppleAuthentication.AppleAuthenticationButton
-                buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_UP}
-                buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
-                cornerRadius={14}
-                style={styles.appleButton}
+            Platform.OS === "web" ? (
+              <TouchableOpacity
+                style={[styles.socialButton, { backgroundColor: colors.card, borderColor: colors.border, opacity: oauthLoading === "apple" ? 0.5 : 1 }]}
                 onPress={handleAppleSignUp}
-              />
+                disabled={!!oauthLoading}
+              >
+                {oauthLoading === "apple" ? (
+                  <ActivityIndicator color={colors.foreground} size="small" />
+                ) : (
+                  <Text style={{ fontSize: 16, lineHeight: 18 }}></Text>
+                )}
+                <Text style={[styles.socialButtonText, { color: colors.foreground }]}>
+                  {oauthLoading === "apple" ? "Signing up with Apple…" : "Continue with Apple"}
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              oauthLoading === "apple" ? (
+                <View style={[styles.socialButton, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <ActivityIndicator color={colors.foreground} size="small" />
+                  <Text style={[styles.socialButtonText, { color: colors.foreground }]}>Signing up with Apple…</Text>
+                </View>
+              ) : (
+                <AppleAuthentication.AppleAuthenticationButton
+                  buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_UP}
+                  buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
+                  cornerRadius={14}
+                  style={styles.appleButton}
+                  onPress={handleAppleSignUp}
+                />
+              )
             )
           )}
         </View>

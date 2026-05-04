@@ -4,7 +4,7 @@
 
 import React from "react";
 import type { ReactNode } from "react";
-import { ClerkProvider as ReactClerkProvider } from "@clerk/clerk-react";
+import { ClerkProvider as ReactClerkProvider, useClerk } from "@clerk/clerk-react";
 
 export {
   ClerkLoaded,
@@ -39,11 +39,9 @@ export function ClerkProvider({ publishableKey, children }: ClerkProviderProps) 
   );
 }
 
-// `useOAuth` is an Expo-only API. On web, OAuth is normally a redirect-based
-// flow (signIn.authenticateWithRedirect). The web sign-in/sign-up screens
-// haven't been wired up for that yet, so we expose a stub that returns the
-// same shape but throws if anyone actually tries to start a flow. This keeps
-// the bundle building; the callers fall back to their existing error UI.
+// `useOAuth` is an Expo-only API. On web, OAuth is redirect-based via
+// `authenticateWithRedirect`. We expose a stub that matches the native shape
+// so existing callers (which should migrate to `useWebOAuth`) keep compiling.
 type StartOAuthFlowResult = {
   createdSessionId?: string;
   setActive?: (args: { session: string }) => Promise<void>;
@@ -53,8 +51,26 @@ export function useOAuth(_options: { strategy: string }) {
   return {
     startOAuthFlow: async (): Promise<StartOAuthFlowResult> => {
       throw new Error(
-        "useOAuth is not supported on web. Implement a redirect-based OAuth flow with @clerk/clerk-react instead.",
+        "useOAuth is not supported on web. Use useWebOAuth instead.",
       );
     },
   };
+}
+
+// Redirect-based OAuth for web. Works for both oauth_google and oauth_apple.
+// On web this navigates the browser away — the callback route completes the
+// handshake. There is no return value; code after `await startOAuthFlow()`
+// will not run.
+export function useWebOAuth(strategy: "oauth_google" | "oauth_apple") {
+  const clerk = useClerk();
+
+  const startOAuthFlow = async () => {
+    await clerk.authenticateWithRedirect({
+      strategy,
+      redirectUrl: `${window.location.origin}/sso-callback`,
+      redirectUrlComplete: `${window.location.origin}/(tabs)`,
+    });
+  };
+
+  return { startOAuthFlow };
 }
