@@ -6,7 +6,7 @@ import React, {
   useMemo,
   useState,
 } from "react";
-import { useAuth } from "@clerk/expo";
+import { useAuth } from "@/lib/clerk";
 import {
   addHolding,
   addLot,

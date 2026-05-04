@@ -1,6 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { useSignIn, useSignUp } from "@clerk/expo/legacy";
-import { useOAuth } from "@clerk/expo";
+import { useSignIn, useSignUp, useOAuth } from "@/lib/clerk";
 import { Link, useRouter, useLocalSearchParams } from "expo-router";
 import * as Haptics from "expo-haptics";
 import React, { useEffect, useState } from "react";

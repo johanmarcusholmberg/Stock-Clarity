@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useAuth } from "@clerk/expo";
+import { useAuth } from "@/lib/clerk";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AppState, type AppStateStatus } from "react-native";
 import { useWatchlist } from "@/context/WatchlistContext";

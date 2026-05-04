@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
-import { useAuth } from "@clerk/expo";
+import { useAuth } from "@/lib/clerk";
 import Svg, { Path, Line } from "react-native-svg";
 import { useColors } from "@/hooks/useColors";
 import { useDisplayMode } from "@/hooks/useDisplayMode";

@@ -13,7 +13,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { useAuth } from "@clerk/expo";
+import { useAuth } from "@/lib/clerk";
 import { router } from "expo-router";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription, Plan } from "@/context/SubscriptionContext";

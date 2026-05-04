@@ -3,7 +3,7 @@
 // web) and a centered content panel below the navbar / right of the bar.
 
 import { router, usePathname } from "expo-router";
-import { useUser } from "@clerk/expo";
+import { useUser } from "@/lib/clerk";
 import React, { useState, useMemo } from "react";
 import {
   Pressable,
