@@ -116,6 +116,9 @@ const ICON_MAP: Record<string, React.ComponentType<{ size?: number; color?: stri
   // Sharing & loading
   "share-2": Icons.Share2Icon,
   "loader": Icons.LoaderIcon,
+
+  // Geometry
+  "circle": Icons.CircleIcon,
 };
 
 export function StockIconRenderer({ name, size = 20, color = "#000000", strokeWidth }: Props) {

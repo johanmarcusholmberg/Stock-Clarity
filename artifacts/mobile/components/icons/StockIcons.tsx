@@ -687,6 +687,15 @@ export const PrinterIcon = ({ size = 20, color = "#000000", strokeWidth }: IconP
   </Svg>
 );
 
+// ─── Geometry ────────────────────────────────────────────────────────────────
+
+export const CircleIcon = ({ size = 20, color = "#000000", strokeWidth }: IconProps) => (
+  // A plain circle outline — used as the "unmet" companion to CheckCircleIcon.
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Circle cx={12} cy={12} r={9} {...stroke(color, 1.5, strokeWidth)} />
+  </Svg>
+);
+
 // ─── Sharing & Loading ───────────────────────────────────────────────────────
 
 export const Share2Icon = ({ size = 20, color = "#000000", strokeWidth }: IconProps) => (

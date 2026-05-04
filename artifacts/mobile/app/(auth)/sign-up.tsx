@@ -1,4 +1,13 @@
-import { Feather } from "@expo/vector-icons";
+import {
+  CheckCircleIcon,
+  CircleIcon,
+  ClockIcon,
+  EyeIcon,
+  EyeOffIcon,
+  GlobeIcon,
+  MailIcon,
+  TrendUpIcon,
+} from "@/components/icons/StockIcons";
 import { useSignIn, useSignUp } from "@clerk/expo/legacy";
 import { useOAuth } from "@clerk/expo";
 import { Link, useRouter } from "expo-router";
@@ -267,7 +276,7 @@ export default function SignUpScreen() {
         <View style={[styles.inner, { paddingTop: topPad + 24 }]}>
           <View style={styles.logoRow}>
             <View style={[styles.logoIcon, { backgroundColor: `${colors.primary}22`, borderColor: `${colors.primary}44` }]}>
-              <Feather name="mail" size={28} color={colors.primary} />
+              <MailIcon size={28} color={colors.primary} />
             </View>
           </View>
           <Text style={[styles.title, { color: colors.foreground }]}>Check your email</Text>
@@ -307,7 +316,7 @@ export default function SignUpScreen() {
         <View style={[styles.inner, { paddingTop: topPad + 24 }]}>
           <View style={styles.logoRow}>
             <View style={[styles.logoIcon, { backgroundColor: `${colors.primary}22`, borderColor: `${colors.primary}44` }]}>
-              <Feather name="globe" size={28} color={colors.primary} />
+              <GlobeIcon size={28} color={colors.primary} />
             </View>
           </View>
           <Text style={[styles.title, { color: colors.foreground }]}>Your timezone</Text>
@@ -326,7 +335,7 @@ export default function SignUpScreen() {
             gap: 12,
           }}>
             <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: `${colors.primary}22`, alignItems: "center", justifyContent: "center" }}>
-              <Feather name="clock" size={18} color={colors.primary} />
+              <ClockIcon size={18} color={colors.primary} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={{ color: colors.mutedForeground, fontSize: 11, fontFamily: "Inter_600SemiBold", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>
@@ -361,7 +370,7 @@ export default function SignUpScreen() {
       >
         <View style={styles.logoRow}>
           <View style={[styles.logoIcon, { backgroundColor: `${colors.primary}22`, borderColor: `${colors.primary}44` }]}>
-            <Feather name="trending-up" size={28} color={colors.primary} />
+            <TrendUpIcon size={28} color={colors.primary} />
           </View>
         </View>
 
@@ -399,7 +408,9 @@ export default function SignUpScreen() {
               onPress={() => setShowPassword((v) => !v)}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Feather name={showPassword ? "eye-off" : "eye"} size={18} color={colors.mutedForeground} />
+              {showPassword
+                ? <EyeOffIcon size={18} color={colors.mutedForeground} />
+                : <EyeIcon size={18} color={colors.mutedForeground} />}
             </TouchableOpacity>
           </View>
 
@@ -433,11 +444,9 @@ export default function SignUpScreen() {
               <View style={{ gap: 4 }}>
                 {passwordRuleResults.map((rule) => (
                   <View key={rule.key} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <Feather
-                      name={rule.met ? "check-circle" : "circle"}
-                      size={13}
-                      color={rule.met ? "#22c55e" : colors.mutedForeground}
-                    />
+                    {rule.met
+                      ? <CheckCircleIcon size={13} color="#22c55e" strokeWidth={2} />
+                      : <CircleIcon size={13} color={colors.mutedForeground} strokeWidth={2} />}
                     <Text
                       style={{
                         fontSize: 12,

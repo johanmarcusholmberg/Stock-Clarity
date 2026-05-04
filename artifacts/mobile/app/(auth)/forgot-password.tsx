@@ -1,4 +1,5 @@
-import { Feather } from "@expo/vector-icons";
+import { CheckCircleIcon, CircleIcon, EyeIcon, EyeOffIcon } from "@/components/icons/StockIcons";
+import { StockIconRenderer } from "@/components/icons/StockIconRenderer";
 import { useSignIn } from "@clerk/expo/legacy";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
@@ -207,7 +208,7 @@ export default function ForgotPasswordScreen() {
     <>
       <View style={styles.logoRow}>
         <View style={[styles.logoIcon, { backgroundColor: `${colors.primary}22`, borderColor: `${colors.primary}44` }]}>
-          <Feather name={icon as any} size={28} color={colors.primary} />
+          <StockIconRenderer name={icon} size={28} color={colors.primary} />
         </View>
       </View>
       <Text style={[styles.title, { color: colors.foreground }]}>{title}</Text>
@@ -293,7 +294,9 @@ export default function ForgotPasswordScreen() {
                 onPress={() => setShowPassword((v) => !v)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <Feather name={showPassword ? "eye-off" : "eye"} size={18} color={colors.mutedForeground} />
+                {showPassword
+                  ? <EyeOffIcon size={18} color={colors.mutedForeground} />
+                  : <EyeIcon size={18} color={colors.mutedForeground} />}
               </TouchableOpacity>
             </View>
 
@@ -325,11 +328,9 @@ export default function ForgotPasswordScreen() {
                 <View style={{ gap: 4 }}>
                   {passwordRuleResults.map((rule) => (
                     <View key={rule.key} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                      <Feather
-                        name={rule.met ? "check-circle" : "circle"}
-                        size={13}
-                        color={rule.met ? "#22c55e" : colors.mutedForeground}
-                      />
+                      {rule.met
+                        ? <CheckCircleIcon size={13} color="#22c55e" strokeWidth={2} />
+                        : <CircleIcon size={13} color={colors.mutedForeground} strokeWidth={2} />}
                       <Text
                         style={{
                           fontSize: 12,
@@ -360,7 +361,9 @@ export default function ForgotPasswordScreen() {
                 onPress={() => setShowConfirm((v) => !v)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <Feather name={showConfirm ? "eye-off" : "eye"} size={18} color={colors.mutedForeground} />
+                {showConfirm
+                  ? <EyeOffIcon size={18} color={colors.mutedForeground} />
+                  : <EyeIcon size={18} color={colors.mutedForeground} />}
               </TouchableOpacity>
             </View>
           </View>

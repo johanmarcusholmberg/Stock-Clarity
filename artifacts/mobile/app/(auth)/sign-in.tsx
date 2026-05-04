@@ -1,5 +1,5 @@
-import { Feather } from "@expo/vector-icons";
 import { useSignIn, useSignUp } from "@clerk/expo/legacy";
+import { CheckCircleIcon, EyeIcon, EyeOffIcon, TrendUpIcon } from "@/components/icons/StockIcons";
 import { useOAuth } from "@clerk/expo";
 import { Link, useRouter, useLocalSearchParams } from "expo-router";
 import * as Haptics from "expo-haptics";
@@ -249,7 +249,7 @@ export default function SignInScreen() {
       >
         <View style={styles.logoRow}>
           <View style={[styles.logoIcon, { backgroundColor: `${colors.primary}22`, borderColor: `${colors.primary}44` }]}>
-            <Feather name="trending-up" size={28} color={colors.primary} />
+            <TrendUpIcon size={28} color={colors.primary} />
           </View>
         </View>
 
@@ -261,7 +261,7 @@ export default function SignInScreen() {
 
         {resetSuccess === "true" && (
           <View style={[styles.successBanner, { backgroundColor: "#22c55e18", borderColor: "#22c55e44" }]}>
-            <Feather name="check-circle" size={16} color="#22c55e" />
+            <CheckCircleIcon size={16} color="#22c55e" />
             <Text style={[styles.successText, { color: "#22c55e" }]}>Password reset successfully. Sign in with your new password.</Text>
           </View>
         )}
@@ -294,7 +294,9 @@ export default function SignInScreen() {
               onPress={() => setShowPassword((v) => !v)}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Feather name={showPassword ? "eye-off" : "eye"} size={18} color={colors.mutedForeground} />
+              {showPassword
+                ? <EyeOffIcon size={18} color={colors.mutedForeground} />
+                : <EyeIcon size={18} color={colors.mutedForeground} />}
             </TouchableOpacity>
           </View>
 
