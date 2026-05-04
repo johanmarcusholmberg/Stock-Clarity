@@ -1,4 +1,5 @@
-import { Feather } from "@expo/vector-icons";
+import { ArrowRightIcon, CheckIcon } from "@/components/icons/StockIcons";
+import { StockIconRenderer } from "@/components/icons/StockIconRenderer";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useRef, useState } from "react";
@@ -16,7 +17,7 @@ import { useColors } from "@/hooks/useColors";
 import { markOnboardingComplete } from "@/hooks/useOnboarding";
 
 interface Slide {
-  icon: keyof typeof Feather.glyphMap;
+  icon: string;
   iconColor: string;
   title: string;
   body: string;
@@ -104,7 +105,7 @@ export default function OnboardingScreen() {
         renderItem={({ item }) => (
           <View style={[s.slide, { width: SCREEN_W }]}>
             <View style={[s.iconWrap, { backgroundColor: item.iconColor + "1A" }]}>
-              <Feather name={item.icon} size={48} color={item.iconColor} />
+              <StockIconRenderer name={item.icon} size={48} color={item.iconColor} />
             </View>
             <Text style={[s.title, { color: colors.foreground }]}>{item.title}</Text>
             <Text style={[s.body, { color: colors.mutedForeground }]}>{item.body}</Text>
@@ -151,11 +152,9 @@ export default function OnboardingScreen() {
           <Text style={[s.ctaText, { color: colors.primaryForeground }]}>
             {isLast ? "Get started" : "Next"}
           </Text>
-          <Feather
-            name={isLast ? "check" : "arrow-right"}
-            size={16}
-            color={colors.primaryForeground}
-          />
+          {isLast
+            ? <CheckIcon size={16} color={colors.primaryForeground} />
+            : <ArrowRightIcon size={16} color={colors.primaryForeground} />}
         </TouchableOpacity>
       </View>
     </SafeAreaView>

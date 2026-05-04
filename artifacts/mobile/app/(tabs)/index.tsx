@@ -1,4 +1,13 @@
-import { Feather } from "@expo/vector-icons";
+import {
+  AddIcon,
+  AlertIcon,
+  CheckIcon,
+  DeleteIcon,
+  ExpandIcon,
+  FolderMinusIcon,
+  SearchIcon,
+  TrendUpIcon,
+} from "@/components/icons/StockIcons";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useQueryClient } from "@tanstack/react-query";
@@ -92,7 +101,7 @@ function DeleteFolderModal({
           <View style={[dm.divider, { backgroundColor: colors.border }]} />
 
           <TouchableOpacity style={dm.option} onPress={onDeleteFolderOnly} activeOpacity={0.7}>
-            <Feather name="folder-minus" size={16} color={colors.foreground} />
+            <FolderMinusIcon size={16} color={colors.foreground} />
             <View style={dm.optionText}>
               <Text style={[dm.optionTitle, { color: colors.foreground }]}>Delete portfolio only</Text>
               <Text style={[dm.optionDesc, { color: colors.mutedForeground }]}>
@@ -107,7 +116,7 @@ function DeleteFolderModal({
             <>
               <View style={[dm.divider, { backgroundColor: colors.border }]} />
               <TouchableOpacity style={dm.option} onPress={onDeleteFolderAndStocks} activeOpacity={0.7}>
-                <Feather name="trash-2" size={16} color={colors.negative} />
+                <DeleteIcon size={16} color={colors.negative} />
                 <View style={dm.optionText}>
                   <Text style={[dm.optionTitle, { color: colors.negative }]}>Delete portfolio and remove stocks</Text>
                   <Text style={[dm.optionDesc, { color: colors.mutedForeground }]}>
@@ -433,7 +442,7 @@ function NativeWatchlistScreen() {
               onPress={() => router.push("/(tabs)/alerts")}
               accessibilityLabel="View alerts"
             >
-              <Feather name="bell" size={18} color={unreadAlertCount > 0 ? colors.primary : colors.mutedForeground} />
+              <AlertIcon size={18} color={unreadAlertCount > 0 ? colors.primary : colors.mutedForeground} />
               {unreadAlertCount > 0 && (
                 <View style={[styles.badge, { backgroundColor: colors.primary }]}>
                   <Text style={[styles.badgeText, { color: colors.primaryForeground }]}>{unreadAlertCount}</Text>
@@ -519,8 +528,7 @@ function NativeWatchlistScreen() {
               >
                 {!isDefaultFolder && activeFolder ? activeFolder.name : "Portfolio"}
               </Text>
-              <Feather
-                name="chevron-down"
+              <ExpandIcon
                 size={12}
                 color={!isDefaultFolder ? colors.primaryForeground : colors.mutedForeground}
               />
@@ -548,7 +556,7 @@ function NativeWatchlistScreen() {
                   style={[styles.deleteButton, { backgroundColor: colors.negative + "18", borderColor: colors.negative + "44" }]}
                   onPress={handleDeleteFolder}
                 >
-                  <Feather name="trash-2" size={13} color={colors.negative} />
+                  <DeleteIcon size={13} color={colors.negative} strokeWidth={2} />
                   <Text style={[styles.deleteButtonText, { color: colors.negative }]}>Delete Portfolio</Text>
                 </TouchableOpacity>
               ) : (
@@ -600,7 +608,7 @@ function NativeWatchlistScreen() {
           {allWatched.length === 0 ? (
             <View style={[styles.empty, { borderColor: colors.border }]}>
               <View style={[styles.emptyIconRing, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "40" }]}>
-                <Feather name="trending-up" size={34} color={colors.primary} />
+                <TrendUpIcon size={34} color={colors.primary} />
               </View>
               <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Your Watchlist is empty</Text>
               <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
@@ -610,7 +618,9 @@ function NativeWatchlistScreen() {
                 style={[styles.emptyButton, { backgroundColor: colors.primary }]}
                 onPress={() => router.push("/(tabs)/search")}
               >
-                <Feather name="search" size={15} color={colors.primaryForeground} style={{ marginRight: 6 }} />
+                <View style={{ marginRight: 6 }}>
+                  <SearchIcon size={15} color={colors.primaryForeground} />
+                </View>
                 <Text style={[styles.emptyButtonText, { color: colors.primaryForeground }]}>Search for a stock</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -704,7 +714,7 @@ function NativeWatchlistScreen() {
                   }}
                   activeOpacity={0.7}
                 >
-                  <Feather name="plus" size={14} color={colors.primaryForeground} />
+                  <AddIcon size={14} color={colors.primaryForeground} />
                   <Text style={[pickerStyles.newBtnText, { color: colors.primaryForeground }]}>New</Text>
                 </TouchableOpacity>
               )}
@@ -773,7 +783,7 @@ function NativeWatchlistScreen() {
                       </View>
                       <View style={pickerStyles.rowRight}>
                         <View style={{ width: 24, alignItems: "center" }}>
-                          {isSelected && <Feather name="check" size={16} color={colors.primary} />}
+                          {isSelected && <CheckIcon size={16} color={colors.primary} />}
                         </View>
                         <TouchableOpacity
                           onPress={() => handlePickerDelete(folder)}
@@ -781,7 +791,7 @@ function NativeWatchlistScreen() {
                           style={pickerStyles.trashBtn}
                           accessibilityLabel="Delete portfolio"
                         >
-                          <Feather name="trash-2" size={16} color={colors.mutedForeground} />
+                          <DeleteIcon size={16} color={colors.mutedForeground} />
                         </TouchableOpacity>
                       </View>
                     </TouchableOpacity>

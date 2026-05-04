@@ -1,4 +1,14 @@
-import { Feather } from "@expo/vector-icons";
+import {
+  AddIcon,
+  CalendarIcon,
+  ChevronLeftIcon,
+  CollapseIcon,
+  ExpandIcon,
+  InfoIcon,
+  InsightsIcon,
+  MinusIcon,
+  RssIcon,
+} from "@/components/icons/StockIcons";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import React, { useMemo, useState } from "react";
@@ -49,7 +59,7 @@ export default function NotificationsScreen() {
           }}
           style={styles.backBtn}
         >
-          <Feather name="chevron-left" size={24} color={colors.foreground} />
+          <ChevronLeftIcon size={24} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>Notifications</Text>
         <View style={{ width: 32 }} />
@@ -68,7 +78,7 @@ export default function NotificationsScreen() {
       >
         {!notify.enabled && (
           <View style={[styles.banner, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-            <Feather name="info" size={16} color={colors.mutedForeground} />
+            <InfoIcon size={16} color={colors.mutedForeground} />
             <Text style={[styles.bannerText, { color: colors.mutedForeground }]}>
               News and earnings notifications are still rolling out.
             </Text>
@@ -143,11 +153,9 @@ function KindCard({ kind }: { kind: NotifyKind }) {
     <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
       <View style={styles.cardHeader}>
         <View style={[styles.cardIcon, { backgroundColor: colors.primary + "22" }]}>
-          <Feather
-            name={kind === "news" ? "rss" : "calendar"}
-            size={16}
-            color={colors.primary}
-          />
+          {kind === "news"
+            ? <RssIcon size={16} color={colors.primary} />
+            : <CalendarIcon size={16} color={colors.primary} />}
         </View>
         <View style={{ flex: 1 }}>
           <Text style={[styles.cardTitle, { color: colors.foreground }]}>
@@ -236,7 +244,7 @@ function SliderRow({
   return (
     <View style={styles.sliderWrap}>
       <TouchableOpacity onPress={dec} style={[styles.sliderBtn, { borderColor: colors.border }]}>
-        <Feather name="minus" size={16} color={colors.foreground} />
+        <MinusIcon size={16} color={colors.foreground} />
       </TouchableOpacity>
       <View style={[styles.sliderTrack, { backgroundColor: colors.border }]}>
         <View
@@ -247,7 +255,7 @@ function SliderRow({
         />
       </View>
       <TouchableOpacity onPress={inc} style={[styles.sliderBtn, { borderColor: colors.border }]}>
-        <Feather name="plus" size={16} color={colors.foreground} />
+        <AddIcon size={16} color={colors.foreground} />
       </TouchableOpacity>
     </View>
   );
@@ -272,7 +280,9 @@ function HourPicker({
         style={[styles.hourValue, { borderColor: colors.border, backgroundColor: colors.secondary }]}
       >
         <Text style={[styles.hourValueText, { color: colors.foreground }]}>{formatHour(value)}</Text>
-        <Feather name={expanded ? "chevron-up" : "chevron-down"} size={14} color={colors.mutedForeground} />
+        {expanded
+          ? <CollapseIcon size={14} color={colors.mutedForeground} />
+          : <ExpandIcon size={14} color={colors.mutedForeground} />}
       </TouchableOpacity>
       {expanded && (
         <View style={[styles.hourGrid, { borderColor: colors.border, backgroundColor: colors.card }]}>
@@ -316,7 +326,7 @@ function DailyCapCard() {
     <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
       <View style={styles.cardHeader}>
         <View style={[styles.cardIcon, { backgroundColor: colors.warning + "22" }]}>
-          <Feather name="bar-chart-2" size={16} color={colors.warning} />
+          <InsightsIcon size={16} color={colors.warning} />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={[styles.cardTitle, { color: colors.foreground }]}>Daily cap</Text>

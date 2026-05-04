@@ -9,11 +9,21 @@ import {
   View,
 } from "react-native";
 import * as Haptics from "expo-haptics";
-import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { useWatchlist, WatchlistFolder } from "@/context/WatchlistContext";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { PaywallSheet } from "@/components/PaywallSheet";
+import {
+  AddIcon,
+  CheckIcon,
+  DeleteIcon,
+  EditIcon,
+  ExpandIcon,
+  FolderMinusIcon,
+  LayersIcon,
+  MoreHorizontalIcon,
+  StarIcon,
+} from "@/components/icons/StockIcons";
 
 const DEFAULT_FOLDER_ID = "default";
 
@@ -202,8 +212,7 @@ export function FolderTabStrip() {
             onPress={handleWatchlistPress}
             activeOpacity={0.7}
           >
-            <Feather
-              name="star"
+            <StarIcon
               size={14}
               color={isDefaultActive ? colors.primaryForeground : colors.mutedForeground}
             />
@@ -230,8 +239,7 @@ export function FolderTabStrip() {
             onPress={handlePortfolioChipPress}
             activeOpacity={0.7}
           >
-            <Feather
-              name="layers"
+            <LayersIcon
               size={14}
               color={!isDefaultActive ? colors.primaryForeground : colors.mutedForeground}
             />
@@ -244,8 +252,7 @@ export function FolderTabStrip() {
             >
               {activePortfolio ? activePortfolio.name : "Portfolios"}
             </Text>
-            <Feather
-              name="chevron-down"
+            <ExpandIcon
               size={14}
               color={!isDefaultActive ? colors.primaryForeground : colors.mutedForeground}
             />
@@ -261,7 +268,7 @@ export function FolderTabStrip() {
             activeOpacity={0.7}
             accessibilityLabel="Add folder"
           >
-            <Feather name="plus" size={16} color={colors.mutedForeground} />
+            <AddIcon size={16} color={colors.mutedForeground} />
           </TouchableOpacity>
         </View>
       </View>
@@ -302,7 +309,7 @@ export function FolderTabStrip() {
                   }}
                   activeOpacity={0.7}
                 >
-                  <Feather name="plus" size={14} color={colors.primaryForeground} />
+                  <AddIcon size={14} color={colors.primaryForeground} />
                   <Text style={[sheetStyles.newBtnText, { color: colors.primaryForeground }]}>
                     New
                   </Text>
@@ -318,7 +325,7 @@ export function FolderTabStrip() {
             >
               {portfolios.length === 0 ? (
                 <View style={sheetStyles.empty}>
-                  <Feather name="layers" size={28} color={colors.mutedForeground} />
+                  <LayersIcon size={28} color={colors.mutedForeground} />
                   <Text style={[sheetStyles.emptyText, { color: colors.mutedForeground }]}>
                     No portfolios yet
                   </Text>
@@ -360,7 +367,7 @@ export function FolderTabStrip() {
                         </View>
                         <View style={sheetStyles.rowRight}>
                           {isSelected && (
-                            <Feather name="check" size={16} color={colors.primary} />
+                            <CheckIcon size={16} color={colors.primary} />
                           )}
                           <TouchableOpacity
                             style={sheetStyles.overflowBtn}
@@ -368,8 +375,7 @@ export function FolderTabStrip() {
                             hitSlop={{ top: 9, bottom: 9, left: 9, right: 9 }}
                             accessibilityLabel="Folder options"
                           >
-                            <Feather
-                              name="more-horizontal"
+                            <MoreHorizontalIcon
                               size={18}
                               color={colors.mutedForeground}
                             />
@@ -385,7 +391,7 @@ export function FolderTabStrip() {
                             onPress={() => handleStartRename(folder)}
                             activeOpacity={0.7}
                           >
-                            <Feather name="edit-2" size={13} color={colors.foreground} />
+                            <EditIcon size={13} color={colors.foreground} strokeWidth={2} />
                             <Text style={[sheetStyles.actionText, { color: colors.foreground }]}>
                               Rename
                             </Text>
@@ -398,7 +404,7 @@ export function FolderTabStrip() {
                             onPress={() => handleStartDelete(folder)}
                             activeOpacity={0.7}
                           >
-                            <Feather name="trash-2" size={13} color={colors.negative} />
+                            <DeleteIcon size={13} color={colors.negative} strokeWidth={2} />
                             <Text style={[sheetStyles.actionText, { color: colors.negative }]}>
                               Delete
                             </Text>
@@ -548,7 +554,7 @@ export function FolderTabStrip() {
                           ]}
                         >
                           {selected && (
-                            <Feather name="check" size={12} color={colors.primaryForeground} />
+                            <CheckIcon size={12} color={colors.primaryForeground} strokeWidth={2.2} />
                           )}
                         </View>
                       </TouchableOpacity>
@@ -700,7 +706,7 @@ export function FolderTabStrip() {
               onPress={() => handleDeleteConfirm(false)}
               activeOpacity={0.7}
             >
-              <Feather name="folder-minus" size={16} color={colors.foreground} />
+              <FolderMinusIcon size={16} color={colors.foreground} />
               <View style={deleteStyles.optionText}>
                 <Text style={[deleteStyles.optionTitle, { color: colors.foreground }]}>
                   Delete portfolio only
@@ -721,7 +727,7 @@ export function FolderTabStrip() {
                   onPress={() => handleDeleteConfirm(true)}
                   activeOpacity={0.7}
                 >
-                  <Feather name="trash-2" size={16} color={colors.negative} />
+                  <DeleteIcon size={16} color={colors.negative} />
                   <View style={deleteStyles.optionText}>
                     <Text style={[deleteStyles.optionTitle, { color: colors.negative }]}>
                       Delete portfolio and remove stocks

@@ -1,4 +1,4 @@
-import { Feather } from "@expo/vector-icons";
+import { StockIconRenderer } from "@/components/icons/StockIconRenderer";
 import React, {
   createContext,
   useCallback,
@@ -203,7 +203,7 @@ function ToastView({
         accessibilityRole="alert"
         accessibilityLiveRegion="polite"
       >
-        <Feather name={palette.icon} size={18} color={palette.fg} />
+        <StockIconRenderer name={palette.icon} size={18} color={palette.fg} />
         <Text style={[styles.text, { color: palette.fg }]} numberOfLines={2}>
           {toast.message}
         </Text>

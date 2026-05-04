@@ -1,4 +1,3 @@
-import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useRef, useState } from "react";
@@ -21,6 +20,18 @@ import ShareableEventCard from "./ShareableEventCard";
 import { AIDisclaimer } from "@/components/Disclaimer";
 import { shareViewAsImage } from "@/utils/shareCard";
 import { useToast } from "./Toast";
+import {
+  AlertCircleIcon,
+  ArrowRightIcon,
+  CollapseIcon,
+  ExpandIcon,
+  ExternalLinkIcon,
+  LoaderIcon,
+  LockIcon,
+  Share2Icon,
+  ZapIcon,
+  ZapOffIcon,
+} from "@/components/icons/StockIcons";
 
 // LayoutAnimation needs one-time opt-in on Android.
 if (
@@ -214,27 +225,25 @@ export default function ExpandableEventCard({
         <View style={s.headerRight}>
           {badge.kind === "upgrade" && (
             <View style={[s.lockBadge, { backgroundColor: colors.warning + "22" }]}>
-              <Feather name="lock" size={10} color={colors.warning} />
+              <LockIcon size={10} color={colors.warning} strokeWidth={2} />
               <Text style={[s.lockText, { color: colors.warning }]}>{badge.label}</Text>
             </View>
           )}
           {badge.kind === "used_up" && (
             <View style={[s.lockBadge, { backgroundColor: colors.warning + "22" }]}>
-              <Feather name="zap-off" size={10} color={colors.warning} />
+              <ZapOffIcon size={10} color={colors.warning} strokeWidth={2} />
               <Text style={[s.lockText, { color: colors.warning }]}>{badge.label}</Text>
             </View>
           )}
           {badge.kind === "quota_low" && (
             <View style={[s.lockBadge, { backgroundColor: colors.primary + "18" }]}>
-              <Feather name="zap" size={10} color={colors.primary} />
+              <ZapIcon size={10} color={colors.primary} strokeWidth={2} />
               <Text style={[s.lockText, { color: colors.primary }]}>{badge.label}</Text>
             </View>
           )}
-          <Feather
-            name={expanded ? "chevron-up" : "chevron-down"}
-            size={16}
-            color={colors.mutedForeground}
-          />
+          {expanded
+            ? <CollapseIcon size={16} color={colors.mutedForeground} />
+            : <ExpandIcon size={16} color={colors.mutedForeground} />}
         </View>
       </View>
 
@@ -281,12 +290,12 @@ export default function ExpandableEventCard({
                 style={[s.readMore, { borderColor: colors.border }]}
                 onPress={() => Linking.openURL(event.url)}
               >
-                <Feather name="external-link" size={12} color={colors.primary} />
+                <ExternalLinkIcon size={12} color={colors.primary} />
                 <Text style={[s.readMoreText, { color: colors.primary }]}>Read full article</Text>
               </TouchableOpacity>
             ) : (
               <View style={[s.readMore, { borderColor: colors.border }]}>
-                <Feather name="alert-circle" size={12} color={colors.mutedForeground} />
+                <AlertCircleIcon size={12} color={colors.mutedForeground} />
                 <Text style={[s.readMoreText, { color: colors.mutedForeground }]}>Article unavailable</Text>
               </View>
             )}
@@ -298,11 +307,9 @@ export default function ExpandableEventCard({
                 activeOpacity={0.7}
                 accessibilityLabel="Share this insight"
               >
-                <Feather
-                  name={sharing ? "loader" : "share-2"}
-                  size={12}
-                  color={colors.primary}
-                />
+                {sharing
+                  ? <LoaderIcon size={12} color={colors.primary} />
+                  : <Share2Icon size={12} color={colors.primary} />}
                 <Text style={[s.shareBtnText, { color: colors.primary }]}>
                   {sharing ? "Preparing…" : "Share"}
                 </Text>
@@ -329,7 +336,7 @@ export default function ExpandableEventCard({
               <Text style={[s.viewStockText, { color: colors.primaryForeground }]}>
                 View {event.ticker} Stock
               </Text>
-              <Feather name="arrow-right" size={14} color={colors.primaryForeground} />
+              <ArrowRightIcon size={14} color={colors.primaryForeground} />
             </TouchableOpacity>
           )}
         </View>

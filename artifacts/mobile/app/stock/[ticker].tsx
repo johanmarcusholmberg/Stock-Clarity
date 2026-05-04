@@ -1,4 +1,16 @@
-import { Feather } from "@expo/vector-icons";
+import {
+  AlertCircleIcon,
+  AlertIcon,
+  ArrowLeftIcon,
+  BookmarkIcon,
+  CheckIcon,
+  ChevronRightIcon,
+  LockIcon,
+  RefreshIcon,
+  TrendDownIcon,
+  TrendUpIcon,
+  ZapIcon,
+} from "@/components/icons/StockIcons";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
@@ -958,7 +970,7 @@ function NativeStockDetailScreen() {
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             accessibilityLabel="Go back"
           >
-            <Feather name="arrow-left" size={18} color={colors.foreground} />
+            <ArrowLeftIcon size={18} color={colors.foreground} />
           </TouchableOpacity>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             {alertsEnabled && (
@@ -981,8 +993,7 @@ function NativeStockDetailScreen() {
                 ]}
                 accessibilityLabel="Manage alerts for this stock"
               >
-                <Feather
-                  name="bell"
+                <AlertIcon
                   size={16}
                   color={getAlertsForSymbol(ticker ?? "").length > 0 ? colors.primary : colors.foreground}
                 />
@@ -998,8 +1009,7 @@ function NativeStockDetailScreen() {
                 borderColor: inAnyFolder ? `${colors.positive}44` : colors.primary,
               }]}
             >
-              <Feather
-                name={inAnyFolder ? "bookmark" : "bookmark"}
+              <BookmarkIcon
                 size={14}
                 color={inAnyFolder ? colors.positive : colors.primaryForeground}
               />
@@ -1031,7 +1041,9 @@ function NativeStockDetailScreen() {
               {formatPrice(displayPrice, currency)}
             </Text>
             <View style={[styles.changePill, { backgroundColor: `${changeColor}22` }]}>
-              <Feather name={isPositive ? "trending-up" : "trending-down"} size={13} color={colors.mutedForeground} />
+              {isPositive
+                ? <TrendUpIcon size={13} color={colors.mutedForeground} strokeWidth={2} />
+                : <TrendDownIcon size={13} color={colors.mutedForeground} strokeWidth={2} />}
               <Text style={[styles.changeText, { color: changeColor }]}>
                 {isPositive ? "+" : ""}{periodChangePct.toFixed(2)}%
               </Text>
@@ -1139,7 +1151,7 @@ function NativeStockDetailScreen() {
             </View>
           ) : chartError && chartPrices.length === 0 ? (
             <View style={{ height: CHART_HEIGHT + 20, alignItems: "center", justifyContent: "center" }}>
-              <Feather name="alert-circle" size={20} color={colors.mutedForeground} />
+              <AlertCircleIcon size={20} color={colors.mutedForeground} />
               <Text style={{ color: colors.mutedForeground, fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 6 }}>
                 Failed to load chart for this range
               </Text>
@@ -1223,10 +1235,10 @@ function NativeStockDetailScreen() {
                   },
                 ]}
               >
-                <Feather
-                  name="refresh-cw"
+                <RefreshIcon
                   size={13}
                   color={(isOnCooldown || refreshing || !marketOpenBuffered) ? colors.mutedForeground : refreshError ? colors.negative : colors.primary}
+                  strokeWidth={2}
                 />
                 <Text style={[styles.refreshButtonText, { color: (isOnCooldown || refreshing || !marketOpenBuffered) ? colors.mutedForeground : refreshError ? colors.negative : colors.primary }]}>
                   {refreshing
@@ -1286,7 +1298,7 @@ function NativeStockDetailScreen() {
             {/* AI quota indicator — shared global pool across the app. */}
             {!isUnlimitedAI && (
               <View style={[styles.quotaBadge, { backgroundColor: colors.secondary }]}>
-                <Feather name="zap" size={11} color={canViewAI ? colors.primary : colors.warning} />
+                <ZapIcon size={11} color={canViewAI ? colors.primary : colors.warning} strokeWidth={2} />
                 <Text style={[styles.quotaText, { color: canViewAI ? colors.primary : colors.warning }]}>
                   {summaryCount}/{aiSummariesLimit}
                 </Text>
@@ -1327,14 +1339,14 @@ function NativeStockDetailScreen() {
               style={[styles.limitBanner, { backgroundColor: colors.warning + "18", borderColor: colors.warning + "44" }]}
               onPress={() => handleNeedUpgrade("stock_daily_limit")}
             >
-              <Feather name="lock" size={14} color={colors.warning} />
+              <LockIcon size={14} color={colors.warning} />
               <View style={{ flex: 1 }}>
                 <Text style={[styles.limitBannerTitle, { color: colors.warning }]}>Daily stock limit reached</Text>
                 <Text style={[styles.limitBannerSub, { color: colors.mutedForeground }]}>
                   Free plan: {tier === "free" ? 3 : 10} stocks/day with AI analysis. Tap to upgrade.
                 </Text>
               </View>
-              <Feather name="chevron-right" size={14} color={colors.warning} />
+              <ChevronRightIcon size={14} color={colors.warning} />
             </TouchableOpacity>
           )}
 
@@ -1430,7 +1442,7 @@ function NativeStockDetailScreen() {
                       backgroundColor: inThis ? colors.positive : "transparent",
                       borderColor: inThis ? colors.positive : colors.border,
                     }]}>
-                      {inThis && <Feather name="check" size={12} color="#fff" />}
+                      {inThis && <CheckIcon size={12} color="#fff" strokeWidth={2.2} />}
                     </View>
                   </TouchableOpacity>
                 );
@@ -1444,7 +1456,7 @@ function NativeStockDetailScreen() {
                   setFolderSheetVisible(false);
                 }}
               >
-                <Feather name="bookmark" size={16} color={colors.primaryForeground} />
+                <BookmarkIcon size={16} color={colors.primaryForeground} />
                 <Text style={[styles.folderSheetSaveBtnText, { color: colors.primaryForeground }]}>
                   Save to My Watchlist
                 </Text>

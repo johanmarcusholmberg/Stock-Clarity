@@ -1,4 +1,3 @@
-import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import React from "react";
 import {
@@ -13,6 +12,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
+import { CloseIcon, ExportIcon } from "@/components/icons/StockIcons";
+import { StockIconRenderer } from "@/components/icons/StockIconRenderer";
 
 export type ExportFormat =
   | "xlsx"
@@ -34,7 +35,7 @@ interface FormatOption {
   id: ExportFormat;
   label: string;
   sub: string;
-  icon: React.ComponentProps<typeof Feather>["name"];
+  icon: string;
   recommended?: boolean;
 }
 
@@ -127,7 +128,7 @@ export function ExportSheet({
               hitSlop={12}
               accessibilityLabel="Close"
             >
-              <Feather name="x" size={22} color={colors.mutedForeground} />
+              <CloseIcon size={22} color={colors.mutedForeground} />
             </TouchableOpacity>
           </View>
 
@@ -180,7 +181,7 @@ function Row({
       ]}
     >
       <View style={[styles.iconWrap, { backgroundColor: colors.card }]}>
-        <Feather name={option.icon} size={18} color={colors.primary} />
+        <StockIconRenderer name={option.icon} size={18} color={colors.primary} />
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -227,7 +228,7 @@ function Row({
           {option.sub}
         </Text>
       </View>
-      <Feather name="download" size={18} color={colors.mutedForeground} />
+      <ExportIcon size={18} color={colors.mutedForeground} />
     </TouchableOpacity>
   );
 }

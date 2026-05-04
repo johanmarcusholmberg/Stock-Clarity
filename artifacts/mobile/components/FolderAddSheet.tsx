@@ -9,12 +9,18 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import debounce from "lodash.debounce";
 import { useColors } from "@/hooks/useColors";
 import { useWatchlist } from "@/context/WatchlistContext";
 import { searchStocks, exchangeToFlag } from "@/services/stockApi";
+import {
+  BookmarkIcon,
+  CheckCircleIcon,
+  CheckIcon,
+  CloseIcon,
+  SearchIcon,
+} from "@/components/icons/StockIcons";
 
 const DEFAULT_FOLDER_ID = "default";
 
@@ -195,14 +201,14 @@ export function FolderAddSheet({ visible, onClose, folderId, folderName }: Props
                 style={[s.tabBtn, activeTab === "watchlist" && { backgroundColor: colors.card }]}
                 onPress={() => setTab("watchlist")}
               >
-                <Feather name="bookmark" size={13} color={activeTab === "watchlist" ? colors.primary : colors.mutedForeground} />
+                <BookmarkIcon size={13} color={activeTab === "watchlist" ? colors.primary : colors.mutedForeground} strokeWidth={2} />
                 <Text style={[s.tabBtnText, { color: activeTab === "watchlist" ? colors.primary : colors.mutedForeground }]}>Watchlist</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[s.tabBtn, activeTab === "search" && { backgroundColor: colors.card }]}
                 onPress={() => setTab("search")}
               >
-                <Feather name="search" size={13} color={activeTab === "search" ? colors.primary : colors.mutedForeground} />
+                <SearchIcon size={13} color={activeTab === "search" ? colors.primary : colors.mutedForeground} strokeWidth={2} />
                 <Text style={[s.tabBtnText, { color: activeTab === "search" ? colors.primary : colors.mutedForeground }]}>Search</Text>
               </TouchableOpacity>
             </View>
@@ -212,7 +218,7 @@ export function FolderAddSheet({ visible, onClose, folderId, folderName }: Props
             <ScrollView style={s.list} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               {watchlistCandidates.length === 0 ? (
                 <View style={s.empty}>
-                  <Feather name="check-circle" size={28} color={colors.positive} />
+                  <CheckCircleIcon size={28} color={colors.positive} />
                   <Text style={[s.emptyText, { color: colors.mutedForeground }]}>
                     {defaultFolderTickers.length === 0
                       ? "Your watchlist is empty. Use Search to add stocks."
@@ -248,7 +254,7 @@ export function FolderAddSheet({ visible, onClose, folderId, folderName }: Props
                         backgroundColor: selected ? colors.primary : "transparent",
                         borderColor: selected ? colors.primary : colors.border,
                       }]}>
-                        {selected && <Feather name="check" size={12} color={colors.primaryForeground} />}
+                        {selected && <CheckIcon size={12} color={colors.primaryForeground} strokeWidth={2.2} />}
                       </View>
                     </TouchableOpacity>
                   );
@@ -259,7 +265,7 @@ export function FolderAddSheet({ visible, onClose, folderId, folderName }: Props
           ) : (
             <View style={{ flex: 1 }}>
               <View style={[s.searchBox, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-                <Feather name="search" size={16} color={colors.mutedForeground} />
+                <SearchIcon size={16} color={colors.mutedForeground} />
                 <TextInput
                   style={[s.searchInput, { color: colors.foreground }]}
                   placeholder="Search stocks, e.g. AAPL, Tesla..."
@@ -272,7 +278,7 @@ export function FolderAddSheet({ visible, onClose, folderId, folderName }: Props
                 />
                 {searchQuery.length > 0 && (
                   <TouchableOpacity onPress={() => { setSearchQuery(""); setSearchResults([]); }} accessibilityLabel="Clear search" hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}>
-                    <Feather name="x" size={16} color={colors.mutedForeground} />
+                    <CloseIcon size={16} color={colors.mutedForeground} />
                   </TouchableOpacity>
                 )}
               </View>
@@ -285,7 +291,7 @@ export function FolderAddSheet({ visible, onClose, folderId, folderName }: Props
                   </View>
                 ) : searchResults.length === 0 ? (
                   <View style={s.empty}>
-                    <Feather name="search" size={28} color={colors.border} />
+                    <SearchIcon size={28} color={colors.border} />
                     <Text style={[s.emptyText, { color: colors.mutedForeground }]}>Search for any stock worldwide</Text>
                   </View>
                 ) : (
@@ -314,14 +320,14 @@ export function FolderAddSheet({ visible, onClose, folderId, folderName }: Props
                         </View>
                         {alreadyIn ? (
                           <View style={[s.checkbox, { backgroundColor: colors.positive, borderColor: colors.positive }]}>
-                            <Feather name="check" size={12} color="#fff" />
+                            <CheckIcon size={12} color="#fff" strokeWidth={2.2} />
                           </View>
                         ) : (
                           <View style={[s.checkbox, {
                             backgroundColor: selected ? colors.primary : "transparent",
                             borderColor: selected ? colors.primary : colors.border,
                           }]}>
-                            {selected && <Feather name="check" size={12} color={colors.primaryForeground} />}
+                            {selected && <CheckIcon size={12} color={colors.primaryForeground} strokeWidth={2.2} />}
                           </View>
                         )}
                       </TouchableOpacity>

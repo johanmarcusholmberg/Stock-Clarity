@@ -1,7 +1,7 @@
 import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
-import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
+import { MessageSquareIcon } from "@/components/icons/StockIcons";
 import { GrantRow } from "@/lib/adminApi";
 
 interface Props {
@@ -91,9 +91,12 @@ export function GrantsList({ grants, onExtend, onRevoke }: Props) {
                   {daysLeft}d left
                 </Text>
               </View>
-              <Text style={s.meta} numberOfLines={2}>
-                <Feather name="message-square" size={11} color={colors.mutedForeground} /> {g.reason}
-              </Text>
+              <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 5 }}>
+                <View style={{ marginTop: 2 }}>
+                  <MessageSquareIcon size={11} color={colors.mutedForeground} strokeWidth={2} />
+                </View>
+                <Text style={[s.meta, { flex: 1 }]} numberOfLines={2}>{g.reason}</Text>
+              </View>
               <Text style={s.meta}>
                 Granted by {g.granted_by_admin} · {new Date(g.created_at).toLocaleDateString()}
               </Text>

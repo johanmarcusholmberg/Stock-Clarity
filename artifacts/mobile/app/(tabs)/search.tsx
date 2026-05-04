@@ -1,4 +1,4 @@
-import { Feather } from "@expo/vector-icons";
+import { AddIcon, CheckIcon, FolderIcon, GlobeIcon, SearchIcon } from "@/components/icons/StockIcons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
@@ -201,7 +201,9 @@ export default function SearchScreen() {
           delayLongPress={400}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Feather name={inActive ? "check" : "plus"} size={16} color={inActive ? colors.primary : colors.primaryForeground} />
+          {inActive
+            ? <CheckIcon size={16} color={colors.primary} />
+            : <AddIcon size={16} color={colors.primaryForeground} />}
         </TouchableOpacity>
       </TouchableOpacity>
     );
@@ -231,7 +233,7 @@ export default function SearchScreen() {
       ) : query.trim() === "" ? (
         <View style={styles.emptyPrompt}>
           <View style={[styles.emptyIcon, { backgroundColor: `${colors.primary}15` }]}>
-            <Feather name="globe" size={32} color={colors.primary} />
+            <GlobeIcon size={32} color={colors.primary} />
           </View>
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Search any stock worldwide</Text>
           <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
@@ -240,7 +242,7 @@ export default function SearchScreen() {
         </View>
       ) : results.length === 0 ? (
         <View style={styles.emptyPrompt}>
-          <Feather name="search" size={28} color={colors.mutedForeground} />
+          <SearchIcon size={28} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No results for "{query}"</Text>
           <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
             Try the full company name or official ticker symbol.
@@ -312,8 +314,7 @@ export default function SearchScreen() {
                     activeOpacity={alreadyInFolder ? 1 : 0.7}
                   >
                     <View style={styles.pickerFolderLeft}>
-                      <Feather
-                        name="folder"
+                      <FolderIcon
                         size={18}
                         color={alreadyInFolder ? colors.primary : colors.mutedForeground}
                       />
@@ -328,9 +329,9 @@ export default function SearchScreen() {
                       </View>
                     </View>
                     {alreadyInFolder ? (
-                      <Feather name="check" size={16} color={colors.primary} />
+                      <CheckIcon size={16} color={colors.primary} />
                     ) : (
-                      <Feather name="plus" size={16} color={colors.mutedForeground} />
+                      <AddIcon size={16} color={colors.mutedForeground} />
                     )}
                   </TouchableOpacity>
                 );

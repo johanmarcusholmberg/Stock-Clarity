@@ -1,7 +1,7 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
-import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
+import { CreditCardIcon, GitBranchIcon } from "@/components/icons/StockIcons";
 import { OverviewResponse, sourceLabel } from "@/lib/adminApi";
 
 interface Props {
@@ -81,11 +81,11 @@ export function UserHeader({ overview }: Props) {
 
       <View style={[s.row, { flexWrap: "wrap" }]}>
         <View style={s.chip}>
-          <Feather name="credit-card" size={12} color={colors.mutedForeground} />
+          <CreditCardIcon size={12} color={colors.mutedForeground} strokeWidth={2} />
           <Text style={s.chipText}>{sourceLabel(resolvedSource.source)}</Text>
         </View>
         <View style={s.chip}>
-          <Feather name="git-branch" size={12} color={colors.mutedForeground} />
+          <GitBranchIcon size={12} color={colors.mutedForeground} strokeWidth={2} />
           <Text style={s.chipText}>Effective via {effectiveTier.source}</Text>
         </View>
       </View>

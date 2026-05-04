@@ -1,7 +1,8 @@
 import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
-import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
+import { ChevronRightIcon } from "@/components/icons/StockIcons";
+import { StockIconRenderer } from "@/components/icons/StockIconRenderer";
 import { SubscriptionSource } from "@/lib/adminApi";
 
 export type AdminAction = "grant" | "cancel" | "refund";
@@ -14,7 +15,7 @@ interface Props {
 interface ActionSpec {
   key: AdminAction;
   label: string;
-  icon: keyof typeof Feather.glyphMap;
+  icon: string;
   tintKey: "primary" | "destructive" | "warning";
   disabledReason: string | null;
 }
@@ -135,13 +136,13 @@ export function ActionsDrawer({ source, onAction }: Props) {
               },
             ]}
           >
-            <Feather name={spec.icon} size={18} color={disabled ? colors.mutedForeground : tint} />
+            <StockIconRenderer name={spec.icon} size={18} color={disabled ? colors.mutedForeground : tint} />
             <View style={s.rowBody}>
               <Text style={[s.rowLabel, { color: disabled ? colors.mutedForeground : tint }]}>{spec.label}</Text>
               {disabled ? <Text style={s.rowReason}>{spec.disabledReason}</Text> : null}
             </View>
             {!disabled ? (
-              <Feather name="chevron-right" size={16} color={tint} />
+              <ChevronRightIcon size={16} color={tint} />
             ) : null}
           </TouchableOpacity>
         );
