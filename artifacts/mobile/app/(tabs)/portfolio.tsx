@@ -24,6 +24,7 @@ import { useHoldings } from "@/context/HoldingsContext";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { getQuotes, type QuoteResult } from "@/services/stockApi";
 import { anyMarketOpenWithBuffer } from "@/utils/marketHours";
+import WebPortfolioScreen from "@/components/web/screens/WebPortfolioScreen";
 import {
   getDividends,
   getPnl,
@@ -90,6 +91,13 @@ function formatPct(n: number | null): string {
 }
 
 export default function PortfolioScreen() {
+  if (Platform.OS === "web") {
+    return <WebPortfolioScreen />;
+  }
+  return <NativePortfolioScreen />;
+}
+
+function NativePortfolioScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { tier } = useSubscription();

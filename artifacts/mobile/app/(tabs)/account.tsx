@@ -29,6 +29,7 @@ import { useWatchlist } from "@/context/WatchlistContext";
 import { useNotify } from "@/context/NotifyContext";
 import { PaywallSheet } from "@/components/PaywallSheet";
 import { TabHintPopup } from "@/components/TabHintPopup";
+import WebAccountScreen from "@/components/web/screens/WebAccountScreen";
 import { useToast } from "@/components/Toast";
 import { useOnline } from "@/lib/network";
 import { getApiBase } from "../../lib/apiBase";
@@ -53,6 +54,13 @@ type FeedbackCategory = "general" | "bug" | "feature" | "billing";
 type FeatherIconName = React.ComponentProps<typeof Feather>["name"];
 
 export default function AccountScreen() {
+  if (Platform.OS === "web") {
+    return <WebAccountScreen />;
+  }
+  return <NativeAccountScreen />;
+}
+
+function NativeAccountScreen() {
   const colors = useColors();
   const { theme, setTheme } = useTheme();
   const insets = useSafeAreaInsets();

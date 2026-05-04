@@ -29,6 +29,7 @@ import { MarketPickerSheet } from "@/components/MarketPickerSheet";
 import { ExportSheet, type ExportFormat } from "@/components/ExportSheet";
 import { TabHintPopup } from "@/components/TabHintPopup";
 import { trackPremiumEvent } from "@/lib/premiumTelemetry";
+import WebInsightsScreen from "@/components/web/screens/WebInsightsScreen";
 import { getApiBase } from "../../lib/apiBase";
 import { authedFetch } from "../../lib/authedFetch";
 import {
@@ -224,6 +225,13 @@ function ColoredChange({
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function InsightsScreen() {
+  if (Platform.OS === "web") {
+    return <WebInsightsScreen />;
+  }
+  return <NativeInsightsScreen />;
+}
+
+function NativeInsightsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { userId } = useAuth();

@@ -36,6 +36,63 @@ if (Platform.OS === "web" && typeof document !== "undefined") {
 }`;
     document.head.appendChild(style);
   }
+
+  // Google Fonts: DM Serif Display (headings), DM Mono (data), Sora (body)
+  const GOOGLE_FONTS_ID = "stockclarity-google-fonts";
+  if (!document.getElementById(GOOGLE_FONTS_ID)) {
+    const link = document.createElement("link");
+    link.id = GOOGLE_FONTS_ID;
+    link.rel = "stylesheet";
+    link.href =
+      "https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&family=Sora:wght@300;400;500;600&display=swap";
+    document.head.appendChild(link);
+  }
+
+  // Scrollbar + focus styling for the entire web app.
+  const GLOBAL_CSS_ID = "stockclarity-web-globals";
+  if (!document.getElementById(GLOBAL_CSS_ID)) {
+    const style = document.createElement("style");
+    style.id = GLOBAL_CSS_ID;
+    style.textContent = `
+      * { box-sizing: border-box; }
+      html, body, #root { height: 100%; margin: 0; }
+      ::-webkit-scrollbar { width: 5px; height: 5px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(56, 190, 235, 0.25);
+        border-radius: 3px;
+      }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(56, 190, 235, 0.5); }
+      *:focus-visible {
+        outline: 2px solid #38BEEB;
+        outline-offset: 2px;
+        border-radius: 6px;
+      }
+      [data-sidebar-collapsed-tip]::after {
+        content: attr(data-sidebar-collapsed-tip);
+        position: absolute;
+        left: 64px;
+        top: 50%;
+        transform: translateY(-50%) translateX(-4px);
+        background: #0A1628;
+        color: #fff;
+        font-family: 'Sora', system-ui, sans-serif;
+        font-size: 12px;
+        padding: 6px 10px;
+        border-radius: 6px;
+        white-space: nowrap;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 120ms ease, transform 120ms ease;
+        z-index: 1000;
+      }
+      [data-sidebar-collapsed-tip]:hover::after {
+        opacity: 1;
+        transform: translateY(-50%) translateX(0);
+      }
+    `;
+    document.head.appendChild(style);
+  }
 }
 
 import { registerForPushNotifications } from "@/services/pushRegistration";

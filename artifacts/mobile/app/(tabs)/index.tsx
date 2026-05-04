@@ -30,6 +30,7 @@ import { useOnline } from "@/lib/network";
 
 import { FolderAddSheet } from "@/components/FolderAddSheet";
 import { TabHintPopup } from "@/components/TabHintPopup";
+import WebHomeScreen from "@/components/web/screens/WebHomeScreen";
 
 type Colors = ReturnType<typeof useColors>;
 
@@ -143,6 +144,13 @@ const dm = StyleSheet.create({
 });
 
 export default function WatchlistScreen() {
+  if (Platform.OS === "web") {
+    return <WebHomeScreen />;
+  }
+  return <NativeWatchlistScreen />;
+}
+
+function NativeWatchlistScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user } = useUser();

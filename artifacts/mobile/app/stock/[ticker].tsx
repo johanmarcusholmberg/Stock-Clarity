@@ -39,6 +39,8 @@ import { isMarketOpen, isMarketOpenWithBuffer } from "@/utils/marketHours";
 import { previousTradingDayLabel } from "@/utils/relativeTradingDay";
 import ExpandableEventCard from "@/components/ExpandableEventCard";
 import ReportSummary from "@/components/ReportSummary";
+import WebStockDetailScreen from "@/components/web/screens/WebStockDetailScreen";
+import { WebShell } from "@/components/web/WebShell";
 
 const CHART_HEIGHT = 185;
 const Y_AXIS_WIDTH = 54;
@@ -567,6 +569,21 @@ const chartStyles = StyleSheet.create({
 
 // ── Main Screen ───────────────────────────────────────────────────
 export default function StockDetailScreen() {
+  const { ticker: tickerParam } = useLocalSearchParams<{ ticker: string }>();
+  if (Platform.OS === "web") {
+    // The stock detail page lives outside the (tabs) group, so its layout
+    // doesn't get the WebShell wrapper for free — wrap it here so the sidebar
+    // and topbar are present on the web detail view too.
+    return (
+      <WebShell>
+        <WebStockDetailScreen ticker={tickerParam ?? ""} />
+      </WebShell>
+    );
+  }
+  return <NativeStockDetailScreen />;
+}
+
+function NativeStockDetailScreen() {
   const { ticker } = useLocalSearchParams<{ ticker: string }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
