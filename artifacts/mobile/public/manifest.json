@@ -1,0 +1,16 @@
+{
+  "name": "StockClarity",
+  "short_name": "StockClarity",
+  "description": "Clarity for your portfolio",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0A1628",
+  "theme_color": "#38BEEB",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    }
+  ]
+}

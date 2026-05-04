@@ -6,6 +6,7 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { ClerkProvider, ClerkLoaded, useAuth, tokenCache } from "@/lib/clerk";
+import Head from "expo-router/head";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
@@ -31,6 +32,7 @@ if (Platform.OS === "web" && typeof document !== "undefined") {
     style.id = GLOBAL_CSS_ID;
     style.textContent = `
       * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
       html, body, #root { height: 100%; margin: 0; }
       ::-webkit-scrollbar { width: 5px; height: 5px; }
       ::-webkit-scrollbar-track { background: transparent; }
@@ -212,6 +214,15 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider>
+      {Platform.OS === "web" && (
+        <Head>
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <meta name="theme-color" content="#38BEEB" />
+          <meta name="apple-mobile-web-app-capable" content="yes" />
+          <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+          <link rel="manifest" href="/manifest.json" />
+        </Head>
+      )}
       <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache} proxyUrl={proxyUrl}>
         <ClerkLoaded>
           <ClerkAuthBridge />
