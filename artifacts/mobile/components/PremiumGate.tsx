@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View, type ViewProps } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
-import { useAuth } from "@clerk/expo";
+import { useAuth } from "@/lib/clerk";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription, type Tier } from "@/context/SubscriptionContext";
 import { PaywallSheet } from "@/components/PaywallSheet";

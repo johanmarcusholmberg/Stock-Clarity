@@ -20,7 +20,7 @@ import { DrumRollPicker } from "@/components/DrumRollPicker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import { useAuth, useUser } from "@clerk/expo";
+import { useAuth, useUser } from "@/lib/clerk";
 import { useColors } from "@/hooks/useColors";
 import { useTheme } from "@/context/ThemeContext";
 import { confirmAsync } from "@/utils/confirm";

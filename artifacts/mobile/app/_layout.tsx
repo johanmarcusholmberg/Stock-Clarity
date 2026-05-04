@@ -6,8 +6,7 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { Feather } from "@expo/vector-icons";
-import { ClerkProvider, ClerkLoaded, useAuth } from "@clerk/expo";
-import { tokenCache } from "@clerk/expo/token-cache";
+import { ClerkProvider, ClerkLoaded, useAuth, tokenCache } from "@/lib/clerk";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";

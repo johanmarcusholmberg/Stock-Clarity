@@ -17,7 +17,7 @@ import {
 } from "react-native";
 import DraggableFlatList, { RenderItemParams } from "react-native-draggable-flatlist";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useUser } from "@clerk/expo";
+import { useUser } from "@/lib/clerk";
 import { useColors } from "@/hooks/useColors";
 import { useDisplayMode } from "@/hooks/useDisplayMode";
 import { useMiniCharts } from "@/hooks/useMiniCharts";

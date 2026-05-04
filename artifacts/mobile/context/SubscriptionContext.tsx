@@ -1,8 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { Linking, Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useAuth } from "@clerk/expo";
-import { useUser } from "@clerk/expo";
+import { useAuth, useUser } from "@/lib/clerk";
 import { applyEventExpansion } from "@/utils/aiQuota";
 import { getApiBase } from "../lib/apiBase";
 import { authedFetch } from "../lib/authedFetch";
