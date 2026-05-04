@@ -1,7 +1,7 @@
-import { Feather } from "@expo/vector-icons";
 import React from "react";
 import { StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
 import { useColors } from "@/hooks/useColors";
+import { CloseIcon, SearchIcon } from "@/components/icons/StockIcons";
 
 interface Props {
   value: string;
@@ -15,7 +15,7 @@ export default function SearchBar({ value, onChangeText, placeholder = "Search s
 
   return (
     <View style={[styles.container, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-      <Feather name="search" size={16} color={colors.mutedForeground} />
+      <SearchIcon size={16} color={colors.mutedForeground} />
       <TextInput
         value={value}
         onChangeText={onChangeText}
@@ -28,7 +28,7 @@ export default function SearchBar({ value, onChangeText, placeholder = "Search s
       />
       {value.length > 0 && (
         <TouchableOpacity onPress={() => onChangeText("")} hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }} accessibilityLabel="Clear search">
-          <Feather name="x" size={15} color={colors.mutedForeground} />
+          <CloseIcon size={15} color={colors.mutedForeground} />
         </TouchableOpacity>
       )}
     </View>

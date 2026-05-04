@@ -9,10 +9,11 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useNotify } from "@/context/NotifyContext";
+import { CheckIcon } from "@/components/icons/StockIcons";
+import { StockIconRenderer } from "@/components/icons/StockIconRenderer";
 
 interface Props {
   visible: boolean;
@@ -21,7 +22,7 @@ interface Props {
 
 type Choice = "both" | "earnings_only" | "off";
 
-const OPTIONS: { value: Choice; title: string; description: string; icon: keyof typeof Feather.glyphMap }[] = [
+const OPTIONS: { value: Choice; title: string; description: string; icon: string }[] = [
   {
     value: "both",
     title: "News + earnings",
@@ -118,7 +119,7 @@ export default function NotifyOptInSheet({ visible, onClose }: Props) {
                       { backgroundColor: active ? colors.primary + "22" : colors.background },
                     ]}
                   >
-                    <Feather
+                    <StockIconRenderer
                       name={opt.icon}
                       size={18}
                       color={active ? colors.primary : colors.mutedForeground}
@@ -141,7 +142,7 @@ export default function NotifyOptInSheet({ visible, onClose }: Props) {
                       },
                     ]}
                   >
-                    {active && <Feather name="check" size={11} color={colors.primaryForeground} />}
+                    {active && <CheckIcon size={11} color={colors.primaryForeground} strokeWidth={2.2} />}
                   </View>
                 </TouchableOpacity>
               );

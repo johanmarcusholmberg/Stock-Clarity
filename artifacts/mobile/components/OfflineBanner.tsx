@@ -1,10 +1,10 @@
-import { Feather } from "@expo/vector-icons";
 import React, { useEffect, useRef, useState } from "react";
 import { Animated, Easing, Platform, StyleSheet, Text } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useColors } from "@/hooks/useColors";
 import { useOnline } from "@/lib/network";
+import { WifiOffIcon } from "@/components/icons/StockIcons";
 
 const SLIDE_OUT_MS = 240;
 
@@ -108,7 +108,7 @@ export function OfflineBanner() {
       accessibilityRole="alert"
       accessibilityLiveRegion="polite"
     >
-      <Feather name="wifi-off" size={14} color="#FFFFFF" />
+      <WifiOffIcon size={14} color="#FFFFFF" strokeWidth={2} />
       <Text style={styles.text}>You're offline — showing saved data</Text>
     </Animated.View>
   );

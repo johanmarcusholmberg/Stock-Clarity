@@ -12,9 +12,9 @@ import {
   Platform,
   useWindowDimensions,
 } from "react-native";
-import { Feather } from "@expo/vector-icons";
 import { useAuth } from "@clerk/expo";
 import { router } from "expo-router";
+import { CheckCircleIcon, CloseIcon, XCircleIcon } from "@/components/icons/StockIcons";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription, Plan } from "@/context/SubscriptionContext";
 import { trackPremiumEvent } from "@/lib/premiumTelemetry";
@@ -272,7 +272,7 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general", curr
           <View style={s.handle} />
           <View style={s.header}>
             <TouchableOpacity style={s.closeBtn} onPress={onClose} accessibilityLabel="Close">
-              <Feather name="x" size={20} color={colors.mutedForeground} />
+              <CloseIcon size={20} color={colors.mutedForeground} />
             </TouchableOpacity>
             <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
               <View style={s.badge}>
@@ -364,11 +364,9 @@ export function PaywallSheet({ visible, onClose, triggerReason = "general", curr
                       <View style={s.features}>
                         {features.map((f) => (
                           <View key={f.text} style={s.featureRow}>
-                            <Feather
-                              name={f.included ? "check-circle" : "x-circle"}
-                              size={14}
-                              color={f.included ? colors.positive : colors.mutedForeground}
-                            />
+                            {f.included
+                              ? <CheckCircleIcon size={14} color={colors.positive} />
+                              : <XCircleIcon size={14} color={colors.mutedForeground} />}
                             <Text style={[s.featureText, f.included ? s.featureIncluded : s.featureExcluded]}>
                               {f.text}
                             </Text>

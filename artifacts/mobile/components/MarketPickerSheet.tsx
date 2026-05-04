@@ -1,4 +1,3 @@
-import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import React from "react";
 import {
@@ -19,6 +18,8 @@ import {
   benchmarkInfo,
   type Benchmark,
 } from "@/hooks/useBenchmarkSeries";
+import { CheckIcon, CloseIcon } from "@/components/icons/StockIcons";
+import { StockIconRenderer } from "@/components/icons/StockIconRenderer";
 
 interface MarketPickerSheetProps {
   visible: boolean;
@@ -83,7 +84,7 @@ export function MarketPickerSheet({
               hitSlop={12}
               accessibilityLabel="Close"
             >
-              <Feather name="x" size={22} color={colors.mutedForeground} />
+              <CloseIcon size={22} color={colors.mutedForeground} />
             </TouchableOpacity>
           </View>
 
@@ -142,7 +143,7 @@ function Row({
   selected: boolean;
   onPress: () => void;
   colors: ReturnType<typeof useColors>;
-  icon?: React.ComponentProps<typeof Feather>["name"];
+  icon?: string;
 }) {
   return (
     <TouchableOpacity
@@ -160,7 +161,7 @@ function Row({
         <View
           style={[styles.iconWrap, { backgroundColor: colors.secondary }]}
         >
-          <Feather name={icon} size={16} color={colors.primary} />
+          <StockIconRenderer name={icon} size={16} color={colors.primary} />
         </View>
       ) : null}
       <View style={{ flex: 1 }}>
@@ -185,7 +186,7 @@ function Row({
         </Text>
       </View>
       {selected ? (
-        <Feather name="check" size={20} color={colors.primary} />
+        <CheckIcon size={20} color={colors.primary} />
       ) : null}
     </TouchableOpacity>
   );

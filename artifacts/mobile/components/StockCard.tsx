@@ -1,5 +1,5 @@
-import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { CloseIcon } from "@/components/icons/StockIcons";
 import React from "react";
 import { Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useColors } from "@/hooks/useColors";
@@ -128,7 +128,7 @@ function StockCardInner({ stock, chartData, showPercent = true, editMode = false
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           accessibilityLabel="Remove stock"
         >
-          <Feather name="x" size={13} color="#fff" />
+          <CloseIcon size={13} color="#fff" />
         </TouchableOpacity>
       )}
     </View>

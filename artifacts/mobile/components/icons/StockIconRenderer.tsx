@@ -105,6 +105,17 @@ const ICON_MAP: Record<string, React.ComponentType<{ size?: number; color?: stri
   // Theme
   "sun": Icons.SunIcon,
   "moon": Icons.MoonIcon,
+
+  // Playback
+  "pause": Icons.PauseIcon,
+  "play": Icons.PlayIcon,
+
+  // Misc
+  "more-horizontal": Icons.MoreHorizontalIcon,
+
+  // Sharing & loading
+  "share-2": Icons.Share2Icon,
+  "loader": Icons.LoaderIcon,
 };
 
 export function StockIconRenderer({ name, size = 20, color = "#000000", strokeWidth }: Props) {

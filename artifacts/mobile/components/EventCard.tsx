@@ -1,4 +1,3 @@
-import { Feather } from "@expo/vector-icons";
 import React, { useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useColors } from "@/hooks/useColors";
@@ -6,6 +5,8 @@ import { StockEvent } from "@/context/WatchlistContext";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { PaywallSheet } from "@/components/PaywallSheet";
 import { AIDisclaimer } from "@/components/Disclaimer";
+import { CollapseIcon, ExpandIcon, LockIcon } from "@/components/icons/StockIcons";
+import { StockIconRenderer } from "@/components/icons/StockIconRenderer";
 
 interface Props {
   event: StockEvent;
@@ -64,7 +65,7 @@ export default function EventCard({ event }: Props) {
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <View style={[styles.typeBadge, { backgroundColor: `${sentimentColor}22` }]}>
-              <Feather name={EVENT_TYPE_ICONS[event.type] as any} size={11} color={sentimentColor} />
+              <StockIconRenderer name={EVENT_TYPE_ICONS[event.type]} size={11} color={sentimentColor} strokeWidth={2} />
               <Text style={[styles.typeText, { color: sentimentColor }]}>{EVENT_TYPE_LABELS[event.type]}</Text>
             </View>
             <View style={[styles.tickerBadge, { backgroundColor: colors.secondary }]}>
@@ -74,15 +75,13 @@ export default function EventCard({ event }: Props) {
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             {hasAISummary && !canUseAI && tier === "free" && !expanded && (
               <View style={[styles.lockBadge, { backgroundColor: colors.warning + "22" }]}>
-                <Feather name="lock" size={10} color={colors.warning} />
+                <LockIcon size={10} color={colors.warning} strokeWidth={2} />
                 <Text style={[styles.lockText, { color: colors.warning }]}>PRO</Text>
               </View>
             )}
-            <Feather
-              name={expanded ? "chevron-up" : "chevron-down"}
-              size={16}
-              color={colors.mutedForeground}
-            />
+            {expanded
+              ? <CollapseIcon size={16} color={colors.mutedForeground} />
+              : <ExpandIcon size={16} color={colors.mutedForeground} />}
           </View>
         </View>
 

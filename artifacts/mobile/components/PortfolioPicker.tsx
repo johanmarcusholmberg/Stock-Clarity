@@ -1,9 +1,9 @@
-import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import React, { useState } from "react";
 import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useColors } from "@/hooks/useColors";
 import { useWatchlist } from "@/context/WatchlistContext";
+import { CheckIcon, ExpandIcon, EyeIcon, FolderIcon } from "@/components/icons/StockIcons";
 
 type Colors = ReturnType<typeof useColors>;
 
@@ -43,15 +43,13 @@ export function PortfolioPicker({ chipStyle }: PortfolioPickerProps) {
         activeOpacity={0.7}
         accessibilityLabel={`Switch portfolio. Current: ${activeFolder.name}`}
       >
-        <Feather
-          name={isDefaultFolder ? "eye" : "folder"}
-          size={12}
-          color={colors.primary}
-        />
+        {isDefaultFolder
+          ? <EyeIcon size={12} color={colors.primary} strokeWidth={2} />
+          : <FolderIcon size={12} color={colors.primary} strokeWidth={2} />}
         <Text style={[styles.chipText, { color: colors.primary }]} numberOfLines={1}>
           {activeFolder.name}
         </Text>
-        <Feather name="chevron-down" size={12} color={colors.primary} />
+        <ExpandIcon size={12} color={colors.primary} strokeWidth={2} />
       </TouchableOpacity>
 
       <PortfolioSheet
@@ -119,11 +117,9 @@ function PortfolioSheet({
                   }}
                   activeOpacity={0.7}
                 >
-                  <Feather
-                    name={isDefault ? "eye" : "folder"}
-                    size={14}
-                    color={selected ? colors.primary : colors.mutedForeground}
-                  />
+                  {isDefault
+                    ? <EyeIcon size={14} color={selected ? colors.primary : colors.mutedForeground} />
+                    : <FolderIcon size={14} color={selected ? colors.primary : colors.mutedForeground} />}
                   <View style={styles.rowText}>
                     <Text
                       style={[styles.rowName, { color: selected ? colors.primary : colors.foreground }]}
@@ -135,7 +131,7 @@ function PortfolioSheet({
                       {folder.tickers.length} {folder.tickers.length === 1 ? "stock" : "stocks"}
                     </Text>
                   </View>
-                  {selected && <Feather name="check" size={16} color={colors.primary} />}
+                  {selected && <CheckIcon size={16} color={colors.primary} />}
                 </TouchableOpacity>
               );
             })}

@@ -1,4 +1,3 @@
-import { Feather } from "@expo/vector-icons";
 import { useAuth } from "@clerk/expo";
 import * as Haptics from "expo-haptics";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -25,6 +24,20 @@ import {
   type Filing,
   type SummaryResponse,
 } from "@/services/stockApi";
+import {
+  AlertIcon,
+  BellOffIcon,
+  CheckIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  CloseIcon,
+  ColumnsIcon,
+  ExternalLinkIcon,
+  FileTextIcon,
+  GlobeIcon,
+  ZapIcon,
+} from "@/components/icons/StockIcons";
+import { StockIconRenderer } from "@/components/icons/StockIconRenderer";
 
 interface Props {
   ticker: string;
@@ -166,7 +179,7 @@ export default function ReportSummary({ ticker }: Props) {
           accessibilityLabel="Open SEC filings & reports"
         >
           <View style={[styles.iconCircle, { backgroundColor: `${colors.primary}1F` }]}>
-            <Feather name="file-text" size={16} color={colors.primary} />
+            <FileTextIcon size={16} color={colors.primary} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={[styles.launcherTitle, { color: colors.foreground }]}>SEC Reports</Text>
@@ -185,11 +198,11 @@ export default function ReportSummary({ ticker }: Props) {
           </View>
           {!isPremium && !unsupported && (
             <View style={[styles.premiumPill, { borderColor: `${colors.primary}66`, backgroundColor: `${colors.primary}14` }]}>
-              <Feather name="zap" size={10} color={colors.primary} />
+              <ZapIcon size={10} color={colors.primary} strokeWidth={2} />
               <Text style={[styles.premiumPillText, { color: colors.primary }]}>Premium</Text>
             </View>
           )}
-          <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+          <ChevronRightIcon size={18} color={colors.mutedForeground} />
         </TouchableOpacity>
       </View>
 
@@ -416,12 +429,10 @@ function ReportsModal({
             >
               {subscribing ? (
                 <ActivityIndicator size="small" color={colors.primary} />
+              ) : subscribed ? (
+                <AlertIcon size={16} color={colors.primary} />
               ) : (
-                <Feather
-                  name={subscribed ? "bell" : "bell-off"}
-                  size={16}
-                  color={subscribed ? colors.primary : colors.mutedForeground}
-                />
+                <BellOffIcon size={16} color={colors.mutedForeground} />
               )}
             </TouchableOpacity>
           )}
@@ -430,7 +441,7 @@ function ReportsModal({
             style={[styles.closeBtn, { borderColor: colors.border }]}
             accessibilityLabel="Close reports"
           >
-            <Feather name="x" size={18} color={colors.foreground} />
+            <CloseIcon size={18} color={colors.foreground} />
           </TouchableOpacity>
         </View>
 
@@ -480,7 +491,9 @@ function ReportsModal({
         <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.modalBody}>
           {unsupported ? (
             <View style={[styles.emptyBox, { borderColor: colors.border }]}>
-              <Feather name="globe" size={22} color={colors.mutedForeground} style={{ marginBottom: 8 }} />
+              <View style={{ marginBottom: 8 }}>
+                <GlobeIcon size={22} color={colors.mutedForeground} />
+              </View>
               <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
                 {unsupported}
               </Text>
@@ -533,7 +546,7 @@ function ReportsModal({
                       accessibilityLabel={isSelected ? "Deselect for compare" : "Select for compare"}
                     >
                       {isSelected && (
-                        <Feather name="check" size={11} color={colors.primaryForeground} />
+                        <CheckIcon size={11} color={colors.primaryForeground} strokeWidth={2.2} />
                       )}
                     </TouchableOpacity>
                     <View style={[styles.typeBadge, { backgroundColor: badgeBg, borderColor: badgeBorder }]}>
@@ -553,13 +566,13 @@ function ReportsModal({
                         style={[styles.linkBtn, { borderColor: colors.border }]}
                         accessibilityLabel={`Open ${f.type} on SEC EDGAR`}
                       >
-                        <Feather name="external-link" size={11} color={colors.mutedForeground} />
+                        <ExternalLinkIcon size={11} color={colors.mutedForeground} strokeWidth={2} />
                       </TouchableOpacity>
                       <TouchableOpacity
                         onPress={() => fetchSummary(f)}
                         style={[styles.summarizeBtn, { backgroundColor: colors.primary }]}
                       >
-                        <Feather name="zap" size={11} color={colors.primaryForeground} />
+                        <ZapIcon size={11} color={colors.primaryForeground} strokeWidth={2} />
                         <Text style={[styles.summarizeBtnText, { color: colors.primaryForeground }]}>
                           {isPremium ? "Summarize" : "Premium"}
                         </Text>
@@ -620,7 +633,7 @@ function ReportsModal({
                 },
               ]}
             >
-              <Feather name="columns" size={11} color={colors.primaryForeground} />
+              <ColumnsIcon size={11} color={colors.primaryForeground} strokeWidth={2} />
               <Text style={[styles.compareGoText, { color: colors.primaryForeground }]}>
                 Compare
               </Text>
@@ -663,7 +676,7 @@ function SummaryCard({
   return (
     <View style={{ gap: 12 }}>
       <TouchableOpacity onPress={onBack} style={styles.backRow}>
-        <Feather name="chevron-left" size={16} color={colors.primary} />
+        <ChevronLeftIcon size={16} color={colors.primary} />
         <Text style={[styles.backText, { color: colors.primary }]}>Back to filings</Text>
       </TouchableOpacity>
 
@@ -696,7 +709,7 @@ function SummaryCard({
               </Text>
             </View>
             <View style={[styles.sentimentBadge, { backgroundColor: sentimentStyle.bg, borderColor: sentimentStyle.border }]}>
-              <Feather name={sentimentStyle.icon} size={11} color={sentimentStyle.fg} />
+              <StockIconRenderer name={sentimentStyle.icon} size={11} color={sentimentStyle.fg} strokeWidth={2} />
               <Text style={[styles.sentimentBadgeText, { color: sentimentStyle.fg }]}>
                 {sentimentStyle.label}
               </Text>
@@ -749,7 +762,7 @@ function SummaryCard({
             <Text style={[styles.fullReportText, { color: colors.primary }]}>
               Read full {summary.type} on SEC EDGAR
             </Text>
-            <Feather name="external-link" size={12} color={colors.primary} />
+            <ExternalLinkIcon size={12} color={colors.primary} />
           </TouchableOpacity>
         </View>
       )}
@@ -782,7 +795,7 @@ function CompareView({
   return (
     <View style={{ gap: 12 }}>
       <TouchableOpacity onPress={onBack} style={styles.backRow}>
-        <Feather name="chevron-left" size={16} color={colors.primary} />
+        <ChevronLeftIcon size={16} color={colors.primary} />
         <Text style={[styles.backText, { color: colors.primary }]}>Back to filings</Text>
       </TouchableOpacity>
 

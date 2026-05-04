@@ -1,4 +1,3 @@
-import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import React, { useState } from "react";
@@ -7,6 +6,8 @@ import { useColors } from "@/hooks/useColors";
 import { DigestEntry } from "@/context/WatchlistContext";
 import TruncatedSummary from "./TruncatedSummary";
 import { AIDisclaimer } from "@/components/Disclaimer";
+import { ArrowRightIcon, CollapseIcon, ExpandIcon, ExternalLinkIcon } from "@/components/icons/StockIcons";
+import { StockIconRenderer } from "@/components/icons/StockIconRenderer";
 
 interface Props {
   entry: DigestEntry;
@@ -64,8 +65,10 @@ export default function DigestCard({ entry }: Props) {
           <Text style={[styles.stockName, { color: colors.mutedForeground }]}>{entry.stockName}</Text>
         </View>
         <View style={styles.headerRight}>
-          <Feather name={SENTIMENT_ICON[entry.sentiment] as any} size={13} color={sentimentColor} />
-          <Feather name={expanded ? "chevron-up" : "chevron-down"} size={14} color={colors.mutedForeground} />
+          <StockIconRenderer name={SENTIMENT_ICON[entry.sentiment]} size={13} color={sentimentColor} strokeWidth={2} />
+          {expanded
+            ? <CollapseIcon size={14} color={colors.mutedForeground} />
+            : <ExpandIcon size={14} color={colors.mutedForeground} />}
         </View>
       </View>
 
@@ -86,7 +89,7 @@ export default function DigestCard({ entry }: Props) {
           onPress={handleOpenSource}
           activeOpacity={0.7}
         >
-          <Feather name="external-link" size={11} color={colors.mutedForeground} />
+          <ExternalLinkIcon size={11} color={colors.mutedForeground} strokeWidth={2} />
           <Text style={[styles.compactSourceText, { color: colors.mutedForeground }]} numberOfLines={1}>
             {entry.sourceName || "Source"}
           </Text>
@@ -131,7 +134,7 @@ export default function DigestCard({ entry }: Props) {
               activeOpacity={0.7}
             >
               <View style={styles.sourceLeft}>
-                <Feather name="external-link" size={12} color={colors.mutedForeground} />
+                <ExternalLinkIcon size={12} color={colors.mutedForeground} strokeWidth={2} />
                 <Text style={[styles.sourceName, { color: colors.mutedForeground }]}>
                   {entry.sourceName || "Source"}
                 </Text>
@@ -149,7 +152,7 @@ export default function DigestCard({ entry }: Props) {
             <Text style={[styles.viewStockText, { color: colors.primaryForeground }]}>
               View {entry.ticker} Stock
             </Text>
-            <Feather name="arrow-right" size={14} color={colors.primaryForeground} />
+            <ArrowRightIcon size={14} color={colors.primaryForeground} />
           </TouchableOpacity>
         </View>
       )}
@@ -173,7 +176,7 @@ function DetailBlock({
   return (
     <View style={styles.detailBlock}>
       <View style={styles.detailLabelRow}>
-        <Feather name={icon as any} size={11} color={iconColor} />
+        <StockIconRenderer name={icon} size={11} color={iconColor} strokeWidth={2} />
         <Text style={[styles.detailLabel, { color: iconColor }]}>{label}</Text>
       </View>
       <Text style={[styles.detailText, { color: colors.foreground }]}>{text}</Text>

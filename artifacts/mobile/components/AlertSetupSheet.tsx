@@ -12,9 +12,20 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
+import {
+  AlertIcon,
+  AlertTriangleIcon,
+  CloseIcon,
+  DeleteIcon,
+  InfoIcon,
+  LayersIcon,
+  MailIcon,
+  PauseIcon,
+  PlayIcon,
+} from "@/components/icons/StockIcons";
+import { StockIconRenderer } from "@/components/icons/StockIconRenderer";
 import { useAlerts } from "@/context/AlertsContext";
 import { useNotify } from "@/context/NotifyContext";
 import type { NotifyKind } from "@/services/notifyApi";
@@ -159,13 +170,13 @@ export default function AlertSetupSheet({ visible, onClose, symbol, currentPrice
               </Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Feather name="x" size={20} color={colors.mutedForeground} />
+              <CloseIcon size={20} color={colors.mutedForeground} />
             </TouchableOpacity>
           </View>
 
           {!enabled && (
             <View style={[styles.banner, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-              <Feather name="info" size={16} color={colors.mutedForeground} />
+              <InfoIcon size={16} color={colors.mutedForeground} />
               <Text style={[styles.bannerText, { color: colors.mutedForeground }]}>
                 Alerts are rolling out gradually. You don't have access yet.
               </Text>
@@ -173,7 +184,7 @@ export default function AlertSetupSheet({ visible, onClose, symbol, currentPrice
           )}
           {enabled && !evaluatorHealthy && (
             <View style={[styles.banner, { backgroundColor: colors.warning + "22", borderColor: colors.warning + "55" }]}>
-              <Feather name="alert-triangle" size={16} color={colors.warning} />
+              <AlertTriangleIcon size={16} color={colors.warning} />
               <Text style={[styles.bannerText, { color: colors.warning }]}>
                 Alert delivery may be delayed — our evaluator isn't reporting in.
               </Text>
@@ -203,7 +214,7 @@ export default function AlertSetupSheet({ visible, onClose, symbol, currentPrice
                         { backgroundColor: colors.secondary, borderColor: colors.border },
                       ]}
                     >
-                      <Feather name={icon} size={16} color={on ? colors.primary : colors.mutedForeground} />
+                      <StockIconRenderer name={icon} size={16} color={on ? colors.primary : colors.mutedForeground} />
                       <View style={{ flex: 1, gap: 2 }}>
                         <Text style={[styles.alertTitle, { color: colors.foreground }]}>{label}</Text>
                         <Text style={[styles.alertMeta, { color: colors.mutedForeground }]}>
@@ -251,14 +262,12 @@ export default function AlertSetupSheet({ visible, onClose, symbol, currentPrice
                         </Text>
                       </View>
                       <TouchableOpacity onPress={() => toggleStatus(a)} style={styles.rowBtn}>
-                        <Feather
-                          name={a.status === "active" ? "pause" : "play"}
-                          size={16}
-                          color={colors.mutedForeground}
-                        />
+                        {a.status === "active"
+                          ? <PauseIcon size={16} color={colors.mutedForeground} />
+                          : <PlayIcon size={16} color={colors.mutedForeground} />}
                       </TouchableOpacity>
                       <TouchableOpacity onPress={() => handleDelete(a)} style={styles.rowBtn}>
-                        <Feather name="trash-2" size={16} color={colors.negative} />
+                        <DeleteIcon size={16} color={colors.negative} />
                       </TouchableOpacity>
                     </View>
                   )),
@@ -328,11 +337,13 @@ export default function AlertSetupSheet({ visible, onClose, symbol, currentPrice
                     },
                   ]}
                 >
-                  <Feather
-                    name={c === "push" ? "bell" : c === "email" ? "mail" : "layers"}
-                    size={14}
-                    color={draft.channel === c ? colors.primary : colors.mutedForeground}
-                  />
+                  {c === "push" ? (
+                    <AlertIcon size={14} color={draft.channel === c ? colors.primary : colors.mutedForeground} />
+                  ) : c === "email" ? (
+                    <MailIcon size={14} color={draft.channel === c ? colors.primary : colors.mutedForeground} />
+                  ) : (
+                    <LayersIcon size={14} color={draft.channel === c ? colors.primary : colors.mutedForeground} />
+                  )}
                   <Text
                     style={[
                       styles.channelChipText,

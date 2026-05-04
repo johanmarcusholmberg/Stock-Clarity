@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View, type ViewProps } from "react-native";
-import { Feather } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
+import { LockIcon } from "@/components/icons/StockIcons";
 import { useAuth } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription, type Tier } from "@/context/SubscriptionContext";
@@ -176,7 +176,7 @@ export function PremiumGate({
           ]}
         >
           <View style={[styles.badge, { backgroundColor: colors.warning + "22" }]}>
-            <Feather name="lock" size={14} color={colors.warning} />
+            <LockIcon size={14} color={colors.warning} />
             <Text style={[styles.badgeText, { color: colors.warning }]}>
               {required.toUpperCase()}
             </Text>

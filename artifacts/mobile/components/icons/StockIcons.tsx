@@ -687,6 +687,61 @@ export const PrinterIcon = ({ size = 20, color = "#000000", strokeWidth }: IconP
   </Svg>
 );
 
+// ─── Sharing & Loading ───────────────────────────────────────────────────────
+
+export const Share2Icon = ({ size = 20, color = "#000000", strokeWidth }: IconProps) => (
+  // Three node circles (top-right, bottom-right, left) connected by two lines.
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Circle cx={18} cy={5} r={2.5} {...stroke(color, 1.5, strokeWidth)} />
+    <Circle cx={6} cy={12} r={2.5} {...stroke(color, 1.5, strokeWidth)} />
+    <Circle cx={18} cy={19} r={2.5} {...stroke(color, 1.5, strokeWidth)} />
+    <Line x1={8.2} y1={10.7} x2={15.8} y2={6.3} {...stroke(color, 1.5, strokeWidth)} />
+    <Line x1={8.2} y1={13.3} x2={15.8} y2={17.7} {...stroke(color, 1.5, strokeWidth)} />
+  </Svg>
+);
+
+export const LoaderIcon = ({ size = 20, color = "#000000", strokeWidth }: IconProps) => (
+  // Eight short rays around a center point — a static spinner shape.
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Line x1={12} y1={2.5} x2={12} y2={6} {...stroke(color, 1.5, strokeWidth)} />
+    <Line x1={12} y1={18} x2={12} y2={21.5} {...stroke(color, 1.5, strokeWidth)} />
+    <Line x1={2.5} y1={12} x2={6} y2={12} {...stroke(color, 1.5, strokeWidth)} />
+    <Line x1={18} y1={12} x2={21.5} y2={12} {...stroke(color, 1.5, strokeWidth)} />
+    <Line x1={5.2} y1={5.2} x2={7.7} y2={7.7} {...stroke(color, 1.5, strokeWidth)} />
+    <Line x1={16.3} y1={16.3} x2={18.8} y2={18.8} {...stroke(color, 1.5, strokeWidth)} />
+    <Line x1={5.2} y1={18.8} x2={7.7} y2={16.3} {...stroke(color, 1.5, strokeWidth)} />
+    <Line x1={16.3} y1={7.7} x2={18.8} y2={5.2} {...stroke(color, 1.5, strokeWidth)} />
+  </Svg>
+);
+
+// ─── Misc ────────────────────────────────────────────────────────────────────
+
+export const MoreHorizontalIcon = ({ size = 20, color = "#000000", strokeWidth }: IconProps) => (
+  // Three filled dots in a horizontal row.
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Circle cx={5} cy={12} r={1.4} fill={color} />
+    <Circle cx={12} cy={12} r={1.4} fill={color} />
+    <Circle cx={19} cy={12} r={1.4} fill={color} />
+  </Svg>
+);
+
+// ─── Playback ────────────────────────────────────────────────────────────────
+
+export const PauseIcon = ({ size = 20, color = "#000000", strokeWidth }: IconProps) => (
+  // Two thick vertical bars side by side.
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Rect x={6} y={4} width={4} height={16} rx={0.5} {...stroke(color, 1.5, strokeWidth)} />
+    <Rect x={14} y={4} width={4} height={16} rx={0.5} {...stroke(color, 1.5, strokeWidth)} />
+  </Svg>
+);
+
+export const PlayIcon = ({ size = 20, color = "#000000", strokeWidth }: IconProps) => (
+  // A right-pointing triangle.
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Polygon points="6,4 20,12 6,20" {...stroke(color, 1.5, strokeWidth)} />
+  </Svg>
+);
+
 // ─── Theme ───────────────────────────────────────────────────────────────────
 
 export const SunIcon = ({ size = 20, color = "#000000", strokeWidth }: IconProps) => (
