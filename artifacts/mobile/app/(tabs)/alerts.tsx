@@ -20,6 +20,7 @@ import AlertSetupSheet from "@/components/AlertSetupSheet";
 import NotifyOptInSheet from "@/components/NotifyOptInSheet";
 import type { UserAlert, AlertType } from "@/services/alertsApi";
 import { isEventSuppressed, type NotifyEvent } from "@/services/notifyApi";
+import WebAlertsScreen from "@/components/web/screens/WebAlertsScreen";
 
 const TYPE_LABEL: Record<AlertType, string> = {
   price_above: "Above",
@@ -39,6 +40,13 @@ function formatRelative(iso: string): string {
 }
 
 export default function AlertsScreen() {
+  if (Platform.OS === "web") {
+    return <WebAlertsScreen />;
+  }
+  return <NativeAlertsScreen />;
+}
+
+function NativeAlertsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { stocks } = useWatchlist();

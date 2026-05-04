@@ -21,6 +21,7 @@ import { PaywallSheet } from "@/components/PaywallSheet";
 import { PortfolioPicker } from "@/components/PortfolioPicker";
 import { TabHintPopup } from "@/components/TabHintPopup";
 import { useDigest } from "@/context/DigestContext";
+import WebDigestScreen from "@/components/web/screens/WebDigestScreen";
 
 type Colors = ReturnType<typeof useColors>;
 
@@ -162,6 +163,13 @@ const fp = StyleSheet.create({
 });
 
 export default function DigestScreen() {
+  if (Platform.OS === "web") {
+    return <WebDigestScreen />;
+  }
+  return <NativeDigestScreen />;
+}
+
+function NativeDigestScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { stocks, folders, activeFolderId } = useWatchlist();

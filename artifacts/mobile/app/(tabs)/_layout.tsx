@@ -1,4 +1,4 @@
-import { Redirect, Tabs } from "expo-router";
+import { Redirect, Slot, Tabs } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import React from "react";
 import { Platform } from "react-native";
@@ -7,6 +7,7 @@ import { useColors } from "@/hooks/useColors";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { useHoldings } from "@/context/HoldingsContext";
 import { useOnboarding } from "@/hooks/useOnboarding";
+import { WebShell } from "@/components/web/WebShell";
 
 const ICON_SIZE = 23;
 
@@ -24,6 +25,17 @@ export default function TabLayout() {
   // flash of the tabs before the walkthrough.
   if (onboardingStatus === "loading") return null;
   if (onboardingStatus === "needed") return <Redirect href="/onboarding" />;
+
+  // On web, the bottom Tabs bar is replaced by WebShell (sidebar + topbar).
+  // Slot renders the matched child route — Tabs would inject its own
+  // navigation chrome we don't want on desktop.
+  if (isWeb) {
+    return (
+      <WebShell>
+        <Slot />
+      </WebShell>
+    );
+  }
 
   return (
     <Tabs
