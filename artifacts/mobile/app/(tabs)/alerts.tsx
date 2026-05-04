@@ -1,4 +1,12 @@
-import { Feather } from "@expo/vector-icons";
+import {
+  AlertIcon,
+  AlertTriangleIcon,
+  BellOffIcon,
+  CalendarIcon,
+  ChevronRightIcon,
+  InfoIcon,
+  RssIcon,
+} from "@/components/icons/StockIcons";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import React, { useEffect, useMemo, useState } from "react";
@@ -138,7 +146,7 @@ function NativeAlertsScreen() {
 
       {!enabled && (
         <View style={[styles.banner, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-          <Feather name="info" size={16} color={colors.mutedForeground} />
+          <InfoIcon size={16} color={colors.mutedForeground} />
           <Text style={[styles.bannerText, { color: colors.mutedForeground }]}>
             Alerts are rolling out gradually. You'll get access once the feature is enabled for your account.
           </Text>
@@ -146,7 +154,7 @@ function NativeAlertsScreen() {
       )}
       {enabled && !evaluatorHealthy && (
         <View style={[styles.banner, { backgroundColor: colors.warning + "22", borderColor: colors.warning + "55" }]}>
-          <Feather name="alert-triangle" size={16} color={colors.warning} />
+          <AlertTriangleIcon size={16} color={colors.warning} />
           <Text style={[styles.bannerText, { color: colors.warning }]}>
             Alerts may be delayed — our evaluator isn't checking in right now.
           </Text>
@@ -155,7 +163,7 @@ function NativeAlertsScreen() {
 
       {enabled && groupedAlerts.length === 0 && (
         <View style={[styles.empty, { borderColor: colors.border }]}>
-          <Feather name="bell-off" size={32} color={colors.mutedForeground} />
+          <BellOffIcon size={32} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No alerts yet</Text>
           <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
             Open a stock and tap the bell icon to set a price or daily-move alert.
@@ -256,7 +264,7 @@ function NativeAlertsScreen() {
                 }
               >
                 <Text style={[styles.inboxSymbol, { color: colors.foreground }]}>{symbol}</Text>
-                <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+                <ChevronRightIcon size={16} color={colors.mutedForeground} />
               </TouchableOpacity>
               {items.map((it) => {
                 if (it.kind === "price") {
@@ -267,7 +275,7 @@ function NativeAlertsScreen() {
                       style={[styles.inboxRow, { borderTopColor: colors.border }]}
                     >
                       <View style={[styles.fireIcon, { backgroundColor: colors.primary + "22" }]}>
-                        <Feather name="bell" size={12} color={colors.primary} />
+                        <AlertIcon size={12} color={colors.primary} strokeWidth={2} />
                       </View>
                       <View style={{ flex: 1, gap: 2 }}>
                         <Text style={[styles.fireSymbol, { color: colors.foreground }]}>
@@ -311,11 +319,9 @@ function NativeAlertsScreen() {
                         },
                       ]}
                     >
-                      <Feather
-                        name={n.kind === "news" ? "rss" : "calendar"}
-                        size={12}
-                        color={suppressed ? colors.mutedForeground : colors.primary}
-                      />
+                      {n.kind === "news"
+                        ? <RssIcon size={12} color={suppressed ? colors.mutedForeground : colors.primary} strokeWidth={2} />
+                        : <CalendarIcon size={12} color={suppressed ? colors.mutedForeground : colors.primary} strokeWidth={2} />}
                     </View>
                     <View style={{ flex: 1, gap: 2 }}>
                       <Text

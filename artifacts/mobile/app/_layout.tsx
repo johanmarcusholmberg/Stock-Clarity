@@ -5,7 +5,6 @@ import {
   Inter_700Bold,
   useFonts,
 } from "@expo-google-fonts/inter";
-import { Feather } from "@expo/vector-icons";
 import { ClerkProvider, ClerkLoaded, useAuth } from "@clerk/expo";
 import { tokenCache } from "@clerk/expo/token-cache";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -14,29 +13,7 @@ import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useRef } from "react";
 import { Platform } from "react-native";
 
-// Expo web ships @expo/vector-icons fonts via Metro-bundled URLs, but in our
-// proxied Android-sized iframe (the canvas mobile preview) the auto-injected
-// @font-face URL is unreliable — Feather glyphs render as tofu boxes (□)
-// because the browser falls back to the system font when "Feather" isn't
-// registered in CSS. We work around this by serving Feather.ttf from
-// /public/fonts and registering @font-face ourselves at module load, before
-// any Feather <Text> mounts. Native and EAS builds skip this entirely
-// (Platform.OS !== 'web') and use Expo's normal asset pipeline.
 if (Platform.OS === "web" && typeof document !== "undefined") {
-  const FONT_FACE_ID = "stockclarify-feather-font-face";
-  if (!document.getElementById(FONT_FACE_ID)) {
-    const style = document.createElement("style");
-    style.id = FONT_FACE_ID;
-    style.textContent = `@font-face {
-  font-family: 'Feather';
-  src: url('/fonts/Feather.ttf') format('truetype');
-  font-weight: normal;
-  font-style: normal;
-  font-display: block;
-}`;
-    document.head.appendChild(style);
-  }
-
   // Google Fonts: DM Serif Display (headings), DM Mono (data), Sora (body)
   const GOOGLE_FONTS_ID = "stockclarity-google-fonts";
   if (!document.getElementById(GOOGLE_FONTS_ID)) {
@@ -219,15 +196,11 @@ function WatchlistProviderWithTier({ children }: { children: React.ReactNode }) 
 }
 
 export default function RootLayout() {
-  // Note: Feather.font is explicitly loaded to ensure icon rendering on Android
-  // preview and dev builds. If icons still fail in Expo web preview, this is a
-  // known limitation — they will render correctly on real devices.
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
-    ...Feather.font,
   });
 
   useEffect(() => {

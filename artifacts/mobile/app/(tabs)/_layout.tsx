@@ -1,5 +1,4 @@
 import { Redirect, Slot, Tabs } from "expo-router";
-import { Feather } from "@expo/vector-icons";
 import React from "react";
 import { Platform } from "react-native";
 import { useAuth } from "@clerk/expo";
@@ -8,6 +7,15 @@ import { useSubscription } from "@/context/SubscriptionContext";
 import { useHoldings } from "@/context/HoldingsContext";
 import { useOnboarding } from "@/hooks/useOnboarding";
 import { WebShell } from "@/components/web/WebShell";
+import {
+  AccountIcon,
+  AdminIcon,
+  DigestIcon,
+  HomeIcon,
+  InsightsIcon,
+  PortfolioIcon,
+  SearchIcon,
+} from "@/components/icons/StockIcons";
 
 const ICON_SIZE = 23;
 
@@ -63,28 +71,28 @@ export default function TabLayout() {
         name="digest"
         options={{
           title: "Digest",
-          tabBarIcon: ({ color }) => <Feather name="book-open" size={ICON_SIZE} color={color} />,
+          tabBarIcon: ({ color }) => <DigestIcon size={ICON_SIZE} color={color} />,
         }}
       />
       <Tabs.Screen
         name="search"
         options={{
           title: "Search",
-          tabBarIcon: ({ color }) => <Feather name="search" size={ICON_SIZE} color={color} />,
+          tabBarIcon: ({ color }) => <SearchIcon size={ICON_SIZE} color={color} />,
         }}
       />
       <Tabs.Screen
         name="index"
         options={{
           title: "Home",
-          tabBarIcon: ({ color }) => <Feather name="home" size={ICON_SIZE} color={color} />,
+          tabBarIcon: ({ color }) => <HomeIcon size={ICON_SIZE} color={color} />,
         }}
       />
       <Tabs.Screen
         name="insights"
         options={{
           title: "Insights",
-          tabBarIcon: ({ color }) => <Feather name="pie-chart" size={ICON_SIZE} color={color} />,
+          tabBarIcon: ({ color }) => <InsightsIcon size={ICON_SIZE} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -94,14 +102,14 @@ export default function TabLayout() {
           // Hidden when HOLDINGS_ENABLED is off; same gating pattern the
           // admin-panel tab uses with isAdmin.
           href: holdingsEnabled ? undefined : null,
-          tabBarIcon: ({ color }) => <Feather name="briefcase" size={ICON_SIZE} color={color} />,
+          tabBarIcon: ({ color }) => <PortfolioIcon size={ICON_SIZE} color={color} />,
         }}
       />
       <Tabs.Screen
         name="account"
         options={{
           title: "Account",
-          tabBarIcon: ({ color }) => <Feather name="user" size={ICON_SIZE} color={color} />,
+          tabBarIcon: ({ color }) => <AccountIcon size={ICON_SIZE} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -121,7 +129,7 @@ export default function TabLayout() {
         options={{
           title: "Admin",
           href: isAdmin ? undefined : null,
-          tabBarIcon: ({ color }) => <Feather name="shield" size={ICON_SIZE} color={color} />,
+          tabBarIcon: ({ color }) => <AdminIcon size={ICON_SIZE} color={color} />,
         }}
       />
     </Tabs>

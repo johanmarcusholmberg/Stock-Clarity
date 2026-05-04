@@ -1,5 +1,11 @@
-import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
+import {
+  ActivityIcon,
+  ExpandIcon,
+  ExportIcon,
+  InsightsIcon,
+} from "@/components/icons/StockIcons";
+import { StockIconRenderer } from "@/components/icons/StockIconRenderer";
 import React, { useMemo, useState } from "react";
 import {
   Linking,
@@ -44,7 +50,6 @@ import {
   weightedSeries,
 } from "@/lib/portfolioMath";
 
-type FeatherIconName = React.ComponentProps<typeof Feather>["name"];
 type PerfPeriod = "today" | "1w" | "1m";
 
 const API_BASE = getApiBase();
@@ -113,11 +118,11 @@ function get52wProximity(stock: Stock, history: number[]): { pctFromHigh: number
   return { pctFromHigh, pctFromLow };
 }
 
-function SectionHeader({ title, icon, right }: { title: string; icon: FeatherIconName; right?: React.ReactNode }) {
+function SectionHeader({ title, icon, right }: { title: string; icon: string; right?: React.ReactNode }) {
   const colors = useColors();
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12, marginTop: 4 }}>
-      <Feather name={icon} size={16} color={colors.primary} />
+      <StockIconRenderer name={icon} size={16} color={colors.primary} />
       <Text style={{ color: colors.foreground, fontSize: 16, fontFamily: "Inter_700Bold", flex: 1 }}>
         {title}
       </Text>
@@ -183,7 +188,7 @@ function BenchmarkChip({
           AUTO
         </Text>
       ) : null}
-      <Feather name="chevron-down" size={14} color={colors.mutedForeground} />
+      <ExpandIcon size={14} color={colors.mutedForeground} />
     </TouchableOpacity>
   );
 }
@@ -353,7 +358,7 @@ function NativeInsightsScreen() {
       <View style={[s.fill, { backgroundColor: colors.background }]}>
         <View style={[s.fill, { alignItems: "center", justifyContent: "center", padding: 32, paddingTop: topPadding }]}>
           <View style={{ backgroundColor: colors.card, borderRadius: 40, padding: 16, marginBottom: 16 }}>
-            <Feather name="pie-chart" size={36} color={colors.primary} />
+            <InsightsIcon size={36} color={colors.primary} />
           </View>
           <Text style={{ color: colors.foreground, fontSize: 22, fontFamily: "Inter_700Bold", textAlign: "center", marginBottom: 8 }}>
             No stocks to analyze
@@ -699,7 +704,7 @@ function NativeInsightsScreen() {
                 market picker; the chart and stat tiles below update instantly
                 when a new market is chosen. */}
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12, marginTop: 4, flexWrap: "wrap" }}>
-              <Feather name="activity" size={16} color={colors.primary} />
+              <ActivityIcon size={16} color={colors.primary} />
               <Text style={{ color: colors.foreground, fontSize: 16, fontFamily: "Inter_700Bold" }}>
                 Portfolio vs
               </Text>
@@ -787,7 +792,7 @@ function NativeInsightsScreen() {
               accessibilityRole="button"
               style={[s.exportBtn, { backgroundColor: colors.primary }]}
             >
-              <Feather name="download" size={16} color={colors.primaryForeground} />
+              <ExportIcon size={16} color={colors.primaryForeground} />
               <Text style={[s.exportBtnText, { color: colors.primaryForeground }]}>
                 Choose format…
               </Text>

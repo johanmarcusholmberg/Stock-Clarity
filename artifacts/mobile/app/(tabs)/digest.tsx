@@ -1,4 +1,11 @@
-import { Feather } from "@expo/vector-icons";
+import {
+  CheckIcon,
+  CloseIcon,
+  DigestIcon,
+  FilterIcon,
+  FolderIcon,
+  InboxIcon,
+} from "@/components/icons/StockIcons";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   ActivityIndicator,
@@ -129,7 +136,7 @@ function FilterPanel({
                     backgroundColor: selected ? colors.primary : "transparent",
                     borderColor: selected ? colors.primary : colors.border,
                   }]}>
-                    {selected && <Feather name="check" size={11} color={colors.primaryForeground} />}
+                    {selected && <CheckIcon size={11} color={colors.primaryForeground} strokeWidth={2.2} />}
                   </View>
                 </TouchableOpacity>
               );
@@ -269,8 +276,7 @@ function NativeDigestScreen() {
               onPress={() => setFilterVisible(true)}
               accessibilityLabel="Filter stocks"
             >
-              <Feather
-                name="filter"
+              <FilterIcon
                 size={14}
                 color={activeFilterCount > 0 ? colors.primaryForeground : colors.mutedForeground}
               />
@@ -283,7 +289,7 @@ function NativeDigestScreen() {
 
         {isEmpty ? (
           <View style={[styles.emptyContainer, { borderColor: colors.border }]}>
-            <Feather name="book-open" size={32} color={colors.mutedForeground} />
+            <DigestIcon size={32} color={colors.mutedForeground} />
             <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Nothing to digest</Text>
             <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
               Add stocks to your watchlist to see daily summaries and weekly highlights here.
@@ -291,7 +297,7 @@ function NativeDigestScreen() {
           </View>
         ) : portfolioEmpty ? (
           <View style={[styles.emptyContainer, { borderColor: colors.border }]}>
-            <Feather name="folder" size={32} color={colors.mutedForeground} />
+            <FolderIcon size={32} color={colors.mutedForeground} />
             <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Empty portfolio</Text>
             <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
               {`Add stocks to "${activeFolder?.name}" to see briefs here.`}
@@ -333,7 +339,7 @@ function NativeDigestScreen() {
                     }}
                   >
                     <Text style={[styles.filterChipText, { color: colors.primary }]}>{t}</Text>
-                    <Feather name="x" size={11} color={colors.primary} />
+                    <CloseIcon size={11} color={colors.primary} strokeWidth={2.2} />
                   </TouchableOpacity>
                 ))}
                 <TouchableOpacity onPress={() => setFilterState({ tickers: new Set() })}>
@@ -354,7 +360,7 @@ function NativeDigestScreen() {
                   </View>
                 ) : filteredDaily.length === 0 ? (
                   <View style={[styles.noDataContainer, { borderColor: colors.border }]}>
-                    <Feather name="inbox" size={24} color={colors.mutedForeground} />
+                    <InboxIcon size={24} color={colors.mutedForeground} />
                     <Text style={[styles.noDataText, { color: colors.mutedForeground }]}>
                       {activeFilterCount > 0
                         ? "No news matches your filters. Try adjusting or clearing them."
@@ -390,7 +396,7 @@ function NativeDigestScreen() {
                   </View>
                 ) : filteredWeekly.length === 0 ? (
                   <View style={[styles.noDataContainer, { borderColor: colors.border }]}>
-                    <Feather name="inbox" size={24} color={colors.mutedForeground} />
+                    <InboxIcon size={24} color={colors.mutedForeground} />
                     <Text style={[styles.noDataText, { color: colors.mutedForeground }]}>
                       {activeFilterCount > 0
                         ? "No news matches your filters. Try adjusting or clearing them."

@@ -687,6 +687,32 @@ export const PrinterIcon = ({ size = 20, color = "#000000", strokeWidth }: IconP
   </Svg>
 );
 
+// ─── Devices & Targeting ─────────────────────────────────────────────────────
+
+export const SmartphoneIcon = ({ size = 20, color = "#000000", strokeWidth }: IconProps) => (
+  // Rounded rectangle phone body + small home-button dot near the bottom edge.
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Rect x={6} y={2.5} width={12} height={19} rx={2.5} {...stroke(color, 1.5, strokeWidth)} />
+    <Line x1={11} y1={18.5} x2={13} y2={18.5} {...stroke(color, 1.4, strokeWidth)} />
+  </Svg>
+);
+
+export const TargetIcon = ({ size = 20, color = "#000000", strokeWidth }: IconProps) => (
+  // Three concentric circles — outer, middle, and a filled center dot.
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Circle cx={12} cy={12} r={9} {...stroke(color, 1.5, strokeWidth)} />
+    <Circle cx={12} cy={12} r={5.5} {...stroke(color, 1.5, strokeWidth)} />
+    <Circle cx={12} cy={12} r={2} fill={color} />
+  </Svg>
+);
+
+export const MessageCircleIcon = ({ size = 20, color = "#000000", strokeWidth }: IconProps) => (
+  // Round chat bubble with a small tail at the bottom-left.
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Path d="M21 12 a8 8 0 1 1 -3.5 -6.6 L21 4 L20 8 a8 8 0 0 1 1 4 Z" {...stroke(color, 1.5, strokeWidth)} />
+  </Svg>
+);
+
 // ─── Geometry ────────────────────────────────────────────────────────────────
 
 export const CircleIcon = ({ size = 20, color = "#000000", strokeWidth }: IconProps) => (

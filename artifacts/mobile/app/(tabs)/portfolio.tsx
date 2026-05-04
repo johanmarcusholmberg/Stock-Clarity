@@ -1,5 +1,11 @@
-import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
+import {
+  AddIcon,
+  CloseIcon,
+  ExportIcon,
+  LockIcon,
+  PortfolioIcon,
+} from "@/components/icons/StockIcons";
 import { useAuth } from "@clerk/expo";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -248,7 +254,7 @@ function NativePortfolioScreen() {
   if (!enabled) {
     return (
       <View style={[styles.center, { backgroundColor: colors.background, paddingTop: insets.top }]}>
-        <Feather name="lock" size={32} color={colors.mutedForeground} />
+        <LockIcon size={32} color={colors.mutedForeground} />
         <Text style={[styles.emptyTitle, { color: colors.foreground, marginTop: 12 }]}>
           Portfolio coming soon
         </Text>
@@ -291,7 +297,7 @@ function NativePortfolioScreen() {
           }}
           activeOpacity={0.7}
         >
-          <Feather name="plus" size={16} color={colors.primaryForeground} />
+          <AddIcon size={16} color={colors.primaryForeground} />
           <Text style={[styles.addBtnText, { color: colors.primaryForeground }]}>Add</Text>
         </TouchableOpacity>
       </View>
@@ -331,7 +337,7 @@ function NativePortfolioScreen() {
 
       {!holdings.length && !loading ? (
         <View style={styles.empty}>
-          <Feather name="briefcase" size={36} color={colors.mutedForeground} />
+          <PortfolioIcon size={36} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground, marginTop: 12 }]}>
             No holdings yet
           </Text>
@@ -433,7 +439,7 @@ function NativePortfolioScreen() {
                   onPress={handleExportCsv}
                   activeOpacity={0.7}
                 >
-                  <Feather name="download" size={16} color={colors.foreground} />
+                  <ExportIcon size={16} color={colors.foreground} />
                   <Text style={[styles.exportBtnText, { color: colors.foreground }]}>
                     Export CSV
                   </Text>
@@ -541,7 +547,7 @@ function AddHoldingModal({ visible, onClose, onSubmit, colors }: AddHoldingModal
           <View style={modalStyles.header}>
             <Text style={[modalStyles.title, { color: colors.foreground }]}>Add holding</Text>
             <TouchableOpacity onPress={handleClose} disabled={submitting}>
-              <Feather name="x" size={20} color={colors.mutedForeground} />
+              <CloseIcon size={20} color={colors.mutedForeground} />
             </TouchableOpacity>
           </View>
 

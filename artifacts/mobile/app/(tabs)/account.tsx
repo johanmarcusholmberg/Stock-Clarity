@@ -19,7 +19,32 @@ import { router } from "expo-router";
 import { DrumRollPicker } from "@/components/DrumRollPicker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
+import {
+  AccountIcon,
+  AdminIcon,
+  AlertIcon,
+  AtSignIcon,
+  CalendarIcon,
+  CheckCircleIcon,
+  CheckIcon,
+  ChevronRightIcon,
+  ClockIcon,
+  CloseIcon,
+  CpuIcon,
+  DeleteIcon,
+  EditIcon,
+  ExternalLinkIcon,
+  FileTextIcon,
+  FilterIcon,
+  InfoIcon,
+  LifeBuoyIcon,
+  MailIcon,
+  MoonIcon,
+  SendIcon,
+  SunIcon,
+  ZapIcon,
+} from "@/components/icons/StockIcons";
+import { StockIconRenderer } from "@/components/icons/StockIconRenderer";
 import { useAuth, useUser } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 import { useTheme } from "@/context/ThemeContext";
@@ -51,7 +76,6 @@ import {
 const API_BASE = getApiBase();
 
 type FeedbackCategory = "general" | "bug" | "feature" | "billing";
-type FeatherIconName = React.ComponentProps<typeof Feather>["name"];
 
 export default function AccountScreen() {
   if (Platform.OS === "web") {
@@ -437,7 +461,7 @@ function NativeAccountScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pickerH12, pickerMinute, pickerAMPM, notifPrefs]);
 
-  const categories: { value: FeedbackCategory; label: string; icon: FeatherIconName }[] = [
+  const categories: { value: FeedbackCategory; label: string; icon: string }[] = [
     { value: "general", label: "General", icon: "message-circle" },
     { value: "bug", label: "Bug Report", icon: "alert-triangle" },
     { value: "feature", label: "Feature", icon: "star" },
@@ -608,7 +632,7 @@ function NativeAccountScreen() {
           elevation: 6,
         }}
       >
-        <Feather name="check-circle" size={18} color="#fff" />
+        <CheckCircleIcon size={18} color="#fff" />
         <Text style={{ color: "#fff", fontSize: 14, fontFamily: "Inter_600SemiBold", flex: 1 }}>
           Feedback sent — thank you!
         </Text>
@@ -624,7 +648,7 @@ function NativeAccountScreen() {
           <View style={s.card}>
             {/* Editable Display Name */}
             <View style={[s.row]}>
-              <View style={s.rowIcon}><Feather name="user" size={18} color={colors.primary} /></View>
+              <View style={s.rowIcon}><AccountIcon size={18} color={colors.primary} /></View>
               {editingName ? (
                 <>
                   <TextInput
@@ -643,10 +667,10 @@ function NativeAccountScreen() {
                     ) : (
                       <>
                         <TouchableOpacity style={s.nameActionBtn} onPress={handleSaveName} accessibilityLabel="Save name" hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                          <Feather name="check" size={18} color={colors.primary} />
+                          <CheckIcon size={18} color={colors.primary} />
                         </TouchableOpacity>
                         <TouchableOpacity style={s.nameActionBtn} onPress={handleCancelEditName} accessibilityLabel="Cancel editing" hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                          <Feather name="x" size={18} color={colors.mutedForeground} />
+                          <CloseIcon size={18} color={colors.mutedForeground} />
                         </TouchableOpacity>
                       </>
                     )}
@@ -656,13 +680,13 @@ function NativeAccountScreen() {
                 <>
                   <Text style={s.rowLabel} numberOfLines={1}>{displayName}</Text>
                   <TouchableOpacity onPress={handleEditName} style={{ padding: 4 }} accessibilityLabel="Edit name" hitSlop={{ top: 11, bottom: 11, left: 11, right: 11 }}>
-                    <Feather name="edit-2" size={15} color={colors.mutedForeground} />
+                    <EditIcon size={15} color={colors.mutedForeground} />
                   </TouchableOpacity>
                 </>
               )}
             </View>
             <View style={[s.row, s.rowLast]}>
-              <View style={s.rowIcon}><Feather name="mail" size={18} color={colors.primary} /></View>
+              <View style={s.rowIcon}><MailIcon size={18} color={colors.primary} /></View>
               <Text style={s.rowLabel} numberOfLines={1}>
                 {user?.primaryEmailAddress?.emailAddress ?? "—"}
               </Text>
@@ -676,7 +700,9 @@ function NativeAccountScreen() {
           <View style={s.card}>
             <View style={[s.row, s.rowLast]}>
               <View style={s.rowIcon}>
-                <Feather name={theme === "bright" ? "sun" : "moon"} size={18} color={colors.primary} />
+                {theme === "bright"
+                  ? <SunIcon size={18} color={colors.primary} />
+                  : <MoonIcon size={18} color={colors.primary} />}
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={s.rowLabel}>Bright Mode</Text>
@@ -699,7 +725,7 @@ function NativeAccountScreen() {
           <Text style={s.sectionTitle}>Subscription</Text>
           <View style={s.card}>
             <View style={[s.row]}>
-              <View style={s.rowIcon}><Feather name="zap" size={18} color={tierColors[tier]} /></View>
+              <View style={s.rowIcon}><ZapIcon size={18} color={tierColors[tier]} /></View>
               <Text style={s.rowLabel}>Current Plan</Text>
               {isLoading ? (
                 <ActivityIndicator color={colors.primary} size="small" />
@@ -711,14 +737,14 @@ function NativeAccountScreen() {
             </View>
             {subscriptionStatus && (
               <View style={[s.row]}>
-                <View style={s.rowIcon}><Feather name="check-circle" size={18} color={colors.positive} /></View>
+                <View style={s.rowIcon}><CheckCircleIcon size={18} color={colors.positive} /></View>
                 <Text style={s.rowLabel}>Status</Text>
                 <Text style={[s.rowValue, { color: colors.positive, textTransform: "capitalize" }]}>{subscriptionStatus}</Text>
               </View>
             )}
             {/* AI Usage */}
             <View style={[s.row, tier !== "free" ? s.rowLast : {}]}>
-              <View style={s.rowIcon}><Feather name="cpu" size={18} color={colors.primary} /></View>
+              <View style={s.rowIcon}><CpuIcon size={18} color={colors.primary} /></View>
               <Text style={s.rowLabel}>AI Summaries</Text>
               {tier !== "free" ? (
                 <Text style={[s.rowValue, { color: colors.positive }]}>Unlimited</Text>
@@ -775,7 +801,7 @@ function NativeAccountScreen() {
                 activeOpacity={0.7}
               >
                 <View style={s.rowIcon}>
-                  <Feather name="bell" size={18} color={colors.primary} />
+                  <AlertIcon size={18} color={colors.primary} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[s.rowLabel, { marginBottom: 0 }]}>News & earnings</Text>
@@ -787,7 +813,7 @@ function NativeAccountScreen() {
                         : "Not set up yet"}
                   </Text>
                 </View>
-                <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+                <ChevronRightIcon size={16} color={colors.mutedForeground} />
               </TouchableOpacity>
             </View>
           </View>
@@ -801,7 +827,7 @@ function NativeAccountScreen() {
               {/* Master toggle */}
               <View style={[s.row, !notifPrefs.enabled && s.rowLast]}>
                 <View style={s.rowIcon}>
-                  <Feather name="bell" size={18} color={notifPrefs.enabled ? colors.primary : colors.mutedForeground} />
+                  <AlertIcon size={18} color={notifPrefs.enabled ? colors.primary : colors.mutedForeground} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[s.rowLabel, { marginBottom: 0 }]}>Notifications</Text>
@@ -825,7 +851,7 @@ function NativeAccountScreen() {
                 <>
                   {/* Frequency */}
                   <View style={[s.row, { borderBottomWidth: 0, paddingBottom: 8 }]}>
-                    <View style={s.rowIcon}><Feather name="calendar" size={18} color={colors.primary} /></View>
+                    <View style={s.rowIcon}><CalendarIcon size={18} color={colors.primary} /></View>
                     <Text style={[s.rowLabel]}>Frequency</Text>
                   </View>
                   <View style={{ flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingBottom: 16 }}>
@@ -851,17 +877,17 @@ function NativeAccountScreen() {
 
                   {/* Delivery time — tappable row opens drum-roll modal */}
                   <TouchableOpacity style={[s.row]} onPress={openTimePicker} activeOpacity={0.7}>
-                    <View style={s.rowIcon}><Feather name="clock" size={18} color={colors.primary} /></View>
+                    <View style={s.rowIcon}><ClockIcon size={18} color={colors.primary} /></View>
                     <Text style={[s.rowLabel]}>Delivery Time</Text>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                       <Text style={[s.rowValue]}>{formatNotifTime(notifPrefs.hour, notifPrefs.minute ?? 0)}</Text>
-                      <Feather name="chevron-right" size={14} color={colors.mutedForeground} />
+                      <ChevronRightIcon size={14} color={colors.mutedForeground} />
                     </View>
                   </TouchableOpacity>
 
                   {/* Delivery method */}
                   <View style={[s.row, { borderBottomWidth: 0, paddingBottom: 8 }]}>
-                    <View style={s.rowIcon}><Feather name="send" size={18} color={colors.primary} /></View>
+                    <View style={s.rowIcon}><SendIcon size={18} color={colors.primary} /></View>
                     <Text style={[s.rowLabel]}>Delivery</Text>
                   </View>
                   <View style={{ flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingBottom: 16 }}>
@@ -869,7 +895,7 @@ function NativeAccountScreen() {
                       { value: "push", label: "Push", icon: "smartphone" },
                       { value: "email", label: "Email", icon: "mail" },
                       { value: "both", label: "Both", icon: "layers" },
-                    ] as { value: NotificationMethod; label: string; icon: FeatherIconName }[]).map((m) => (
+                    ] as { value: NotificationMethod; label: string; icon: string }[]).map((m) => (
                       <TouchableOpacity
                         key={m.value}
                         style={{
@@ -880,7 +906,7 @@ function NativeAccountScreen() {
                         }}
                         onPress={() => handleNotifUpdate((p) => ({ ...p, method: m.value }))}
                       >
-                        <Feather name={m.icon} size={14} color={notifPrefs.method === m.value ? colors.primary : colors.mutedForeground} />
+                        <StockIconRenderer name={m.icon} size={14} color={notifPrefs.method === m.value ? colors.primary : colors.mutedForeground} />
                         <Text style={{
                           fontSize: 11, fontFamily: "Inter_600SemiBold",
                           color: notifPrefs.method === m.value ? colors.primary : colors.mutedForeground,
@@ -892,7 +918,7 @@ function NativeAccountScreen() {
                   {/* Email for email delivery */}
                   {(notifPrefs.method === "email" || notifPrefs.method === "both") && (
                     <View style={[s.row, s.rowLast]}>
-                      <View style={s.rowIcon}><Feather name="at-sign" size={18} color={colors.primary} /></View>
+                      <View style={s.rowIcon}><AtSignIcon size={18} color={colors.primary} /></View>
                       <Text style={[s.rowLabel, { color: colors.mutedForeground, fontSize: 13 }]} numberOfLines={1}>
                         {user?.primaryEmailAddress?.emailAddress ?? "No email on file"}
                       </Text>
@@ -903,7 +929,7 @@ function NativeAccountScreen() {
                   {(notifPrefs.method === "push" || notifPrefs.method === "both") && (
                     <>
                       <View style={[s.row, { borderBottomWidth: 0, paddingBottom: 8 }]}>
-                        <View style={s.rowIcon}><Feather name="sliders" size={18} color={colors.primary} /></View>
+                        <View style={s.rowIcon}><FilterIcon size={18} color={colors.primary} /></View>
                         <Text style={[s.rowLabel]}>Alert Types</Text>
                       </View>
                       <View style={{ paddingHorizontal: 16, paddingBottom: 16, gap: 8 }}>
@@ -927,8 +953,8 @@ function NativeAccountScreen() {
                                 return { ...p, alertTypes: next };
                               })}
                             >
-                              <Feather
-                                name={opt.icon as any}
+                              <StockIconRenderer
+                                name={opt.icon}
                                 size={16}
                                 color={active ? colors.primary : colors.mutedForeground}
                               />
@@ -946,7 +972,7 @@ function NativeAccountScreen() {
                                 backgroundColor: active ? colors.primary : "transparent",
                                 alignItems: "center", justifyContent: "center",
                               }}>
-                                {active && <Feather name="check" size={11} color={colors.primaryForeground} />}
+                                {active && <CheckIcon size={11} color={colors.primaryForeground} strokeWidth={2.2} />}
                               </View>
                             </TouchableOpacity>
                           );
@@ -960,7 +986,9 @@ function NativeAccountScreen() {
 
                   {notifPrefs.method === "email" && (
                     <View style={[s.row]}>
-                      <Feather name="info" size={14} color={colors.mutedForeground} style={{ marginRight: 8 }} />
+                      <View style={{ marginRight: 8 }}>
+                        <InfoIcon size={14} color={colors.mutedForeground} />
+                      </View>
                       <Text style={{ color: colors.mutedForeground, fontSize: 12, fontFamily: "Inter_400Regular", flex: 1 }}>
                         Email digests include all significant movements across your watchlist.
                       </Text>
@@ -986,7 +1014,7 @@ function NativeAccountScreen() {
                     style={[s.catBtn, feedbackCategory === cat.value && s.catBtnActive]}
                     onPress={() => setFeedbackCategory(cat.value)}
                   >
-                    <Feather
+                    <StockIconRenderer
                       name={cat.icon}
                       size={16}
                       color={feedbackCategory === cat.value ? colors.primary : colors.mutedForeground}
@@ -1000,7 +1028,7 @@ function NativeAccountScreen() {
               <View style={s.stars}>
                 {[1, 2, 3, 4, 5].map((star) => (
                   <TouchableOpacity key={star} style={s.starBtn} onPress={() => setFeedbackRating(star)} accessibilityLabel={`Rate ${star} star${star > 1 ? "s" : ""}`} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
-                    <Feather
+                    <StockIconRenderer
                       name="star"
                       size={24}
                       color={feedbackRating >= star ? "#FFB800" : colors.border}
@@ -1044,9 +1072,9 @@ function NativeAccountScreen() {
               accessibilityRole="link"
               accessibilityLabel="Open Privacy Policy"
             >
-              <View style={s.rowIcon}><Feather name="shield" size={18} color={colors.primary} /></View>
+              <View style={s.rowIcon}><AdminIcon size={18} color={colors.primary} /></View>
               <Text style={s.rowLabel}>Privacy Policy</Text>
-              <Feather name="external-link" size={14} color={colors.mutedForeground} />
+              <ExternalLinkIcon size={14} color={colors.mutedForeground} />
             </TouchableOpacity>
             <TouchableOpacity
               style={s.row}
@@ -1055,9 +1083,9 @@ function NativeAccountScreen() {
               accessibilityRole="link"
               accessibilityLabel="Open Terms of Service"
             >
-              <View style={s.rowIcon}><Feather name="file-text" size={18} color={colors.primary} /></View>
+              <View style={s.rowIcon}><FileTextIcon size={18} color={colors.primary} /></View>
               <Text style={s.rowLabel}>Terms of Service</Text>
-              <Feather name="external-link" size={14} color={colors.mutedForeground} />
+              <ExternalLinkIcon size={14} color={colors.mutedForeground} />
             </TouchableOpacity>
             <TouchableOpacity
               style={s.row}
@@ -1065,12 +1093,12 @@ function NativeAccountScreen() {
               activeOpacity={0.7}
               accessibilityLabel="Email support"
             >
-              <View style={s.rowIcon}><Feather name="life-buoy" size={18} color={colors.primary} /></View>
+              <View style={s.rowIcon}><LifeBuoyIcon size={18} color={colors.primary} /></View>
               <Text style={s.rowLabel}>Contact Support</Text>
               <Text style={s.rowValue} numberOfLines={1}>{SUPPORT_EMAIL}</Text>
             </TouchableOpacity>
             <View style={[s.row, s.rowLast]}>
-              <View style={s.rowIcon}><Feather name="info" size={18} color={colors.primary} /></View>
+              <View style={s.rowIcon}><InfoIcon size={18} color={colors.primary} /></View>
               <Text style={s.rowLabel}>Version</Text>
               <Text style={s.rowValue}>{APP_VERSION}</Text>
             </View>
@@ -1100,7 +1128,7 @@ function NativeAccountScreen() {
               <ActivityIndicator color={colors.destructive} />
             ) : (
               <>
-                <Feather name="trash-2" size={16} color={colors.destructive} />
+                <DeleteIcon size={16} color={colors.destructive} />
                 <Text style={s.deleteBtnText}>Delete account</Text>
               </>
             )}

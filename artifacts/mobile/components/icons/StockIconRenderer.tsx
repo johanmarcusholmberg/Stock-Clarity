@@ -40,6 +40,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ size?: number; color?: stri
   "shuffle": Icons.ShuffleIcon,
   "external-link": Icons.ExternalLinkIcon,
   "sliders": Icons.FilterIcon,
+  "filter": Icons.FilterIcon,
   "settings": Icons.SettingsIcon,
   "maximize-2": Icons.MaximizeIcon,
 
@@ -119,6 +120,11 @@ const ICON_MAP: Record<string, React.ComponentType<{ size?: number; color?: stri
 
   // Geometry
   "circle": Icons.CircleIcon,
+
+  // Devices & targeting
+  "smartphone": Icons.SmartphoneIcon,
+  "target": Icons.TargetIcon,
+  "message-circle": Icons.MessageCircleIcon,
 };
 
 export function StockIconRenderer({ name, size = 20, color = "#000000", strokeWidth }: Props) {
