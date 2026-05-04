@@ -1,6 +1,6 @@
 import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
-import { Feather } from "@expo/vector-icons";
+import { StockIconRenderer } from "@/components/icons/StockIconRenderer";
 import { useColors } from "@/hooks/useColors";
 import { AuditRow } from "@/lib/adminApi";
 
@@ -11,7 +11,7 @@ interface Props {
   onLoadMore: () => void;
 }
 
-const ACTION_ICON: Record<string, keyof typeof Feather.glyphMap> = {
+const ACTION_ICON: Record<string, string> = {
   grant: "gift",
   extend: "clock",
   revoke: "x-octagon",
@@ -106,7 +106,7 @@ export function AuditLog({ rows, total, loading, onLoadMore }: Props) {
         return (
           <View key={String(row.id)} style={s.row}>
             <View style={[s.iconWrap, { backgroundColor: tint + "22" }]}>
-              <Feather name={iconName} size={14} color={tint} />
+              <StockIconRenderer name={iconName} size={14} color={tint} />
             </View>
             <View style={s.body}>
               <View style={s.head}>

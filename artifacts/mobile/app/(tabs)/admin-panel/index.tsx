@@ -11,7 +11,13 @@ import {
   Linking,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
+import {
+  AdminIcon,
+  AlertTriangleIcon,
+  LockIcon,
+  SettingsIcon,
+} from "@/components/icons/StockIcons";
+import { StockIconRenderer } from "@/components/icons/StockIconRenderer";
 import { useRouter } from "expo-router";
 import { useAuth, useUser } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
@@ -315,7 +321,7 @@ export default function AdminPanelScreen() {
     return (
       <SafeAreaView style={s.container} edges={["top"]}>
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 32 }}>
-          <Feather name="lock" size={40} color={colors.mutedForeground} />
+          <LockIcon size={40} color={colors.mutedForeground} />
           <Text style={{ color: colors.foreground, fontSize: 18, fontFamily: "Inter_700Bold", marginTop: 16 }}>
             Admin Access Only
           </Text>
@@ -331,7 +337,7 @@ export default function AdminPanelScreen() {
     <SafeAreaView style={s.container} edges={["top"]}>
       <View style={s.header}>
         <View style={s.headerIcon}>
-          <Feather name="shield" size={18} color="#FF4757" />
+          <AdminIcon size={18} color="#FF4757" />
         </View>
         <View>
           <Text style={s.headerTitle}>Admin Panel</Text>
@@ -363,7 +369,7 @@ export default function AdminPanelScreen() {
           <View style={s.section}>
             <Text style={s.sectionTitle}>Override My Subscription Tier</Text>
             <View style={s.warningBanner}>
-              <Feather name="alert-triangle" size={14} color="#FF4757" />
+              <AlertTriangleIcon size={14} color="#FF4757" />
               <Text style={s.warningText}>
                 This changes what features you see in the app. Use it to test different subscription experiences.
               </Text>
@@ -464,7 +470,7 @@ export default function AdminPanelScreen() {
                           { icon: "calendar", label: "Active days", value: `${u.days_active ?? 0}d` },
                         ].map((stat) => (
                           <View key={stat.label} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                            <Feather name={stat.icon as any} size={11} color={colors.mutedForeground} />
+                            <StockIconRenderer name={stat.icon} size={11} color={colors.mutedForeground} strokeWidth={2} />
                             <Text style={{ color: colors.mutedForeground, fontSize: 11, fontFamily: "Inter_400Regular" }}>
                               {stat.label}: <Text style={{ color: colors.foreground, fontFamily: "Inter_600SemiBold" }}>{stat.value}</Text>
                             </Text>
@@ -478,7 +484,7 @@ export default function AdminPanelScreen() {
                           style={[s.manageBtn, { alignSelf: "flex-start" }]}
                           onPress={() => router.push(`/admin-panel/user/${u.clerk_user_id}`)}
                         >
-                          <Feather name="settings" size={12} color={colors.primary} />
+                          <SettingsIcon size={12} color={colors.primary} strokeWidth={2} />
                           <Text style={s.manageText}>manage ▸</Text>
                         </TouchableOpacity>
                       )}

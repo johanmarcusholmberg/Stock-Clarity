@@ -10,15 +10,16 @@ import {
   ScrollView,
   ActivityIndicator,
 } from "react-native";
-import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
+import { AlertTriangleIcon, CheckCircleIcon, CloseIcon, InfoIcon } from "@/components/icons/StockIcons";
+import { StockIconRenderer } from "@/components/icons/StockIconRenderer";
 
 interface DialogShellProps {
   visible: boolean;
   onClose: () => void;
   title: string;
   subtitle?: string;
-  icon?: keyof typeof Feather.glyphMap;
+  icon?: string;
   iconTint?: string;
   children: ReactNode;
   footer: ReactNode;
@@ -101,7 +102,7 @@ export function DialogShell({
           <View style={s.header}>
             {icon ? (
               <View style={[s.iconWrap, { backgroundColor: (iconTint ?? colors.primary) + "22" }]}>
-                <Feather name={icon} size={18} color={iconTint ?? colors.primary} />
+                <StockIconRenderer name={icon} size={18} color={iconTint ?? colors.primary} />
               </View>
             ) : null}
             <View style={s.titleWrap}>
@@ -109,7 +110,7 @@ export function DialogShell({
               {subtitle ? <Text style={s.subtitle}>{subtitle}</Text> : null}
             </View>
             <TouchableOpacity style={s.closeBtn} onPress={onClose} disabled={!dismissable} hitSlop={8}>
-              <Feather name="x" size={20} color={colors.mutedForeground} />
+              <CloseIcon size={20} color={colors.mutedForeground} />
             </TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
@@ -193,7 +194,9 @@ export function ErrorBanner({ message, code, retryAfterSec }: ErrorBannerProps) 
         borderColor: colors.destructive + "55",
       }}
     >
-      <Feather name="alert-triangle" size={14} color={colors.destructive} style={{ marginTop: 2 }} />
+      <View style={{ marginTop: 2 }}>
+        <AlertTriangleIcon size={14} color={colors.destructive} />
+      </View>
       <View style={{ flex: 1 }}>
         <Text style={{ color: colors.destructive, fontSize: 13, fontFamily: "Inter_500Medium" }}>{message}</Text>
         {code ? (
@@ -232,12 +235,15 @@ export function InfoBanner({ message, tone = "info" }: InfoBannerProps) {
         borderColor: tint + "55",
       }}
     >
-      <Feather
-        name={tone === "warning" ? "alert-triangle" : tone === "success" ? "check-circle" : "info"}
-        size={14}
-        color={tint}
-        style={{ marginTop: 2 }}
-      />
+      <View style={{ marginTop: 2 }}>
+        {tone === "warning" ? (
+          <AlertTriangleIcon size={14} color={tint} />
+        ) : tone === "success" ? (
+          <CheckCircleIcon size={14} color={tint} />
+        ) : (
+          <InfoIcon size={14} color={tint} />
+        )}
+      </View>
       <Text style={{ color: tint, fontSize: 13, fontFamily: "Inter_500Medium", flex: 1, lineHeight: 18 }}>
         {message}
       </Text>

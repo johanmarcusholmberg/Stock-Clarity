@@ -9,8 +9,8 @@ import {
   TouchableOpacity,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { ArrowLeftIcon, LockIcon, SlashIcon } from "@/components/icons/StockIcons";
 import { useUser } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription } from "@/context/SubscriptionContext";
@@ -155,7 +155,7 @@ export default function AdminUserDetailScreen() {
     return (
       <SafeAreaView style={s.container} edges={["top"]}>
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 32 }}>
-          <Feather name="lock" size={40} color={colors.mutedForeground} />
+          <LockIcon size={40} color={colors.mutedForeground} />
           <Text style={{ color: colors.foreground, fontSize: 18, fontFamily: "Inter_700Bold", marginTop: 16 }}>
             Admin Access Only
           </Text>
@@ -169,12 +169,12 @@ export default function AdminUserDetailScreen() {
       <SafeAreaView style={s.container} edges={["top"]}>
         <View style={s.header}>
           <TouchableOpacity style={s.backBtn} onPress={() => router.back()}>
-            <Feather name="arrow-left" size={18} color={colors.foreground} />
+            <ArrowLeftIcon size={18} color={colors.foreground} />
           </TouchableOpacity>
           <Text style={s.headerTitle}>User detail</Text>
         </View>
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 32 }}>
-          <Feather name="slash" size={40} color={colors.mutedForeground} />
+          <SlashIcon size={40} color={colors.mutedForeground} />
           <Text style={s.lockedText}>
             The admin-subscription tools aren't enabled for your account yet.
           </Text>
@@ -187,7 +187,7 @@ export default function AdminUserDetailScreen() {
     <SafeAreaView style={s.container} edges={["top"]}>
       <View style={s.header}>
         <TouchableOpacity style={s.backBtn} onPress={() => router.back()}>
-          <Feather name="arrow-left" size={18} color={colors.foreground} />
+          <ArrowLeftIcon size={18} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={s.headerTitle} numberOfLines={1}>
           {overview?.user.email ?? "User detail"}
