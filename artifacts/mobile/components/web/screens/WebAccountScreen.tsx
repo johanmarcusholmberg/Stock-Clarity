@@ -4,7 +4,7 @@
 import React, { useState } from "react";
 import { Linking, Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { router } from "expo-router";
-import { useAuth, useUser } from "@clerk/expo";
+import { useAuth, useUser } from "@/lib/clerk";
 import { useColors } from "@/hooks/useColors";
 import { useTheme } from "@/context/ThemeContext";
 import { useSubscription } from "@/context/SubscriptionContext";

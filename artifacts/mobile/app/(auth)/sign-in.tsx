@@ -1,6 +1,5 @@
-import { useSignIn, useSignUp } from "@clerk/expo/legacy";
+import { useSignIn, useSignUp, useOAuth } from "@/lib/clerk";
 import { CheckCircleIcon, EyeIcon, EyeOffIcon, TrendUpIcon } from "@/components/icons/StockIcons";
-import { useOAuth } from "@clerk/expo";
 import { Link, useRouter, useLocalSearchParams } from "expo-router";
 import * as Haptics from "expo-haptics";
 import React, { useEffect, useState } from "react";

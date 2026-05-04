@@ -45,7 +45,7 @@ import {
   ZapIcon,
 } from "@/components/icons/StockIcons";
 import { StockIconRenderer } from "@/components/icons/StockIconRenderer";
-import { useAuth, useUser } from "@clerk/expo";
+import { useAuth, useUser } from "@/lib/clerk";
 import { useColors } from "@/hooks/useColors";
 import { useTheme } from "@/context/ThemeContext";
 import { confirmAsync } from "@/utils/confirm";

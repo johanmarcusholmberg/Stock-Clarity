@@ -1,4 +1,4 @@
-import { useClerk } from "@clerk/expo";
+import { useClerk } from "@/lib/clerk";
 import { useRouter } from "expo-router";
 import { useEffect } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";

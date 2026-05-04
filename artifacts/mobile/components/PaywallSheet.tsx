@@ -12,7 +12,7 @@ import {
   Platform,
   useWindowDimensions,
 } from "react-native";
-import { useAuth } from "@clerk/expo";
+import { useAuth } from "@/lib/clerk";
 import { router } from "expo-router";
 import { CheckCircleIcon, CloseIcon, XCircleIcon } from "@/components/icons/StockIcons";
 import { useColors } from "@/hooks/useColors";

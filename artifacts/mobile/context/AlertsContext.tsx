@@ -7,7 +7,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useAuth } from "@clerk/expo";
+import { useAuth } from "@/lib/clerk";
 import {
   AlertEvent,
   AlertStatusResponse,

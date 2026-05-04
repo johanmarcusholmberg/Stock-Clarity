@@ -19,7 +19,7 @@ import {
 } from "@/components/icons/StockIcons";
 import { StockIconRenderer } from "@/components/icons/StockIconRenderer";
 import { useRouter } from "expo-router";
-import { useAuth, useUser } from "@clerk/expo";
+import { useAuth, useUser } from "@/lib/clerk";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription, Tier } from "@/context/SubscriptionContext";
 

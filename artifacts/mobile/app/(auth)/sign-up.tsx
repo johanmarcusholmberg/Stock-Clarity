@@ -8,8 +8,7 @@ import {
   MailIcon,
   TrendUpIcon,
 } from "@/components/icons/StockIcons";
-import { useSignIn, useSignUp } from "@clerk/expo/legacy";
-import { useOAuth } from "@clerk/expo";
+import { useSignIn, useSignUp, useOAuth } from "@/lib/clerk";
 import { Link, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import React, { useEffect, useState, useMemo } from "react";

@@ -57,6 +57,7 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
+    "@clerk/clerk-react": "^5.61.3",
     "@clerk/expo": "^3.1.9",
     "@react-native-community/netinfo": "11.4.1",
     "@types/lodash.debounce": "^4.0.9",

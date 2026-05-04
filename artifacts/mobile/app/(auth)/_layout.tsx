@@ -1,4 +1,4 @@
-import { useAuth } from "@clerk/expo";
+import { useAuth } from "@/lib/clerk";
 import { Redirect, Stack } from "expo-router";
 import React from "react";
 import { useColors } from "@/hooks/useColors";

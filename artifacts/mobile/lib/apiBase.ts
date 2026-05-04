@@ -24,6 +24,7 @@ export function getApiBase(): string {
         "In production builds, set it via EAS (eas.json env or `eas secret:create`).",
     );
   }
-  cached = raw.replace(/\/$/, "");
-  return cached;
+  const trimmed = raw.replace(/\/$/, "");
+  cached = trimmed;
+  return trimmed;
 }

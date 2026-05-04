@@ -11,7 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowLeftIcon, LockIcon, SlashIcon } from "@/components/icons/StockIcons";
-import { useUser } from "@clerk/expo";
+import { useUser } from "@/lib/clerk";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription } from "@/context/SubscriptionContext";
 import {

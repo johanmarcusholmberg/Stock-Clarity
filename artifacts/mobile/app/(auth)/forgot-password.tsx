@@ -1,6 +1,6 @@
 import { CheckCircleIcon, CircleIcon, EyeIcon, EyeOffIcon } from "@/components/icons/StockIcons";
 import { StockIconRenderer } from "@/components/icons/StockIconRenderer";
-import { useSignIn } from "@clerk/expo/legacy";
+import { useSignIn } from "@/lib/clerk";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import React, { useState, useMemo } from "react";

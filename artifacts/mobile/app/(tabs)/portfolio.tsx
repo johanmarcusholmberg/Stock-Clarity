@@ -6,7 +6,7 @@ import {
   LockIcon,
   PortfolioIcon,
 } from "@/components/icons/StockIcons";
-import { useAuth } from "@clerk/expo";
+import { useAuth } from "@/lib/clerk";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,

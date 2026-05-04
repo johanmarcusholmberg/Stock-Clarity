@@ -1,7 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { useAuth } from "@clerk/expo";
-import { useUser } from "@clerk/expo";
+import { useAuth, useUser } from "@/lib/clerk";
 import { getQuotes } from "@/services/stockApi";
 import { anyMarketOpenWithBuffer, isMarketOpenWithBuffer } from "@/utils/marketHours";
 
