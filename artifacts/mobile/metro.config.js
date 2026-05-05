@@ -3,14 +3,31 @@ const path = require("path");
 
 const config = getDefaultConfig(__dirname);
 
+// Expose 'web' as a recognised platform so Metro tries module.web.tsx before
+// module.tsx when bundling for web (Expo's getDefaultConfig only lists ios/android).
+config.resolver.platforms = ["ios", "android", "web"];
+
 const purchasesMockPath = path.resolve(
   __dirname,
   "__mocks__/react-native-purchases.ts",
 );
 
+// Expo's getDefaultConfig enables unstable_enablePackageExports, which causes
+// Metro to resolve @clerk/clerk-react via its "import" export condition →
+// dist/index.mjs. That ESM file chains into @clerk/shared/*.mjs chunks, and
+// Metro 0.83.x fails to bundle that ESM graph for the web target. Force it to
+// the CJS build instead, which bundles fine.
+const clerkReactCjsPath = path.resolve(
+  __dirname,
+  "node_modules/@clerk/clerk-react/dist/index.js",
+);
+
 const upstreamResolveRequest = config.resolver.resolveRequest;
 
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName === "@clerk/clerk-react" && platform === "web") {
+    return { type: "sourceFile", filePath: clerkReactCjsPath };
+  }
   if (moduleName === "react-native-purchases" && platform === "web") {
     return { type: "sourceFile", filePath: purchasesMockPath };
   }
