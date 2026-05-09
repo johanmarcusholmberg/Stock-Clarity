@@ -17,9 +17,16 @@ const purchasesMockPath = path.resolve(
 // dist/index.mjs. That ESM file chains into @clerk/shared/*.mjs chunks, and
 // Metro 0.83.x fails to bundle that ESM graph for the web target. Force it to
 // the CJS build instead, which bundles fine.
-const clerkReactCjsPath = path.resolve(
-  __dirname,
-  "node_modules/@clerk/clerk-react/dist/index.js",
+// Resolve through the symlink to the real .pnpm path so that when Metro
+// walks up from this file looking for `@clerk/shared/loadClerkJsScript`,
+// it lands inside `.pnpm/@clerk+clerk-react@.../node_modules/@clerk/` where
+// `shared` is a sibling. If we pointed at the symlinked path under
+// `artifacts/mobile/node_modules`, the upward walk would only see
+// `@clerk/clerk-react` and `@clerk/expo` (no `@clerk/shared` is hoisted
+// there) and bundling would fail with "Unable to resolve @clerk/shared/...".
+const fs = require("fs");
+const clerkReactCjsPath = fs.realpathSync(
+  path.resolve(__dirname, "node_modules/@clerk/clerk-react/dist/index.js"),
 );
 
 const upstreamResolveRequest = config.resolver.resolveRequest;
