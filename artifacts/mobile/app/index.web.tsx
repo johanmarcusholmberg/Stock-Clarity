@@ -25,16 +25,22 @@ import { useRouter } from "expo-router";
 import { useColors } from "@/hooks/useColors";
 import { WebTokens } from "@/components/web/WebTokens";
 import { Logo } from "@/components/icons/Logo";
-import { CheckIcon, ChevronRightIcon, CloseIcon } from "@/components/icons/StockIcons";
+import {
+  CheckIcon,
+  ChevronRightIcon,
+  CloseIcon,
+  InsightsIcon,
+  DigestIcon,
+  AlertIcon,
+  ZapIcon,
+} from "@/components/icons/StockIcons";
 import Head from "expo-router/head";
 import Svg, {
   Circle,
-  Ellipse,
   Line,
   Path,
   Polyline,
   Rect,
-  Text as SvgText,
 } from "react-native-svg";
 
 // ─── PLAN FEATURES (from PaywallSheet.tsx) ────────────────────────────────────
@@ -70,13 +76,12 @@ const FREE_FEATURES = PRO_FEATURES.slice(0, 5).map((f) => ({ ...f, included: fal
   ]);
 
 // ─── HERO ILLUSTRATION ────────────────────────────────────────────────────────
-function HeroDashboardIllustration({ primary, secondary, accent, card, border, muted }: {
-  primary: string; secondary: string; accent: string; card: string; border: string; muted: string;
+function HeroDashboardIllustration({ primary, secondary, accent, card, border, muted, positive, negative }: {
+  primary: string; secondary: string; accent: string; card: string; border: string; muted: string; positive: string; negative: string;
 }) {
-  const accentColors = [primary, "#3BEBA1", accent, muted];
   const cards = [
     { ticker: "AAPL", price: "182.50", up: true, color: primary },
-    { ticker: "TSLA", price: "248.30", up: false, color: "#3BEBA1" },
+    { ticker: "TSLA", price: "248.30", up: false, color: positive },
     { ticker: "NVDA", price: "875.20", up: true, color: accent },
     { ticker: "MSFT", price: "415.70", up: true, color: muted },
   ];
@@ -125,7 +130,7 @@ function HeroDashboardIllustration({ primary, secondary, accent, card, border, m
             <Rect x={x + 14} y={y + 28} width={52} height={6} rx={3} fill={border} opacity={0.8} />
             {/* Change badge */}
             <Rect x={x + 14} y={y + 40} width={32} height={10} rx={5}
-              fill={c.up ? "#3BEBA1" : "#FF4757"} opacity={0.25} />
+              fill={c.up ? positive : negative} opacity={0.25} />
             {/* Sparkline */}
             <Path d={sparkPath} fill="none" stroke={c.color} strokeWidth={1.5}
               strokeLinecap="round" opacity={0.8} />
@@ -136,62 +141,6 @@ function HeroDashboardIllustration({ primary, secondary, accent, card, border, m
   );
 }
 
-// ─── INLINE SVG ICONS FOR FEATURE CARDS ──────────────────────────────────────
-function CandlestickIcon({ color }: { color: string }) {
-  return (
-    <Svg width={32} height={32} viewBox="0 0 32 32">
-      <Rect x={6} y={10} width={5} height={14} rx={1.5} fill={color} />
-      <Line x1={8.5} y1={6} x2={8.5} y2={10} stroke={color} strokeWidth={1.5} strokeLinecap="round" />
-      <Line x1={8.5} y1={24} x2={8.5} y2={28} stroke={color} strokeWidth={1.5} strokeLinecap="round" />
-      <Rect x={14} y={6} width={5} height={18} rx={1.5} fill={color} opacity={0.6} />
-      <Line x1={16.5} y1={3} x2={16.5} y2={6} stroke={color} strokeWidth={1.5} strokeLinecap="round" />
-      <Line x1={16.5} y1={24} x2={16.5} y2={27} stroke={color} strokeWidth={1.5} strokeLinecap="round" />
-      <Rect x={22} y={8} width={5} height={12} rx={1.5} fill={color} opacity={0.85} />
-      <Line x1={24.5} y1={5} x2={24.5} y2={8} stroke={color} strokeWidth={1.5} strokeLinecap="round" />
-      <Line x1={24.5} y1={20} x2={24.5} y2={23} stroke={color} strokeWidth={1.5} strokeLinecap="round" />
-    </Svg>
-  );
-}
-
-function DigestDocIcon({ color }: { color: string }) {
-  return (
-    <Svg width={32} height={32} viewBox="0 0 32 32">
-      <Rect x={5} y={4} width={18} height={22} rx={3} fill={color} opacity={0.15} stroke={color} strokeWidth={1.5} />
-      <Line x1={9} y1={11} x2={19} y2={11} stroke={color} strokeWidth={1.5} strokeLinecap="round" />
-      <Line x1={9} y1={15} x2={19} y2={15} stroke={color} strokeWidth={1.5} strokeLinecap="round" />
-      <Line x1={9} y1={19} x2={15} y2={19} stroke={color} strokeWidth={1.5} strokeLinecap="round" />
-      {/* Spark at top-right */}
-      <Path d="M22 5 L23.5 8 L22 7 L20.5 10 L22 7 L20.5 5 Z" fill={color} />
-    </Svg>
-  );
-}
-
-function AlertLineIcon({ color }: { color: string }) {
-  return (
-    <Svg width={32} height={32} viewBox="0 0 32 32">
-      {/* Price line */}
-      <Polyline points="4,22 10,18 16,20 22,12 28,10"
-        fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-      {/* Threshold bar */}
-      <Line x1={4} y1={16} x2={28} y2={16} stroke={color} strokeWidth={1.5}
-        strokeLinecap="round" strokeDasharray="3 2" opacity={0.5} />
-      {/* Crossover dot */}
-      <Circle cx={22} cy={12} r={3} fill={color} />
-    </Svg>
-  );
-}
-
-function AIReportIcon({ color }: { color: string }) {
-  return (
-    <Svg width={32} height={32} viewBox="0 0 32 32">
-      <Rect x={5} y={4} width={18} height={22} rx={3} fill={color} opacity={0.12} stroke={color} strokeWidth={1.5} />
-      <Line x1={9} y1={11} x2={19} y2={11} stroke={color} strokeWidth={1.5} strokeLinecap="round" />
-      <Line x1={9} y1={15} x2={19} y2={15} stroke={color} strokeWidth={1.5} strokeLinecap="round" />
-      {/* Brain loop */}
-      <Path d="M10 20 Q14 17 18 20 Q14 23 10 20 Z" fill={color} opacity={0.4} stroke={color} strokeWidth={1} />
-    </Svg>
-  );
-}
 
 // ─── REUSABLE BUTTON ──────────────────────────────────────────────────────────
 function Btn({
@@ -205,7 +154,7 @@ function Btn({
   const fs = size === "lg" ? 16 : size === "sm" ? 13 : 14;
   const bg = variant === "filled" ? color : "transparent";
   const border = variant === "outline" ? `1px solid ${color}` : "none";
-  const fc = textColor ?? (variant === "filled" ? "#FFFFFF" : color);
+  const fc = textColor ?? (variant === "filled" ? "white" : color);
 
   return (
     <TouchableOpacity
@@ -406,7 +355,7 @@ export default function LandingPage() {
                   "iOS & Android apps",
                 ].map((badge) => (
                   <View key={badge} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <CheckIcon size={14} color="#3BEBA1" />
+                    <CheckIcon size={14} color={colors.positive} />
                     <Text style={{ fontFamily: WebTokens.fontBody, fontSize: 12, color: colors.mutedForeground }}>
                       {badge}
                     </Text>
@@ -431,6 +380,8 @@ export default function LandingPage() {
                 card={colors.card}
                 border={colors.border}
                 muted={colors.mutedForeground}
+                positive={colors.positive}
+                negative={colors.negative}
               />
             </View>
           </View>
@@ -473,22 +424,22 @@ export default function LandingPage() {
             })}>
               {[
                 {
-                  icon: <CandlestickIcon color={colors.primary} />,
+                  icon: <InsightsIcon size={32} color={colors.primary} />,
                   title: "Watchlist & Charts",
                   body: "Track unlimited stocks with interactive price charts, 52-week ranges, and key metrics at a glance.",
                 },
                 {
-                  icon: <DigestDocIcon color="#3BEBA1" />,
+                  icon: <DigestIcon size={32} color={colors.positive} />,
                   title: "Daily AI Digest",
                   body: "Wake up to a personalized briefing of everything that happened with your stocks overnight.",
                 },
                 {
-                  icon: <AlertLineIcon color={colors.accent} />,
+                  icon: <AlertIcon size={32} color={colors.accent} />,
                   title: "Smart Price Alerts",
                   body: "Set price thresholds and get notified the moment a stock crosses your target.",
                 },
                 {
-                  icon: <AIReportIcon color={colors.primary} />,
+                  icon: <ZapIcon size={32} color={colors.primary} />,
                   title: "AI-Powered Reports",
                   body: "Deep analysis on earnings, analyst upgrades, and market-moving events — summarized and ranked by impact.",
                 },
@@ -598,7 +549,7 @@ export default function LandingPage() {
                   paddingVertical: 4,
                   borderRadius: 20,
                 })}>
-                  <Text style={{ fontFamily: WebTokens.fontBody, fontSize: 12, fontWeight: "700", color: "#fff" }}>
+                  <Text style={{ fontFamily: WebTokens.fontBody, fontSize: 12, fontWeight: "700", color: "white" }}>
                     Most Popular
                   </Text>
                 </View>
@@ -611,7 +562,7 @@ export default function LandingPage() {
                   {PRO_FEATURES.map((f) => (
                     <View key={f.text} style={{ flexDirection: "row", gap: 10, alignItems: "flex-start" }}>
                       {f.included
-                        ? <CheckIcon size={14} color="#3BEBA1" />
+                        ? <CheckIcon size={14} color={colors.positive} />
                         : <CloseIcon size={14} color={colors.mutedForeground} />}
                       <Text style={{ fontFamily: WebTokens.fontBody, fontSize: 13, color: f.included ? colors.text : colors.mutedForeground, flex: 1 }}>
                         {f.text}
@@ -641,7 +592,7 @@ export default function LandingPage() {
                 <View style={{ gap: 10, marginBottom: 28 }}>
                   {PREMIUM_FEATURES.map((f) => (
                     <View key={f.text} style={{ flexDirection: "row", gap: 10, alignItems: "flex-start" }}>
-                      <CheckIcon size={14} color="#3BEBA1" />
+                      <CheckIcon size={14} color={colors.positive} />
                       <Text style={{ fontFamily: WebTokens.fontBody, fontSize: 13, color: colors.text, flex: 1 }}>
                         {f.text}
                       </Text>
